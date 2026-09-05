@@ -27,20 +27,19 @@
 //             tier ladder (which only interval questions move) keeps rising.
 //             Passage length is capped by the engine's unlocked tiers and
 //             its fastest note by the session tempo.
-//             GRADING: once the response has started each note-on is matched
-//             against the next expected note when its accept window (halfway
-//             back to the previous note) has opened; earlier notes are free.
-//             Right pitch -> onset error recorded, advance;
-//             wrong pitch -> miss (buzz), stay on that note, retries free.
-//             After 2 misses the app demonstrates the note; after 4 it
-//             replays the previous note and the target; after 6 it plays the
-//             note for you and moves on (scored as a miss).
-//             The last note becomes the next anchor. Ten seconds of silence
-//             after the call has ended (or after your last note) ends the
-//             session.
+//             GRADING: ONE pass. Each note you play is matched by position to
+//             the next expected note and judged on pitch, on timing (onset vs
+//             the constant grid, the first note included) AND on how long you
+//             hold it (cutting a note short or overholding is a defect), then
+//             the next note is expected. There are no retries and NO feedback sounds:
+//             the system's reply is simply the next question it chooses -- a
+//             harder one, a passage, a drill on an interval you missed, or a
+//             failed phrase again. The last note becomes the next anchor. Ten
+//             seconds of silence ends the session.
 //
-// Every note-on is echoed through the synth: the controller has no sounds
-// of its own, so this process IS the piano.
+// The ONLY sounds are the metronome, the call (the system's turn), the echo
+// of the keys you press (the controller has no sound of its own, so this
+// process IS the piano), and a two-note tone when the session ends.
 
 import { TIER_WIDTHS, WARMUP_QUESTIONS } from './engine.js';
 
@@ -54,6 +53,13 @@ const RETRY_AFTER_QUESTIONS = 2;
 const REMEDIATE_MAX_PER_PASSAGE = 2;
 const MAX_PASSAGES_IN_A_ROW = 3; // interval questions are what move the tier ladder
 const DEBOUNCE_S = 0.06;
+// Note duration: a held note should last about its written value. Cutting
+// it below half, or holding it past 1.5x plus a pad, is a defect. A note
+// still held when the question finalizes is never penalized (holding the
+// last note is natural).
+const DUR_SHORT_FRAC = 0.5;
+const DUR_LONG_FRAC = 1.5;
+const DUR_LONG_PAD_S = 0.15;
 const FLUENT_NORM_MS = 120; // mastery: onset error <= 12% of a beat (ms at 60 bpm)
 const MIN_NOTE_SEC = 0.15; // fastest passage note allowed at the session tempo
 export const TEMPO = { default: 80, min: 50, max: 132, step: 4, window: 40, minRows: 20, minCorrect: 10, up: 0.8, down: 0.5 };
@@ -275,18 +281,17 @@ export class Drill {
     this.callEndAt = lastCall[1] + Math.max(lastCall[2], this.beat);
     // Expected notes carry their beat offsets; `.at` is filled in when the
     // response starts (your first note sets the grid).
-    this.expected = q.graded.map(([midi, b]) => ({ midi, b, at: null, acceptFrom: null, gapMs: null }));
+    this.expected = q.graded.map(([midi, b], i) => ({ midi, b, dur: q.durs[i], at: null, acceptFrom: null, gapMs: null }));
     this.earliestStart = this.callNotes[0][1] + this.beat; // one beat behind the call
     this.responseStarted = false;
     this.k = 0;
-    this.firstAttempt = true;
-    this.missesOnNote = 0;
-    this.prevNoteClean = true;
     this.questionClean = true;
     this.remediated = 0;
     this.answered = false;
     this.lastAccepted = null;
     this.lastNoteOn = null;
+    this.held = new Map(); // midi -> { rowId, onAt, durSec } for notes awaiting release
+    this.awaitingFinalize = false;
     if (q.phrase) this.askedThisSession.add(q.phrase.id);
     this.log(`Q${this.questions}: ${q.label}`);
   }
@@ -338,6 +343,7 @@ export class Drill {
       this.callScheduled += 1;
     }
     if (this.answered && now >= this.nextQuestionAt - SCHEDULE_AHEAD_S) {
+      if (this.awaitingFinalize) this.finalizeQuestion();
       this.nextBarAt = this.nextQuestionAt;
       this.beginQuestion();
     }
@@ -375,19 +381,45 @@ export class Drill {
     this.log(`  response started ${behind} beat${behind === 1 ? '' : 's'} behind${j === 1 ? ' (skipping the anchor)' : ''}`);
   }
 
+  /** A key was released: grade how long the matching note was held. */
+  onNoteOff({ note, at }) {
+    if (this.state !== 'QUESTION') return;
+    const h = this.held.get(note);
+    if (!h) return;
+    this.held.delete(note);
+    this.gradeHold(h, this.perfToAudio(at));
+    if (this.awaitingFinalize && this.held.size === 0) this.finalizeQuestion();
+  }
+
+  gradeHold(h, offAtAudio, stillHeld = false) {
+    const heldSec = Math.max(0, offAtAudio - h.onAt);
+    const shortMin = DUR_SHORT_FRAC * h.durSec;
+    const longMax = DUR_LONG_FRAC * h.durSec + DUR_LONG_PAD_S;
+    const ok = heldSec >= shortMin && (stillHeld || heldSec <= longMax);
+    this.db.updateHeld(h.rowId, heldSec * 1000, ok);
+    if (!ok) {
+      this.questionClean = false;
+      this.cleanNotes = 0;
+      this.log(`  hold ${heldSec < shortMin ? 'short' : 'long'} ${(heldSec * 1000).toFixed(0)}ms (want ~${(h.durSec * 1000).toFixed(0)}ms)`);
+    }
+  }
+
   handleAnswer(note, velocity, atAudio) {
-    if (this.answered) return; // between resolve and the next call: free play
+    if (this.answered) return; // between questions: free play
     if (!this.responseStarted) {
-      if (atAudio < this.earliestStart - this.beat / 2) return; // too early to be an answer
+      if (atAudio < this.earliestStart - this.beat / 2) return; // still the call: free
       this.startResponse(note, atAudio);
     }
     const exp = this.expected[this.k];
-    if (atAudio < exp.acceptFrom) return; // ahead of this note's window: free
-    if (
-      this.lastNoteOn && note === this.lastNoteOn.midi && note !== exp.midi &&
-      atAudio - this.lastNoteOn.at < DEBOUNCE_S
-    ) { this.lastNoteOn = { midi: note, at: atAudio }; return; } // key bounce (any pitch)
+    if (atAudio < exp.acceptFrom) return; // ahead of this note's slot: free
+    // Ignore an exact double-trigger of the same key (hardware bounce, or a
+    // controller that sends on two ports at once).
+    if (this.lastNoteOn && note === this.lastNoteOn.midi && atAudio - this.lastNoteOn.at < DEBOUNCE_S) {
+      this.lastNoteOn = { midi: note, at: atAudio };
+      return;
+    }
     this.lastNoteOn = { midi: note, at: atAudio };
+
     const onsetMs = (atAudio - exp.at) * 1000;
     const correct = note === exp.midi || (this.k === 0 && this.q.octave && note === this.anchor);
     const prevMidi = this.k === 0 ? this.anchor : this.expected[this.k - 1].midi;
@@ -395,20 +427,17 @@ export class Drill {
     const passage = Boolean(this.q.phrase);
     const iv = exp.midi - prevMidi;
     const tol = Math.min(this.toleranceMs, 0.4 * exp.gapMs);
-    const inTime = correct ? Math.abs(onsetMs) <= tol : null;
+    const inTime = correct && Math.abs(onsetMs) <= tol;
 
-    if (passage && graded && this.firstAttempt) {
-      const prev2 = this.k >= 2 ? this.expected[this.k - 2].midi : this.prevAnchor;
-      this.engine.ask(iv, this.idx(prevMidi), prev2 === null ? null : this.idx(prev2), { scope: 'passage' });
-    }
-    this.db.attempt({
-      sessionId: this.sessionId, anchor: prevMidi, target: exp.midi, played: note, velocity, correct,
-      firstAttempt: this.firstAttempt, onsetMs, question: this.questions, kind: this.q.kind,
-      phraseId: this.q.phrase?.id ?? null, position: this.k, graded, inTime, beatMs: this.beat * 1000,
-    });
-
-    if (!correct) {
-      if (graded && this.firstAttempt) {
+    // ONE attempt per note, graded by position on pitch AND timing. No sound
+    // is made: the system's reply is the next question it chooses. Playing a
+    // wrong note or an off-beat note just shapes what comes next.
+    if (graded) {
+      if (passage) {
+        const prev2 = this.k >= 2 ? this.expected[this.k - 2].midi : this.prevAnchor;
+        this.engine.ask(iv, this.idx(prevMidi), prev2 === null ? null : this.idx(prev2), { scope: 'passage' });
+      }
+      if (!correct) {
         this.engine.reportMiss(this.idx(prevMidi), this.idx(note), { confuse: !passage });
         if (passage && Math.abs(iv) >= 3 && this.remediated < REMEDIATE_MAX_PER_PASSAGE &&
             this.engine.predictedAcc(iv, this.idx(prevMidi)) < 0.8) {
@@ -416,57 +445,57 @@ export class Drill {
           this.remediated += 1;
         }
       }
-      this.firstAttempt = false;
-      this.questionClean = false;
-      this.missesOnNote += 1;
-      this.audio.bad(this.audio.now, this.missesOnNote > 6 ? 0.03 : 0.06);
-      this.log(`  x ${name(note)} wanted ${name(exp.midi)} (${this.k === 0 ? 'anchor' : signed(iv)})`);
-      if (this.missesOnNote === 2) {
-        this.audio.note(exp.midi, { at: this.audio.now + 0.35, velocity: 70 });
-      } else if (this.missesOnNote === 4) {
-        this.audio.note(prevMidi, { at: this.audio.now + 0.35, velocity: 70 });
-        this.audio.note(exp.midi, { at: this.audio.now + 0.35 + this.beat / 2, velocity: 70 });
-      } else if (this.missesOnNote >= 6) {
-        this.audio.note(exp.midi, { at: this.audio.now + 0.35, velocity: 80 });
-        this.log(`  assisted: moving on`);
-        this.resolveNote(exp, atAudio, { graded, inTime: false, assisted: true });
-      }
-      return;
+      const rtNorm = inTime ? Math.min(Math.abs(onsetMs), this.beat * 1000) / this.beat : null;
+      this.engine.reportResolved(rtNorm);
     }
-    this.resolveNote(exp, atAudio, { graded, inTime, onsetMs });
-  }
-
-  resolveNote(exp, atAudio, { graded, inTime, onsetMs = 0, assisted = false }) {
-    const clean = this.firstAttempt && !assisted;
-    const rtNorm = clean && this.prevNoteClean ? (Math.min(Math.abs(onsetMs), this.beat * 1000) / this.beat) : null;
-    let missed = !clean;
-    let tierDelta = 0;
-    let newlyMastered = false;
-    if (graded) ({ missed, tierDelta, newlyMastered } = this.engine.reportResolved(rtNorm));
-    const now = this.audio.now;
-    if (tierDelta > 0) this.audio.tierUp(now);
-    else if (newlyMastered) this.audio.passageDone(now, true);
-    else if (assisted) { /* the demonstrated note was the cue */ }
-    else if (missed) this.audio.okAfterMiss(now);
-    else if (!inTime) this.audio.offbeat(now, onsetMs < 0);
-    else this.audio.good(now, graded ? 0.07 : 0.03);
-    const noteClean = !missed && inTime;
-    if (noteClean && graded) this.cleanNotes += 1; else if (!noteClean) this.cleanNotes = 0;
+    const rowId = this.db.attempt({
+      sessionId: this.sessionId, anchor: prevMidi, target: exp.midi, played: note, velocity, correct,
+      firstAttempt: true, onsetMs, question: this.questions, kind: this.q.kind,
+      phraseId: this.q.phrase?.id ?? null, position: this.k, graded, inTime, beatMs: this.beat * 1000,
+    });
+    // Remember this key press so its release can be graded for duration.
+    if (graded && correct) this.held.set(note, { rowId, onAt: atAudio, durSec: exp.dur * this.beat });
+    const noteClean = correct && inTime;
+    if (noteClean && graded) this.cleanNotes += 1;
+    else if (!noteClean) this.cleanNotes = 0;
     if (!noteClean) this.questionClean = false;
-    this.prevNoteClean = noteClean;
     this.log(
-      `  ${assisted ? 'assisted' : missed ? 'ok (after miss)' : 'correct'} ${name(exp.midi)}, onset ${onsetMs >= 0 ? '+' : ''}${onsetMs.toFixed(0)}ms${inTime === false && !assisted ? (onsetMs < 0 ? ' EARLY' : ' LATE') : ''}${tierDelta > 0 ? `  TIER ${this.engine.state.tiersUnlocked} UNLOCKED` : ''}${newlyMastered ? '  mastered' : ''}`,
+      `  ${correct ? 'correct' : `x ${name(note)} wanted`} ${name(exp.midi)}${correct ? '' : ` (${this.k === 0 ? 'anchor' : signed(iv)})`}, onset ${onsetMs >= 0 ? '+' : ''}${onsetMs.toFixed(0)}ms${correct && !inTime ? (onsetMs < 0 ? ' EARLY' : ' LATE') : ''}`,
     );
-    this.lastAccepted = { midi: exp.midi, at: atAudio };
+
+    this.lastAccepted = { midi: note, at: atAudio };
     this.k += 1;
-    this.firstAttempt = true;
-    this.missesOnNote = 0;
-    if (this.k < this.expected.length) return;
-    this.completeQuestion(exp, atAudio);
+    if (this.k >= this.expected.length) this.completeQuestion(exp, atAudio);
   }
 
+  /** All notes played. Mark the response done; grade releases and choose the
+   *  next question at finalize (so a note still held now is still graded). */
   completeQuestion(exp, atAudio) {
     this.answered = true;
+    this.awaitingFinalize = true;
+    const n = this.expected.length;
+    this.prevAnchor = n >= 2 ? this.expected[n - 2].midi : this.anchor;
+    this.anchor = exp.midi;
+    // Next question on the first bar line at least one beat after the last
+    // answer (judged on the EXPECTED onset unless the answer was really late),
+    // plus a breathing bar after a passage.
+    const barLen = this.meter * this.beat;
+    const ref = Math.max(exp.at, atAudio - this.toleranceMs / 1000);
+    const barsAhead = Math.ceil((ref + this.beat - this.nextBarAt) / barLen - 1e-6);
+    this.nextQuestionAt = this.nextBarAt + (Math.max(1, barsAhead) + (this.q.phrase ? 1 : 0)) * barLen;
+    if (this.held.size === 0) this.finalizeQuestion();
+  }
+
+  /** Record the outcome (now that releases are in) and choose the next
+   *  question. Runs when the last note is released, else just before the
+   *  next question begins. Kept off the click path so the phrase pick can't
+   *  delay a click. */
+  finalizeQuestion() {
+    if (!this.awaitingFinalize) return;
+    this.awaitingFinalize = false;
+    const now = this.audio.now;
+    for (const [, h] of this.held) this.gradeHold(h, now, true); // still held: never "too long"
+    this.held.clear();
     const q = this.q;
     this.streak = this.questionClean ? this.streak + 1 : 0;
     this.passagesInARow = q.phrase ? this.passagesInARow + 1 : 0;
@@ -474,26 +503,10 @@ export class Drill {
       this.cleanNotes = 0;
       this.passagesDone += 1;
       this.phrases.record(q.phrase.id, this.questionClean);
-      this.audio.passageDone(this.audio.now + 0.3, this.questionClean);
       if (!this.questionClean && q.kind !== 'retry') this.retryQueue.push({ id: q.phrase.id, askedAt: this.questions });
       this.log(`  passage ${this.questionClean ? 'clean' : 'done with errors'} (streak ${this.streak})`);
     }
-    const n = this.expected.length;
-    this.prevAnchor = n >= 2 ? this.expected[n - 2].midi : this.anchor;
-    this.anchor = exp.midi;
-
-    // Next question on the first bar line at least one beat after the last
-    // answer (judged on the EXPECTED onset unless the answer was really late),
-    // plus a breathing bar after a passage.
-    const barLen = this.meter * this.beat;
-    const ref = Math.max(exp.at, atAudio - this.toleranceMs / 1000);
-    const barsAhead = Math.ceil((ref + this.beat - this.nextBarAt) / barLen - 1e-6);
-    this.nextQuestionAt = this.nextBarAt + (Math.max(1, barsAhead) + (q.phrase ? 1 : 0)) * barLen;
-
-    // Decide the next question now, off the scheduling path, so a passage
-    // pick never delays a click, and cue it if it is a passage.
     this.nextQ = this.makeQuestion();
-    if (this.nextQ.phrase) this.audio.passageCue(this.nextQuestionAt - this.beat);
   }
 }
 

@@ -11,6 +11,8 @@ const ATTEMPT_COLUMNS = {
   graded: 'INTEGER NOT NULL DEFAULT 0',
   in_time: 'INTEGER',
   beat_ms: 'REAL',
+  held_ms: 'REAL',
+  dur_ok: 'INTEGER',
 };
 const SESSION_COLUMNS = { passages: 'INTEGER NOT NULL DEFAULT 0' };
 
@@ -60,7 +62,8 @@ export class Db {
       attempt: this.db.prepare(`
         INSERT INTO attempts (session_id, ts, anchor, target, played, velocity, correct, first_attempt, onset_ms,
                               question, kind, phrase_id, position, graded, in_time, beat_ms)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
+      updateHeld: this.db.prepare('UPDATE attempts SET held_ms = ?, dur_ok = ? WHERE id = ?'),
     };
   }
 
@@ -109,12 +112,16 @@ export class Db {
   }
 
   attempt(a) {
-    this.stmts.attempt.run(
+    return this.stmts.attempt.get(
       a.sessionId, Date.now(), a.anchor, a.target, a.played, a.velocity,
       a.correct ? 1 : 0, a.firstAttempt ? 1 : 0, a.onsetMs ?? null,
       a.question ?? null, a.kind ?? null, a.phraseId ?? null, a.position ?? null,
       a.graded ? 1 : 0, a.inTime === undefined || a.inTime === null ? null : a.inTime ? 1 : 0, a.beatMs ?? null,
-    );
+    ).id;
+  }
+
+  updateHeld(id, heldMs, durOk) {
+    this.stmts.updateHeld.run(heldMs, durOk === null ? null : durOk ? 1 : 0, id);
   }
 
   close() {

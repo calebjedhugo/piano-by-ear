@@ -10,6 +10,7 @@
 import { Input } from '@julusian/midi';
 
 const NOTE_ON = 0x90;
+const NOTE_OFF = 0x80;
 const CONTROL_CHANGE = 0xb0;
 const PROGRAM_CHANGE = 0xc0;
 
@@ -18,12 +19,14 @@ export class Midi {
    * @param {object} opts
    * @param {string} [opts.match]
    * @param {(e: {note: number, velocity: number, at: number, port: string}) => void} opts.onNoteOn
+   * @param {(e: {note: number, at: number, port: string}) => void} [opts.onNoteOff]
    * @param {(e: {type: 'cc'|'pc', number: number, value: number, port: string}) => void} [opts.onControl]
    * @param {(name: string, connected: boolean) => void} [opts.onPort]
    */
-  constructor({ match, onNoteOn, onControl, onPort }) {
+  constructor({ match, onNoteOn, onNoteOff, onControl, onPort }) {
     this.match = match?.toLowerCase();
     this.onNoteOn = onNoteOn;
+    this.onNoteOff = onNoteOff;
     this.onControl = onControl;
     this.onPort = onPort;
     this.inputs = new Map(); // port name -> Input
@@ -86,8 +89,10 @@ export class Midi {
     if (this.debug) console.log('MIDI', port, data.join(' '));
     const type = data[0] & 0xf0;
     if (type === NOTE_ON) {
-      if (data[2] === 0) return;
+      if (data[2] === 0) { this.onNoteOff?.({ note: data[1], at, port }); return; }
       this.onNoteOn({ note: data[1], velocity: data[2], at, port });
+    } else if (type === NOTE_OFF) {
+      this.onNoteOff?.({ note: data[1], at, port });
     } else if (type === CONTROL_CHANGE) {
       this.onControl?.({ type: 'cc', number: data[1], value: data[2], port });
     } else if (type === PROGRAM_CHANGE) {

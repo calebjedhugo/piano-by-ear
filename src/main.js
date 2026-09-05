@@ -53,6 +53,7 @@ const drill = new Drill({
 const midi = new Midi({
   match: args.port,
   onNoteOn: (e) => drill.onNoteOn(e),
+  onNoteOff: (e) => drill.onNoteOff(e),
   onPort: (portName, connected) => {
     if (connected) {
       range.setPort(portName);
