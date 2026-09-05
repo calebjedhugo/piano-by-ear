@@ -90,8 +90,9 @@ export class Db {
     };
   }
 
-  engineStore() {
-    return this.kv('engine');
+  /** Persistence for an adaptive engine: 'engine' (melodic) or another name. */
+  engineStore(name = 'engine') {
+    return this.kv(name === 'engine' ? 'engine' : `engine:${name}`);
   }
 
   newSession({ bpm, anchor }) {

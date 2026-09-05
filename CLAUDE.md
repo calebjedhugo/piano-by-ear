@@ -53,7 +53,22 @@ opens every input port.
   Silence timeout counts from call end and never runs while `answered` (the
   wait between questions is not silence).
   `nextQ` is decided at answer time, never inside the tick.
-- `src/engine.js` AdaptiveEngine (ear-training port). Two evidence scopes:
+  GRADING IS BY ONSET GROUP (`buildGroups`): notes with the same offset form
+  a group; a key press matches any pending note of the current group by
+  pitch, a wrong note consumes the nearest pending graded note, and a press
+  matching the NEXT group (inside its window) abandons the rest of this one
+  (one miss per abandoned note). Each expected note carries `melodicFrom`
+  (previous note in its voice -> melodic engine) and `harmonicFrom` (the
+  group's bass -> harmonic engine). Question notes are
+  `{midi, b, dur, voice, free}`; `free` = the note on the anchor.
+  POLYPHONY LEVEL (`polyLevel()`, kv `poly` {level, history}) is earned
+  from the last 12 passages of the level's kind (promote >= 70%, demote
+  < 30%) plus tier gates; NEVER a flag. Level >= 1 adds dyad questions
+  (`dyadQuestion`, both notes together, every 3rd plain question) from the
+  harmonic engine and duo passages; 2 adds chorales; 3 adds two-hand poly.
+- `src/engine.js` AdaptiveEngine (ear-training port), instantiated twice:
+  melodic (kv `engine`) and harmonic (kv `engine:harmonic`, intervals above
+  a chord's bass). Two evidence scopes:
   interval questions update parent stats/cells/confusions/tier controller;
   passage notes (`ask(..., {scope:'passage'})`) update only a
   `+7|src:passage` cell. Confusions decay each session, only drill widths in
@@ -62,17 +77,24 @@ opens every input port.
   the anchor to an edge. `adopt()` carries the in-flight framing across a
   mid-session range rebuild. rt is NORMALIZED onset error (ms at 60 bpm),
   `fluentMs` 120. `scoreInterval()` is the read-only scorer for phrases.
-- `src/phrases.js` PhraseBank: precomputed per-phrase min/max/intervals,
-  `pick()` filters by max notes, fastest note at tempo, 3-day rest after a
-  clean pass, exact-anchor placement (octave only if nothing fits), weights
-  by engine.scoreInterval + failed boost + engine.centerPull.
+- `src/phrases.js` PhraseBank, one instance per corpus file (phrases.json
+  melodic, poly.json polyphonic: kinds duo/chorale/poly, notes carry a
+  voice, `pivot` = the note placed on the anchor). Precomputes melodic
+  intervals per voice and harmonic intervals above each chord's bass;
+  `pick({kind, engine, harmonic})` filters by kind, max notes, fastest note
+  at tempo, no rest >= 1 beat, 3-day rest after a clean pass, exact-anchor
+  placement (octave only if nothing fits), weights by both engines'
+  scoreInterval + failed boost + centerPull.
 - `scripts/build-corpus.mjs` **kern -> phrases.json. Integer ticks
   (TPQ 1680). Melody = rightmost kern spine and all its sub-spines, highest
   attacked pitch unless a higher note is still held. Meter per barline;
   x/8 meters use the eighth (or dotted quarter) as the FELT beat: offsets
   are in felt beats, `beatLen` = felt beat in quarters. Soft cut at the last
   bar line before 12 notes; `suitable()` drops accompaniment textures.
-  Ids are content hashes (stable across rebuilds).
+  Ids are content hashes (stable across rebuilds). Also writes poly.json:
+  `extractPoly` keeps every voice; `polyPhrases` cuts bar-aligned windows
+  (2..8 beats) inside each melodic phrase: duo (voices 0 and top) and
+  chorale for 4-voice files, poly for 2-staff files; limits in `POLY`.
 - `src/range.js`  per-port range: guessed from a standalone key count in the
   name, else 48..72; widening snaps to a standard layout while guessed.
 - `src/db.js`     node:sqlite, WAL, busy_timeout. Guarded migrations add

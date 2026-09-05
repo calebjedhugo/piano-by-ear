@@ -37,12 +37,15 @@ Everything adapts:
   [ear-training](https://github.com/calebjedhugo/ear-training)) that keeps
   first-try success near 80%, unlocks intervals in aural-difficulty order,
   runs discrimination drills on pairs you confuse, and counts an interval
-  mastered only when you hit it accurately **and** on the beat. A four-note
-  fanfare marks a newly unlocked tier.
-- **When you get a passage** is the chime streak above. An interval you miss
+  mastered only when you hit it accurately **and** on the beat. A second
+  engine of the same kind tracks the intervals inside chords (see
+  Polyphony below).
+- **When you get a passage** is the clean streak above. An interval you miss
   inside a passage is drilled on its own right after. Notes inside passages
   train a separate in-melody model, so a step you can sing inside a chorale
   never masquerades as a step you can name cold.
+- **Which kind of passage** follows your polyphony level, from single lines
+  to four-part chords and two-hand passages.
 - **How long a passage** is grows with the engine's unlocked tiers, and its
   fastest note is limited by the tempo.
 - **Tempo** is one value per session: if at least 80% of your recent correct
@@ -109,14 +112,32 @@ pitch, velocity, onset error against the beat, first attempt or retry, the
 question kind and phrase, and whether it was graded and in time. The engine
 state, per-controller ranges and passage history live in the `kv` table.
 
-## Not yet: polyphony
+## Polyphony
 
-Everything is monophonic today: one voice of a chorale or sonata, graded
-note by note. The stated goal is to hear any combination of notes and play
-it back, so the intended path, none of it built, is: two voices (soprano
-and bass of the same chorale bar, graded as two lines), then full four-part
-chorale chords (the corpus already holds all four voices of every Bach
-chorale; only the extractor keeps one), then contrapuntal passages such as
-fugue subject-plus-answer. Each stage would unlock the way passages do now,
-from a sustained clean record at the stage before it, and grading would
-group notes struck within a few tens of milliseconds as one chord.
+The goal is to hear any combination of notes and play it back, so the
+drill has four **levels**, earned from history and never set by hand:
+
+| level | what is asked | earned by |
+|---|---|---|
+| 0 | melody only | (start) |
+| 1 | **dyads** (anchor and one note together) and **duos** (soprano and bass of a chorale bar) | 12 melodic passages at least 70% clean, with melodic tiers unlocked through the sixth |
+| 2 | **chorales**: all four voices of a Bach chorale bar as chords | 12 duos at least 70% clean, harmonic tiers through the fourth |
+| 3 | **both hands** of a Mozart sonata bar | 12 chorales at least 70% clean |
+
+Every level keeps asking the kinds below it. A bad run (12 passages under
+30% clean) drops a level. Session start logs the level in force.
+
+Vertical hearing gets its own adaptive engine: every note above a chord's
+bass is an interval the **harmonic engine** tracks exactly as the melodic
+engine tracks steps and leaps, with its own tiers, confusion runs and
+remediation. At level 1 and above every third plain question is a dyad
+chosen by that engine, and a chord note you miss in a passage comes back as
+a dyad. Chords are graded by onset group: play the notes of a chord in any
+order, each judged on pitch, timing and hold. Moving on to the next chord
+abandons what was left of this one, which counts as one miss per note
+rather than a cascade.
+
+The corpus for this is the same set of files: 7,399 duo windows and 3,225
+four-part windows from the 371 chorales, and 3,349 two-hand windows from the
+sonatas, all bar-aligned, two to eight beats, at most four notes sounding at
+once, with the phrase's melodic window as the frame.

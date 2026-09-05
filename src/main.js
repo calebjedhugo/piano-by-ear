@@ -14,7 +14,7 @@ import { Midi } from './midi.js';
 import { RangeTracker } from './range.js';
 import { AdaptiveEngine } from './engine.js';
 import { Drill } from './drill.js';
-import { PhraseBank } from './phrases.js';
+import { PhraseBank, POLY_PATH } from './phrases.js';
 
 const { values: args } = parseArgs({
   options: {
@@ -38,16 +38,18 @@ const db = new Db(args.db);
 const audio = new Audio();
 const range = new RangeTracker(db.kv('ranges'));
 const phrases = new PhraseBank({ store: db.kv('phraseStats'), composer: args.composer });
+const poly = new PhraseBank({ store: db.kv('polyStats'), composer: args.composer, path: POLY_PATH });
 
 const drill = new Drill({
   audio,
   db,
   range,
   phrases,
+  poly,
   log,
   bpmOverride,
-  makeEngine: (lo, hi, fluentMs) =>
-    new AdaptiveEngine({ range: hi - lo, fluentMs, pitchClassOffset: lo % 12, store: db.engineStore() }),
+  makeEngine: (lo, hi, fluentMs, which) =>
+    new AdaptiveEngine({ range: hi - lo, fluentMs, pitchClassOffset: lo % 12, store: db.engineStore(which) }),
 });
 
 const midi = new Midi({
@@ -68,7 +70,7 @@ const midi = new Midi({
 });
 midi.debug = args['debug-midi'];
 
-log(`piano-by-ear  ${phrases.size} passages  db: ${args.db}`);
+log(`piano-by-ear  ${phrases.size} melodic + ${poly.size} polyphonic passages  db: ${args.db}`);
 audio.load().then(({ detail }) => log(`voice: ${detail}`), (err) => log(`voice: synth (samples failed to load: ${err.message})`));
 midi.start();
 if (midi.portNames.length === 0) log('no MIDI inputs yet; plug in a controller (polling every 2s)');
