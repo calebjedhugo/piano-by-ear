@@ -1,0 +1,22 @@
+{
+  "name": "piano-by-ear",
+  "version": "1.0.0",
+  "description": "Headless learn-piano-by-ear drill for an 88-key MIDI controller",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/main.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "private": "false",
+  "dependencies": {
+    "@julusian/midi": "^3.8.1",
+    "node-web-audio-api": "^2.2.0"
+  },
+  "bin": {
+    "piano-by-ear": "src/main.js"
+  }
+}
