@@ -10,6 +10,11 @@ gesture. Every state change must be audible (see `src/audio.js`).
 
 ## Run
 
+Background run used for live testing (the `/piano-by-ear` skill does this):
+`nohup node src/main.js > ~/.piano-by-ear/run.log 2>&1 &` -- restart with
+`pkill -f 'node src/main.js'` after every code change; the log is where a
+session is reviewed afterwards.
+
 ```bash
 npm start                      # flags: --port <substr> --db <path> --debug-midi
 node src/main.js --bpm 160     # developer override only
