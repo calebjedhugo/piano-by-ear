@@ -38,8 +38,11 @@
 //             from the previous note in its voice (melodic engine) and the
 //             interval above its chord's bass (harmonic engine). There are
 //             no retries and NO feedback sounds: the reply is the next
-//             question. The top note of the last group becomes the next
-//             anchor. Ten seconds of silence ends the session.
+//             question. A BEAT OF SILENCE MEANS YOU ARE DONE: after the last
+//             note the next question comes on the following click; before
+//             the last note, whatever is left is missed and the next question
+//             comes anyway. The top note of the last group becomes the next
+//             anchor. Ten seconds with no response at all ends the session.
 //
 // The ONLY sounds are the metronome, the call (the system's turn), the piano
 // under your keys (the controller has no sound of its own), and a two-note
@@ -539,6 +542,13 @@ export class Drill {
       this.audio.note(midi, { at: Math.max(at, now), velocity: 90, duration });
       this.callScheduled += 1;
     }
+    if (this.responseStarted && !this.answered && this.keysDown.size === 0) {
+      // A beat of silence once the pending group's time has come means you
+      // are done, whatever is left: the rest is missed and the reply comes.
+      const g = this.groups[this.gi];
+      const quietSince = Math.max(this.lastPlayedAt ?? -Infinity, this.lastReleasedAt ?? -Infinity, g.at);
+      if (now >= quietSince + QUIET_BEATS_BEFORE_NEXT * this.beat - this.toleranceMs / 1000) this.abandonResponse();
+    }
     if (this.answered) {
       // The reply comes as soon as you have been silent for a beat: no key
       // down, nothing pressed or released for QUIET_BEATS_BEFORE_NEXT beats.
@@ -727,13 +737,34 @@ export class Drill {
     if (!noteClean) this.questionClean = false;
     const chord = g.notes.length > 1 ? ` [chord ${g.index + 1}]` : '';
     if (abandoned) {
-      this.log(`  missed ${name(exp.midi)}${chord} (went on to the next group)`);
+      this.log(`  missed ${name(exp.midi)}${chord}`);
       return;
     }
     const why = correct ? '' : ` (${exp.melodicFrom !== null ? signed(exp.midi - exp.melodicFrom) : exp.harmonicFrom !== null ? `+${exp.midi - exp.harmonicFrom} above bass` : 'anchor'})`;
     this.log(
       `  ${correct ? 'correct' : `x ${name(note)} wanted`} ${name(exp.midi)}${why}${chord}, onset ${onsetMs >= 0 ? '+' : ''}${onsetMs.toFixed(0)}ms${correct && !inTime ? (onsetMs < 0 ? ' EARLY' : ' LATE') : ''}`,
     );
+  }
+
+  /** You stopped before the end: every note still pending is a miss. */
+  abandonResponse() {
+    let missed = 0;
+    const last = this.lastNoteOn?.midi ?? this.anchor;
+    for (let gi = this.gi; gi < this.groups.length; gi += 1) {
+      const g = this.groups[gi];
+      for (const e of g.notes) {
+        if (e.done) continue;
+        if (!e.free) {
+          this.gradeNote(g, e, last, 0, null, false, { abandoned: true });
+          missed += 1;
+        }
+        e.done = true;
+      }
+    }
+    this.gi = this.groups.length;
+    this.questionClean = false;
+    this.log(`  response ended after a beat of silence: ${missed} note${missed === 1 ? '' : 's'} missed`);
+    this.completeQuestion();
   }
 
   /** All groups played. Mark the response done; grade releases and choose the

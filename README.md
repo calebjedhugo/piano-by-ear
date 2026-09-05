@@ -26,8 +26,10 @@ only ever touch the keys.
    phrase or a bit of a Mozart sonata, played in its own meter starting on
    your anchor. Play the whole thing back in time, following the call. The
    reply is the next question, and it comes on the first click after one
-   beat of silence: no key down, nothing pressed or released. No call ever
-   contains a beat of silence itself, so silence always means "I am done".
+   beat of silence: no key down, nothing pressed or released. That holds
+   even if you stop before the end: the notes you left out are missed and
+   the next question comes anyway. No call ever contains a beat of silence
+   itself, so silence always means "I am done".
 6. Ten seconds of silence, once an answer was possible, ends the session.
    Play a note to start another.
 

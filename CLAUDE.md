@@ -34,7 +34,9 @@ opens every input port.
   A CANON: the click grid is a constant pulse (nextBarAt only advances by
   whole bars, never moves to the player). The next question starts on the
   first click >= one beat after the last key press/release with no key down
-  (tick(), QUIET_BEATS_BEFORE_NEXT); calls must never contain a beat of
+  (tick(), QUIET_BEATS_BEFORE_NEXT); an UNFINISHED response ends the same
+  way once the pending group's time has passed (`abandonResponse`: the rest
+  is missed, never a stall); calls must never contain a beat of
   silence (interval anchor rings until the target; phrases with a rest >= 1
   beat are dropped in PhraseBank). `startResponse()` fires on the
   player's first note, snaps it to a whole number of beats behind the call
