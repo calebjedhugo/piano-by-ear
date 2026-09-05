@@ -6,21 +6,26 @@
 // tracked separately. Persistence is injected: `store.load()` returns the
 // saved state object (or null), `store.save(state)` writes it.
 //
-// In the metered drill, "response time" is the ABSOLUTE ONSET ERROR of the
-// correct note against the beat, so the fluency gate on mastery means
-// "accurate AND in time".
+// TWO KINDS OF EVIDENCE. Isolated interval questions update the interval's
+// parent stats, its situation cells, the confusion matrix and the tier
+// controller, exactly as in the reference. Notes inside a PASSAGE are
+// scope 'passage': they only update a dedicated `+7|src:passage` cell, so a
+// step heard inside a chorale line never makes the isolated step look
+// mastered, and one 12-note phrase cannot push the tier ladder.
+//
+// "Response time" here is the onset error of the correct note against the
+// beat, NORMALIZED to milliseconds at 60 bpm (|err| / beat), so the fluency
+// gate on mastery means the same thing at every tempo.
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
-// Interval widths ordered by AURAL difficulty, not width — an octave is
-// easier to hear than a major sixth. Each tier unlocks both directions.
 export const TIER_WIDTHS = [
   12, 7, 5, 4, 3, 9, 2, 8, 1, 10, 11, 6,
-  // compounds, ordered by their simple interval's difficulty
   19, 17, 16, 15, 21, 14, 20, 13, 22, 23, 18,
 ];
+const ASKABLE = new Set(TIER_WIDTHS);
 
-const MIN_TIERS = 2; // never shrink below P8 + P5
+const MIN_TIERS = 2;
 const ACC_ALPHA = 0.3;
 const OVERALL_ALPHA = 0.15;
 const RT_ALPHA = 0.3;
@@ -28,16 +33,15 @@ const TARGET_LOW = 0.65;
 const TARGET_HIGH = 0.85;
 const TIER_CHANGE_COOLDOWN = 8;
 const MASTERED_ACC = 0.9;
-const REVIEW_FULL_MS = 3 * 24 * 60 * 60 * 1000;
+export const REVIEW_FULL_MS = 3 * 24 * 60 * 60 * 1000;
 const CONFUSION_THRESHOLD = 2;
 const DISCRIMINATION_RUN = 4;
-const WARMUP_QUESTIONS = 5;
+export const WARMUP_QUESTIONS = 5;
+const CELL_SHRINK_K = 4;
+const DEFAULT_STATS = Object.freeze({ acc: 0.5, n: 0, rt: null, last: 0 });
 
 const WHITE_PCS = new Set([0, 2, 4, 5, 7, 9, 11]);
-function colorOf(pc) {
-  return WHITE_PCS.has(((pc % 12) + 12) % 12) ? 'w' : 'b';
-}
-
+const colorOf = (pc) => (WHITE_PCS.has(((pc % 12) + 12) % 12) ? 'w' : 'b');
 const PERFECT_PCS = new Set([0, 5, 7]);
 const CONSONANT_PCS = new Set([3, 4, 8, 9]);
 function contextBucket(semitones) {
@@ -46,8 +50,6 @@ function contextBucket(semitones) {
   if (CONSONANT_PCS.has(pc)) return 'consonant';
   return 'dissonant';
 }
-
-const CELL_SHRINK_K = 4;
 
 function freshState() {
   return {
@@ -64,9 +66,9 @@ function freshState() {
 export class AdaptiveEngine {
   /**
    * @param {object} opts
-   * @param {number} opts.range        highest valid pitch index (lowest is 0)
-   * @param {number} opts.fluentMs     max "response time" (onset error) for mastery
-   * @param {number} opts.pitchClassOffset  pitch class of index 0 (MIDI 21 = A = 9)
+   * @param {number} opts.range              highest valid pitch index (lowest is 0)
+   * @param {number} opts.fluentMs           max normalized onset error (ms at 60 bpm) for mastery
+   * @param {number} opts.pitchClassOffset   pitch class of index 0 (MIDI 21 = A = 9)
    * @param {{load: () => object|null, save: (state: object) => void}} opts.store
    */
   constructor({ range, fluentMs, pitchClassOffset = 0, store }) {
@@ -76,10 +78,13 @@ export class AdaptiveEngine {
     this.store = store;
     const loaded = store.load();
     this.state = loaded && loaded.version === SCHEMA_VERSION ? loaded : freshState();
+    if (!this.state.cells) this.state.cells = {};
     this.discriminationQueue = [];
     this.questionInSession = 0;
     this.prevAnchorIndex = null;
+    this.lastAsked = null;
     this.lastAskedCells = [];
+    this.lastScope = 'interval';
     this.pending = null;
   }
 
@@ -91,8 +96,21 @@ export class AdaptiveEngine {
     this.questionInSession = 0;
     this.discriminationQueue = [];
     this.prevAnchorIndex = null;
+    this.lastAsked = null;
     this.lastAskedCells = [];
     this.pending = null;
+  }
+
+  /** Called once per question of either kind (drives the warm-up ramp). */
+  beginQuestion() {
+    this.questionInSession += 1;
+  }
+
+  /** Carry session state into a rebuilt engine (range widened mid-session). */
+  adopt(other, indexShift) {
+    this.questionInSession = other.questionInSession;
+    this.discriminationQueue = other.discriminationQueue.slice();
+    this.prevAnchorIndex = other.prevAnchorIndex === null ? null : other.prevAnchorIndex + indexShift;
   }
 
   unlockedIntervals(tiers = this.state.tiersUnlocked) {
@@ -118,6 +136,11 @@ export class AdaptiveEngine {
     return interval > 0 ? `+${interval}` : `${interval}`;
   }
 
+  /** Read-only stats (never inserts). */
+  peekStats(interval) {
+    return this.state.intervals[AdaptiveEngine.key(interval)] || DEFAULT_STATS;
+  }
+
   intervalStats(interval) {
     const key = AdaptiveEngine.key(interval);
     let s = this.state.intervals[key];
@@ -132,12 +155,18 @@ export class AdaptiveEngine {
     return s.n >= 3 && predictedAcc >= MASTERED_ACC && s.rt !== null && s.rt <= this.fluentMs;
   }
 
-  cellKeysFor(interval, anchorIndex) {
+  /**
+   * Cell keys framing `interval` from `anchorIndex`: key-color pair, the
+   * echoic-context bucket against `prevIndex` (null = none), and for
+   * passage-scope evidence the dedicated in-melody cell.
+   */
+  cellKeysFor(interval, anchorIndex, prevIndex, scope = 'interval') {
     const iKey = AdaptiveEngine.key(interval);
+    if (scope === 'passage') return [`${iKey}|src:passage`];
     const target = anchorIndex + interval;
     const keys = [`${iKey}|${colorOf(anchorIndex + this.pcOffset)}${colorOf(target + this.pcOffset)}`];
-    if (this.prevAnchorIndex !== null) {
-      keys.push(`${iKey}|ctx:${contextBucket(target - this.prevAnchorIndex)}`);
+    if (prevIndex !== null && prevIndex !== undefined) {
+      keys.push(`${iKey}|ctx:${contextBucket(target - prevIndex)}`);
     }
     return keys;
   }
@@ -151,68 +180,89 @@ export class AdaptiveEngine {
     return c;
   }
 
-  predictedAcc(interval, anchorIndex) {
-    const parent = this.intervalStats(interval);
+  /** Parent accuracy adjusted by the given cells (shrinkage toward the parent). Read-only. */
+  predictedAccFrom(interval, cellKeys) {
+    const parent = this.peekStats(interval);
     let acc = parent.acc;
-    for (const key of this.cellKeysFor(interval, anchorIndex)) {
+    for (const key of cellKeys) {
       const c = this.state.cells[key];
       if (c && c.n > 0) acc += (c.n / (c.n + CELL_SHRINK_K)) * (c.acc - parent.acc);
     }
     return Math.max(0, Math.min(1, acc));
   }
 
-  weight(interval, anchorIndex, now) {
-    const s = this.intervalStats(interval);
-    const acc = this.predictedAcc(interval, anchorIndex);
-    let w;
-    if (s.n < 3) {
-      w = 1.5;
-    } else if (this.isMastered(s, acc)) {
-      w = 0.2 + 0.7 * Math.min(1, (now - s.last) / REVIEW_FULL_MS);
-    } else {
-      w = 2.2 - 2 * Math.abs(acc - 0.7);
-    }
-    w = Math.max(w, 0.15);
+  predictedAcc(interval, anchorIndex, prevIndex = this.prevAnchorIndex) {
+    return this.predictedAccFrom(interval, this.cellKeysFor(interval, anchorIndex, prevIndex));
+  }
 
+  /** Base ZPD weight for an interval given its predicted accuracy (no session terms). */
+  baseWeight(interval, acc, now) {
+    const s = this.peekStats(interval);
+    let w;
+    if (s.n < 3) w = 1.5;
+    else if (this.isMastered(s, acc)) w = 0.2 + 0.7 * Math.min(1, (now - s.last) / REVIEW_FULL_MS);
+    else w = 2.2 - 2 * Math.abs(acc - 0.7);
+    return Math.max(w, 0.15);
+  }
+
+  weight(interval, anchorIndex, now, prevIndex = this.prevAnchorIndex) {
+    const s = this.peekStats(interval);
+    const acc = this.predictedAcc(interval, anchorIndex, prevIndex);
+    let w = this.baseWeight(interval, acc, now);
     const warmLeft = WARMUP_QUESTIONS - this.questionInSession;
     if (warmLeft > 0 && s.n >= 3) w *= 1 + (warmLeft / WARMUP_QUESTIONS) * 1.5 * acc;
-
-    const center = this.range / 2;
-    const movesToCenter =
-      Math.abs(anchorIndex + interval - center) < Math.abs(anchorIndex - center);
-    if (movesToCenter) w *= 1.25;
-
-    return w;
+    return w * this.centerPull(anchorIndex, anchorIndex + interval);
   }
 
   /**
-   * Frame `interval` from `anchorIndex` as the question in flight without
-   * choosing it (passages choose their own intervals). `prevIndex` is the
-   * note still in echoic memory, or null.
+   * Keep the anchor's random walk near the middle of the keyboard: the
+   * further out it is, the more a move back toward the center is favored
+   * and a move further out is discouraged (x2 / x0.33 two octaves out).
    */
-  ask(interval, anchorIndex, prevIndex = this.prevAnchorIndex) {
-    this.prevAnchorIndex = prevIndex;
+  centerPull(fromIndex, toIndex) {
+    const center = this.range / 2;
+    const dist = Math.abs(fromIndex - center);
+    const inward = Math.abs(toIndex - center) < dist;
+    return inward ? 1 + dist / 24 : Math.max(0.3, 1 - dist / 36);
+  }
+
+  /**
+   * How much a passage containing this interval is wanted: the ZPD weight
+   * using in-melody evidence (parent + src:passage cell). Read-only, no
+   * warm-up or center terms. Intervals wider than the tier list score low.
+   */
+  scoreInterval(interval, now) {
+    if (!ASKABLE.has(Math.abs(interval))) return 0.15;
+    const acc = this.predictedAccFrom(interval, this.cellKeysFor(interval, 0, null, 'passage'));
+    return this.baseWeight(interval, acc, now);
+  }
+
+  /** Frame `interval` from `anchorIndex` as the question in flight. */
+  ask(interval, anchorIndex, prevIndex = this.prevAnchorIndex, { scope = 'interval' } = {}) {
     this.lastAsked = interval;
-    this.lastAskedCells = this.cellKeysFor(interval, anchorIndex);
+    this.lastScope = scope;
+    this.lastAskedCells = this.cellKeysFor(interval, anchorIndex, prevIndex, scope);
     this.prevAnchorIndex = anchorIndex;
-    this.pending = null;
     return anchorIndex + interval;
   }
 
-  nextTargetIndex(anchorIndex) {
-    this.questionInSession += 1;
-
-    const commit = (interval) => this.ask(interval, anchorIndex);
-
-    while (this.discriminationQueue.length > 0) {
-      const interval = this.discriminationQueue.shift();
-      if (this.feasible(anchorIndex, interval)) return commit(interval);
+  /**
+   * Choose the next target index from `anchorIndex`. Discrimination runs
+   * take priority; infeasible entries wait for a later anchor instead of
+   * being lost.
+   */
+  nextTargetIndex(anchorIndex, prevIndex = this.prevAnchorIndex) {
+    const q = this.discriminationQueue;
+    for (let tries = 0; tries < q.length; tries += 1) {
+      const interval = q.shift();
+      if (this.feasible(anchorIndex, interval)) return this.ask(interval, anchorIndex, prevIndex);
+      q.push(interval);
     }
 
     const now = Date.now();
     const pool = this.poolFor(anchorIndex);
     if (pool.length === 0) return anchorIndex;
-    const weights = pool.map((i) => this.weight(i, anchorIndex, now));
+    const weights = pool.map((i) => this.weight(i, anchorIndex, now, prevIndex));
     const total = weights.reduce((a, b) => a + b, 0);
     let roll = Math.random() * total;
     let interval = pool[pool.length - 1];
@@ -223,7 +273,7 @@ export class AdaptiveEngine {
         break;
       }
     }
-    return commit(interval);
+    return this.ask(interval, anchorIndex, prevIndex);
   }
 
   updateCells(cells, success) {
@@ -234,17 +284,19 @@ export class AdaptiveEngine {
     }
   }
 
-  reportMiss(anchorIndex, playedIndex) {
+  /** First wrong note of a question. `confuse:false` records the miss without confusion tracking. */
+  reportMiss(anchorIndex, playedIndex, { confuse = true } = {}) {
     if (this.pending) return;
     this.pending = {
       asked: this.lastAsked,
       cells: this.lastAskedCells,
-      tapped: playedIndex - anchorIndex,
+      scope: this.lastScope,
+      tapped: confuse ? playedIndex - anchorIndex : 0,
     };
   }
 
   recordConfusion(asked, tapped) {
-    if (tapped === asked || tapped === 0) return;
+    if (tapped === asked || tapped === 0 || !ASKABLE.has(Math.abs(tapped))) return;
     const key = `${AdaptiveEngine.key(asked)}|${AdaptiveEngine.key(tapped)}`;
     const count = (this.state.confusions[key] || 0) + 1;
     if (count >= CONFUSION_THRESHOLD) {
@@ -257,41 +309,53 @@ export class AdaptiveEngine {
     }
   }
 
-  /** The correct note finally arrived. `rtMs` = abs onset error vs the beat. */
-  reportResolved(rtMs) {
+  /**
+   * The correct note arrived. `rtNorm` is the normalized onset error (ms at
+   * 60 bpm) or null when timing isn't attributable to this interval.
+   * Returns { asked, missed, tierDelta, newlyMastered }.
+   */
+  reportResolved(rtNorm) {
     const missed = this.pending !== null;
     const asked = missed ? this.pending.asked : this.lastAsked;
     const cells = missed ? this.pending.cells : this.lastAskedCells;
+    const scope = missed ? this.pending.scope : this.lastScope;
+    const tiersBefore = this.state.tiersUnlocked;
+    let newlyMastered = false;
 
-    const s = this.intervalStats(asked);
-    s.n += 1;
-    s.last = Date.now();
-    if (missed) {
-      s.acc = s.acc * (1 - ACC_ALPHA);
-      this.recordConfusion(asked, this.pending.tapped);
+    if (scope === 'passage') {
+      this.updateCells(cells, !missed);
     } else {
-      s.acc = s.acc * (1 - ACC_ALPHA) + ACC_ALPHA;
-      s.rt = s.rt === null ? rtMs : s.rt * (1 - RT_ALPHA) + RT_ALPHA * rtMs;
+      const s = this.intervalStats(asked);
+      const wasMastered = this.isMastered(s, this.predictedAccFrom(asked, cells));
+      s.n += 1;
+      s.last = Date.now();
+      if (missed) {
+        s.acc = s.acc * (1 - ACC_ALPHA);
+        this.recordConfusion(asked, this.pending.tapped);
+      } else {
+        s.acc = s.acc * (1 - ACC_ALPHA) + ACC_ALPHA;
+        if (rtNorm !== null && rtNorm !== undefined) {
+          s.rt = s.rt === null ? rtNorm : s.rt * (1 - RT_ALPHA) + RT_ALPHA * rtNorm;
+        }
+      }
+      this.updateCells(cells, !missed);
+      newlyMastered = !wasMastered && this.isMastered(s, this.predictedAccFrom(asked, cells));
+      this.state.overall.ewma = this.state.overall.ewma * (1 - OVERALL_ALPHA) + (missed ? 0 : OVERALL_ALPHA);
+      this.state.overall.n += 1;
+      this.state.attemptsSinceTierChange += 1;
+      this.adjustTiers();
     }
-    this.updateCells(cells, !missed);
-    this.state.overall.ewma =
-      this.state.overall.ewma * (1 - OVERALL_ALPHA) + (missed ? 0 : OVERALL_ALPHA);
-    this.state.overall.n += 1;
-    this.state.attemptsSinceTierChange += 1;
     this.pending = null;
-
-    this.adjustTiers();
     this.save();
-    return { asked, missed };
+    return { asked, missed, tierDelta: this.state.tiersUnlocked - tiersBefore, newlyMastered };
   }
 
   adjustTiers() {
     if (this.state.attemptsSinceTierChange < TIER_CHANGE_COOLDOWN) return;
     const { ewma } = this.state.overall;
-
     if (ewma > TARGET_HIGH && this.state.tiersUnlocked < TIER_WIDTHS.length) {
       const frontierWidth = TIER_WIDTHS[this.state.tiersUnlocked - 1];
-      const seen = [frontierWidth, -frontierWidth].every((i) => this.intervalStats(i).n >= 3);
+      const seen = [frontierWidth, -frontierWidth].every((i) => this.peekStats(i).n >= 3);
       if (seen) {
         this.state.tiersUnlocked += 1;
         this.state.attemptsSinceTierChange = 0;

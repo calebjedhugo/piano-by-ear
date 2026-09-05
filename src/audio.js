@@ -1,6 +1,10 @@
-// Headless audio: a small additive "piano" voice, a metronome click, and
-// feedback cues, all scheduled on the AudioContext clock so the grid is
-// sample-accurate rather than setTimeout-accurate.
+// Headless audio: a small additive "piano" voice, a metronome click, and a
+// fixed vocabulary of cues, all scheduled on the AudioContext clock so the
+// grid is sample-accurate rather than setTimeout-accurate.
+//
+// Cue registers never overlap the piano: clicks are 1-2 kHz squares, "good"
+// cues are sines above 1.7 kHz, timing cues are mid glides, the wrong-pitch
+// buzz is a 110 Hz sawtooth.
 import { AudioContext } from 'node-web-audio-api';
 
 export function midiToHz(note) {
@@ -19,8 +23,10 @@ export class Audio {
     return this.ctx.currentTime;
   }
 
-  /** Piano-ish note: fundamental + a few decaying harmonics. */
+  /** Piano-ish note: fundamental + a few decaying harmonics. `duration` in s, capped. */
   note(midi, { at = this.now, velocity = 100, duration = 1.2 } = {}) {
+    const start = Math.max(at, this.now);
+    const dur = Math.max(0.15, Math.min(2.0, duration));
     const hz = midiToHz(midi);
     const amp = 0.25 * (velocity / 127) ** 1.5;
     const partials = [
@@ -30,61 +36,86 @@ export class Audio {
       [4, 0.12, 0.35],
       [5, 0.06, 0.3],
     ];
-    const out = this.ctx.createGain();
-    out.gain.value = 1;
-    out.connect(this.master);
     for (const [mult, level, decayFrac] of partials) {
       const osc = this.ctx.createOscillator();
       osc.type = 'sine';
       osc.frequency.value = hz * mult;
       const g = this.ctx.createGain();
-      g.gain.setValueAtTime(0, at);
-      g.gain.linearRampToValueAtTime(amp * level, at + 0.005);
-      g.gain.exponentialRampToValueAtTime(0.0005, at + duration * decayFrac);
-      osc.connect(g).connect(out);
-      osc.start(at);
-      osc.stop(at + duration);
-    }
-  }
-
-  click(at, { accent = false } = {}) {
-    const osc = this.ctx.createOscillator();
-    osc.type = 'square';
-    osc.frequency.value = accent ? 1600 : 1000;
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(accent ? 0.18 : 0.1, at);
-    g.gain.exponentialRampToValueAtTime(0.0005, at + 0.03);
-    osc.connect(g).connect(this.master);
-    osc.start(at);
-    osc.stop(at + 0.04);
-  }
-
-  /** Soft high chime: correct AND in time. */
-  good(at = this.now) {
-    for (const [hz, delay] of [[1760, 0], [2637, 0.06]]) {
-      const osc = this.ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = hz;
-      const g = this.ctx.createGain();
-      g.gain.setValueAtTime(0.07, at + delay);
-      g.gain.exponentialRampToValueAtTime(0.0005, at + delay + 0.25);
+      g.gain.setValueAtTime(0, start);
+      g.gain.linearRampToValueAtTime(amp * level, start + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0005, start + Math.max(0.05, dur * decayFrac));
       osc.connect(g).connect(this.master);
-      osc.start(at + delay);
-      osc.stop(at + delay + 0.3);
+      osc.start(start);
+      osc.stop(start + dur);
     }
   }
 
-  /** Low buzz: wrong pitch. */
-  bad(at = this.now) {
+  tone(hz, at, dur, gain, type = 'sine', glideTo = null) {
+    const start = Math.max(at, this.now);
     const osc = this.ctx.createOscillator();
-    osc.type = 'sawtooth';
-    osc.frequency.value = 110;
+    osc.type = type;
+    osc.frequency.setValueAtTime(hz, start);
+    if (glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo, start + dur);
     const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.06, at);
-    g.gain.exponentialRampToValueAtTime(0.0005, at + 0.18);
+    g.gain.setValueAtTime(gain, start);
+    g.gain.exponentialRampToValueAtTime(0.0005, start + dur);
     osc.connect(g).connect(this.master);
-    osc.start(at);
-    osc.stop(at + 0.2);
+    osc.start(start);
+    osc.stop(start + dur + 0.01);
+  }
+
+  /** Metronome. `accent` = bar downbeat; `response` = the downbeat you answer on (double tick). */
+  click(at, { accent = false, response = false } = {}) {
+    this.tone(accent ? 1600 : 1000, at, 0.03, accent ? 0.18 : 0.1, 'square');
+    if (response) this.tone(2200, at + 0.045, 0.03, 0.16, 'square');
+  }
+
+  /** Correct AND in time: soft high chime. */
+  good(at = this.now, gain = 0.07) {
+    this.tone(1760, at, 0.25, gain);
+    this.tone(2637, at + 0.06, 0.25, gain);
+  }
+
+  /** Correct pitch, off the beat: a glide in the direction your onset must move. */
+  offbeat(at = this.now, early) {
+    if (early) this.tone(880, at, 0.12, 0.07, 'sine', 660); // drop: pull back
+    else this.tone(660, at, 0.12, 0.07, 'sine', 880); // lift: push forward
+  }
+
+  /** Correct pitch after an earlier miss: accepted, not credited. */
+  okAfterMiss(at = this.now) {
+    this.tone(660, at, 0.08, 0.05);
+  }
+
+  /** Wrong pitch: low buzz. */
+  bad(at = this.now, gain = 0.06) {
+    this.tone(110, at, 0.18, gain, 'sawtooth');
+  }
+
+  /** A real passage is coming (plays in the gap before the call). */
+  passageCue(at = this.now) {
+    this.tone(1319, at, 0.12, 0.06);
+    this.tone(1760, at + 0.12, 0.16, 0.06);
+  }
+
+  /** Passage finished: rising arpeggio if clean, one neutral tone otherwise. */
+  passageDone(at = this.now, clean) {
+    if (clean) {
+      for (const [hz, d] of [[1047, 0], [1319, 0.09], [1568, 0.18]]) this.tone(hz, at + d, 0.28, 0.06);
+    } else {
+      this.tone(880, at, 0.15, 0.05);
+    }
+  }
+
+  /** A new interval tier unlocked. */
+  tierUp(at = this.now) {
+    for (const [hz, d] of [[784, 0], [1047, 0.07], [1319, 0.14], [1568, 0.21]]) this.tone(hz, at + d, 0.22, 0.06);
+  }
+
+  /** MIDI controller connected and listening. */
+  ready(at = this.now) {
+    this.tone(1047, at, 0.15, 0.06);
+    this.tone(1568, at + 0.15, 0.2, 0.06);
   }
 
   /** Two descending tones: session over. */

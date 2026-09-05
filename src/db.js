@@ -1,7 +1,18 @@
-// SQLite history + engine-state persistence (node:sqlite, Node 22.5+).
+// SQLite history + kv persistence (node:sqlite, Node 22.5+).
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+
+const ATTEMPT_COLUMNS = {
+  question: 'INTEGER',
+  kind: 'TEXT',
+  phrase_id: 'TEXT',
+  position: 'INTEGER',
+  graded: 'INTEGER NOT NULL DEFAULT 0',
+  in_time: 'INTEGER',
+  beat_ms: 'REAL',
+};
+const SESSION_COLUMNS = { passages: 'INTEGER NOT NULL DEFAULT 0' };
 
 export class Db {
   constructor(path) {
@@ -9,6 +20,7 @@ export class Db {
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA journal_mode = WAL;
+      PRAGMA busy_timeout = 2000;
       CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY,
@@ -32,26 +44,38 @@ export class Db {
       );
       CREATE INDEX IF NOT EXISTS attempts_session ON attempts(session_id);
     `);
+    this.migrate('attempts', ATTEMPT_COLUMNS);
+    this.migrate('sessions', SESSION_COLUMNS);
     this.stmts = {
       getKv: this.db.prepare('SELECT value FROM kv WHERE key = ?'),
       setKv: this.db.prepare(
         'INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
       ),
-      newSession: this.db.prepare(
-        'INSERT INTO sessions (started_at, bpm, anchor) VALUES (?, ?, ?) RETURNING id',
+      newSession: this.db.prepare('INSERT INTO sessions (started_at, bpm, anchor) VALUES (?, ?, ?) RETURNING id'),
+      endSession: this.db.prepare('UPDATE sessions SET ended_at = ?, questions = ?, passages = ? WHERE id = ?'),
+      lastBpm: this.db.prepare('SELECT bpm FROM sessions ORDER BY id DESC LIMIT 1'),
+      recentGraded: this.db.prepare(
+        'SELECT correct, in_time FROM attempts WHERE graded = 1 AND first_attempt = 1 ORDER BY id DESC LIMIT ?',
       ),
-      endSession: this.db.prepare('UPDATE sessions SET ended_at = ?, questions = ? WHERE id = ?'),
       attempt: this.db.prepare(`
-        INSERT INTO attempts (session_id, ts, anchor, target, played, velocity, correct, first_attempt, onset_ms)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+        INSERT INTO attempts (session_id, ts, anchor, target, played, velocity, correct, first_attempt, onset_ms,
+                              question, kind, phrase_id, position, graded, in_time, beat_ms)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
     };
   }
 
-  /** Persistence adapter for AdaptiveEngine. */
-  engineStore() {
+  migrate(table, columns) {
+    const have = new Set(this.db.prepare(`PRAGMA table_info(${table})`).all().map((r) => r.name));
+    for (const [name, type] of Object.entries(columns)) {
+      if (!have.has(name)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    }
+  }
+
+  /** Guarded JSON {load, save} adapter for one kv key. */
+  kv(key) {
     return {
       load: () => {
-        const row = this.stmts.getKv.get('engine');
+        const row = this.stmts.getKv.get(key);
         if (!row) return null;
         try {
           return JSON.parse(row.value);
@@ -59,22 +83,41 @@ export class Db {
           return null;
         }
       },
-      save: (state) => this.stmts.setKv.run('engine', JSON.stringify(state)),
+      save: (value) => this.stmts.setKv.run(key, JSON.stringify(value)),
     };
+  }
+
+  engineStore() {
+    return this.kv('engine');
   }
 
   newSession({ bpm, anchor }) {
     return this.stmts.newSession.get(Date.now(), bpm, anchor).id;
   }
 
-  endSession(id, questions) {
-    this.stmts.endSession.run(Date.now(), questions, id);
+  endSession(id, { questions, passages }) {
+    this.stmts.endSession.run(Date.now(), questions, passages, id);
   }
 
-  attempt({ sessionId, anchor, target, played, velocity, correct, firstAttempt, onsetMs }) {
+  lastBpm() {
+    return this.stmts.lastBpm.get()?.bpm ?? null;
+  }
+
+  /** Recent graded first attempts, newest first: [{correct, in_time}]. */
+  recentGraded(limit = 40) {
+    return this.stmts.recentGraded.all(limit);
+  }
+
+  attempt(a) {
     this.stmts.attempt.run(
-      sessionId, Date.now(), anchor, target, played, velocity,
-      correct ? 1 : 0, firstAttempt ? 1 : 0, onsetMs ?? null,
+      a.sessionId, Date.now(), a.anchor, a.target, a.played, a.velocity,
+      a.correct ? 1 : 0, a.firstAttempt ? 1 : 0, a.onsetMs ?? null,
+      a.question ?? null, a.kind ?? null, a.phraseId ?? null, a.position ?? null,
+      a.graded ? 1 : 0, a.inTime === undefined || a.inTime === null ? null : a.inTime ? 1 : 0, a.beatMs ?? null,
     );
+  }
+
+  close() {
+    this.db.close();
   }
 }

@@ -1,25 +1,32 @@
 // Per-controller key range. MIDI doesn't advertise how many keys a
-// controller has, so: guess from a key count in the port name ("Keystation
-// Pro 88" -> 21..108, "MPK mini 25" -> 48..72), then widen as notes outside
-// the guess are actually observed. Persisted per port name so a controller
-// is recognized the next time it's plugged in.
+// controller has, so: guess from a standalone key count in the port name
+// ("Keystation Pro 88" -> 21..108, "Launchkey 25" -> 48..72; "MPK249" does
+// NOT match 49), otherwise start from two octaves around middle C. A note
+// outside the range widens it: while the range is still a guess it snaps to
+// the smallest standard layout containing both the old range and the note,
+// so one A0 turns a fallback into a full 88 instead of a lopsided 21..72.
+// Persisted per port name so a controller is recognized next time.
 
-const LAYOUTS = {
-  88: [21, 108],
-  76: [28, 103],
-  73: [28, 100],
-  61: [36, 96],
-  49: [36, 84],
-  37: [48, 84],
-  32: [48, 79],
-  25: [48, 72],
-};
-const FALLBACK = [48, 72]; // two octaves from C3 until we see otherwise
+const LAYOUTS = [
+  [25, 48, 72],
+  [32, 48, 79],
+  [37, 48, 84],
+  [49, 36, 84],
+  [61, 36, 96],
+  [73, 28, 100],
+  [76, 28, 103],
+  [88, 21, 108],
+];
+const FALLBACK = [48, 72];
+const KEY_COUNT = /(?:^|\D)(25|32|37|49|61|73|76|88)(?!\d)/;
 
 export function guessRange(portName) {
-  const nums = (portName.match(/\d+/g) || []).map(Number);
-  for (const n of nums) if (LAYOUTS[n]) return { lo: LAYOUTS[n][0], hi: LAYOUTS[n][1], guessed: true };
-  return { lo: FALLBACK[0], hi: FALLBACK[1], guessed: true };
+  const m = portName.match(KEY_COUNT);
+  if (m) {
+    const layout = LAYOUTS.find((l) => l[0] === Number(m[1]));
+    return { lo: layout[1], hi: layout[2], guessed: true, named: true };
+  }
+  return { lo: FALLBACK[0], hi: FALLBACK[1], guessed: true, named: false };
 }
 
 export class RangeTracker {
@@ -39,20 +46,29 @@ export class RangeTracker {
   }
 
   get current() {
-    return (this.portName && this.byPort[this.portName]) || { lo: FALLBACK[0], hi: FALLBACK[1] };
+    return (this.portName && this.byPort[this.portName]) || { lo: FALLBACK[0], hi: FALLBACK[1], guessed: true };
   }
 
   /** Returns true when the range widened. */
   observe(note) {
     if (!this.portName) return false;
     const r = this.byPort[this.portName];
-    let changed = false;
-    if (note < r.lo) { r.lo = note; changed = true; }
-    if (note > r.hi) { r.hi = note; changed = true; }
-    if (changed) {
+    if (note >= r.lo && note <= r.hi) return false;
+    if (r.guessed) {
+      const fit = LAYOUTS.find((l) => l[1] <= Math.min(r.lo, note) && l[2] >= Math.max(r.hi, note));
+      if (fit) {
+        r.lo = fit[1];
+        r.hi = fit[2];
+      } else {
+        r.lo = Math.min(r.lo, note);
+        r.hi = Math.max(r.hi, note);
+      }
       r.guessed = false;
-      this.store.save(this.byPort);
+    } else {
+      r.lo = Math.min(r.lo, note);
+      r.hi = Math.max(r.hi, note);
     }
-    return changed;
+    this.store.save(this.byPort);
+    return true;
   }
 }
