@@ -53,6 +53,7 @@ const RETRY_AFTER_QUESTIONS = 2;
 const REMEDIATE_MAX_PER_PASSAGE = 2;
 const MAX_PASSAGES_IN_A_ROW = 3; // interval questions are what move the tier ladder
 const DEBOUNCE_S = 0.06;
+const QUIET_BEATS_BEFORE_NEXT = 2; // the next call waits this long after your LAST key press
 // Note duration: a held note should last about its written value. Cutting
 // it below half, or holding it past 1.5x plus a pad, is a defect. A note
 // still held when the question finalizes is never penalized (holding the
@@ -119,6 +120,7 @@ export class Drill {
       return;
     }
     this.lastInputAt = performance.now();
+    this.lastPlayedAt = this.perfToAudio(at); // any key, fumbles included
     this.handleAnswer(note, velocity, this.perfToAudio(at));
   }
 
@@ -165,6 +167,7 @@ export class Drill {
     this.anchor = anchor;
     this.prevAnchor = null;
     this.lastInputAt = performance.now();
+    this.lastPlayedAt = this.audio.now;
     this.syncClock(1);
     this.state = 'QUESTION';
     this.log(`session started: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, ${this.bpm} bpm (±${this.toleranceMs.toFixed(0)}ms), tiers ${this.engine.state.tiersUnlocked}`);
@@ -342,10 +345,20 @@ export class Drill {
       this.audio.note(midi, { at: Math.max(at, now), velocity: 90, duration });
       this.callScheduled += 1;
     }
-    if (this.answered && now >= this.nextQuestionAt - SCHEDULE_AHEAD_S) {
-      if (this.awaitingFinalize) this.finalizeQuestion();
-      this.nextBarAt = this.nextQuestionAt;
-      this.beginQuestion();
+    if (this.answered) {
+      // Never ask on top of the player: the next call starts on the first bar
+      // line at least QUIET_BEATS_BEFORE_NEXT beats after their last key press.
+      const quietUntil = (this.lastPlayedAt ?? -Infinity) + QUIET_BEATS_BEFORE_NEXT * this.beat;
+      if (quietUntil > this.nextQuestionAt) {
+        const barLen = this.meter * this.beat;
+        const n = Math.ceil((quietUntil - this.nextBarAt) / barLen - 1e-6);
+        this.nextQuestionAt = this.nextBarAt + n * barLen;
+      }
+      if (now >= this.nextQuestionAt - SCHEDULE_AHEAD_S) {
+        if (this.awaitingFinalize) this.finalizeQuestion();
+        this.nextBarAt = this.nextQuestionAt;
+        this.beginQuestion();
+      }
     }
   }
 

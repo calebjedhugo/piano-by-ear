@@ -24,27 +24,30 @@ export class Audio {
     return this.ctx.currentTime;
   }
 
-  /** Piano-ish note: fundamental + a few decaying harmonics. `duration` in s, capped. */
+  /**
+   * The SYSTEM's voice (the call): a softer, bell-like tone -- triangle
+   * fundamental with a couple of shimmering partials and a fast decay -- so
+   * it is clearly a different instrument from the piano you play. `duration`
+   * in s, capped.
+   */
   note(midi, { at = this.now, velocity = 100, duration = 1.2 } = {}) {
     const start = Math.max(at, this.now);
     const dur = Math.max(0.15, Math.min(2.0, duration));
     const hz = midiToHz(midi);
-    const amp = 0.25 * (velocity / 127) ** 1.5;
+    const amp = 0.2 * (velocity / 127) ** 1.5;
     const partials = [
-      [1, 1.0, 0.9],
-      [2, 0.5, 0.6],
-      [3, 0.25, 0.45],
-      [4, 0.12, 0.35],
-      [5, 0.06, 0.3],
+      [1, 1.0, 'triangle', 1.0],
+      [2.005, 0.3, 'sine', 0.5],
+      [3.01, 0.12, 'sine', 0.35],
     ];
-    for (const [mult, level, decayFrac] of partials) {
+    for (const [mult, level, type, decayFrac] of partials) {
       const osc = this.ctx.createOscillator();
-      osc.type = 'sine';
+      osc.type = type;
       osc.frequency.value = hz * mult;
       const g = this.ctx.createGain();
       g.gain.setValueAtTime(0, start);
-      g.gain.linearRampToValueAtTime(amp * level, start + 0.005);
-      g.gain.exponentialRampToValueAtTime(0.0005, start + Math.max(0.05, dur * decayFrac));
+      g.gain.linearRampToValueAtTime(amp * level, start + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0005, start + Math.max(0.06, dur * decayFrac));
       osc.connect(g).connect(this.master);
       osc.start(start);
       osc.stop(start + dur);
