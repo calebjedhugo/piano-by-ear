@@ -16,8 +16,10 @@ No MIDI device present at start is fine; `src/midi.js` polls every 2s.
 
 - `src/main.js`   CLI wiring (parseArgs), SIGINT shutdown.
 - `src/drill.js`  State machine. IDLE -> first note = anchor -> QUESTION loop.
-  Two bars per question: call (anchor beat 1, target beat 3), response
-  (target expected bar 2 beat 3). Answer window opens half a beat before the
+  A question = `{call, graded, meter, bars}`; interval questions are one
+  bar of call (anchor beat 1, target beat 3) + one of response, passages
+  are N bars of call + N of response with every note graded in order
+  (first note of a passage is the anchor itself, so it isn't engine-graded). Answer window opens half a beat before the
   expected onset; notes before it are free (playing along). 10s silence ends
   the session. All scheduling is on the AudioContext clock via a 25ms ticker
   that schedules 150ms ahead; MIDI `performance.now()` stamps are mapped to
@@ -28,6 +30,15 @@ No MIDI device present at start is fine; `src/midi.js` polls every 2s.
   key-color cells correct when index 0 isn't a C.
 - `src/audio.js`  node-web-audio-api: additive piano voice, click, cues.
   Every incoming note-on is echoed here (the controller has no sounds).
+- `src/phrases.js` PhraseBank: loads `corpus/phrases.json`, transposes a
+  phrase so note 1 = anchor (octave-shifting into range), weights phrases by
+  mean `engine.weight()` over their intervals and by kv `phraseStats`.
+  `--mode mix` = 50/50 interval vs passage; engine discrimination runs
+  always force interval questions.
+- `scripts/build-corpus.mjs` **kern -> phrases.json (rightmost kern spine,
+  top of chords, ties merged, split at fermatas / rests >= 1 beat / 12
+  notes, span <= 16 beats). Absolute-beat accumulation; only NUMBERED
+  barlines count, so repeat lines like `=:|!` don't double a bar.
 - `src/range.js`  Per-port-name key range: guessed from a number in the port
   name, widened by observed notes, persisted in kv `ranges`. Applied at
   session start (engine is rebuilt per session with that range).
@@ -37,7 +48,7 @@ No MIDI device present at start is fine; `src/midi.js` polls every 2s.
 
 Drive `Drill.onNoteOn({note, velocity, at})` directly with
 `at = (audioTime + drill.clockOffset) * 1000`, set `audio.master.gain.value = 0`,
-and poll `drill.questions` / `drill.expectedAt` / `drill.target`. Wait for
+and poll `drill.questions` / `drill.expected[i].at` / `.midi`. Wait for
 `drill.questions` to increment before reading the next question's timing.
 
 ## Gotchas

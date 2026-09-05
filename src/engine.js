@@ -185,15 +185,24 @@ export class AdaptiveEngine {
     return w;
   }
 
+  /**
+   * Frame `interval` from `anchorIndex` as the question in flight without
+   * choosing it (passages choose their own intervals). `prevIndex` is the
+   * note still in echoic memory, or null.
+   */
+  ask(interval, anchorIndex, prevIndex = this.prevAnchorIndex) {
+    this.prevAnchorIndex = prevIndex;
+    this.lastAsked = interval;
+    this.lastAskedCells = this.cellKeysFor(interval, anchorIndex);
+    this.prevAnchorIndex = anchorIndex;
+    this.pending = null;
+    return anchorIndex + interval;
+  }
+
   nextTargetIndex(anchorIndex) {
     this.questionInSession += 1;
 
-    const commit = (interval) => {
-      this.lastAsked = interval;
-      this.lastAskedCells = this.cellKeysFor(interval, anchorIndex);
-      this.prevAnchorIndex = anchorIndex;
-      return anchorIndex + interval;
-    };
+    const commit = (interval) => this.ask(interval, anchorIndex);
 
     while (this.discriminationQueue.length > 0) {
       const interval = this.discriminationQueue.shift();

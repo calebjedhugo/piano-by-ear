@@ -9,7 +9,11 @@ process is the piano, the metronome, and the teacher.
    **target** note on beat 3. In bar 2 you play the target back on beat 3.
 4. Right pitch, in time: a soft chime, and the target becomes the next
    anchor. Wrong pitch: a low buzz, keep trying, the beat keeps going.
-5. Ten seconds of silence ends the session. Play a note to start another.
+5. Half the questions (in the default `mix` mode) are **real passages**
+   instead: a Bach chorale phrase or a bar or two of a Mozart sonata,
+   transposed to start on your anchor, played in its own meter with its
+   pickup intact. You play the whole phrase back, in time, note for note.
+6. Ten seconds of silence ends the session. Play a note to start another.
 
 Which interval is asked is chosen by an adaptive engine (ported from
 [ear-training](https://github.com/calebjedhugo/ear-training)) that keeps your
@@ -27,6 +31,8 @@ npm start -- --bpm 80 --tolerance 80
 | flag | default | meaning |
 |---|---|---|
 | `--bpm` | 80 | metronome tempo |
+| `--mode` | mix | `mix`, `passages`, or `intervals` |
+| `--composer` | all | filter passages, e.g. `bach` or `mozart` |
 | `--tolerance` | 80 | ms of onset error that still counts as in time |
 | `--port` | first port | substring of the MIDI input name to use |
 | `--db` | `~/.piano-by-ear/piano-by-ear.db` | SQLite history |
@@ -43,6 +49,14 @@ guessed from a key count in the port name (`Keystation Pro 88` -> A0..C8,
 `... 25` -> C3..C5) and then widened whenever you play outside it. It is
 remembered per controller name, so swapping between an 88 and a 25 just
 works. Targets are only ever chosen inside the current range.
+
+## Passages
+
+6,100 phrases extracted from Craig Sapp's **kern editions of the 370 Bach
+chorales (soprano) and the Mozart piano sonatas (right hand); see
+`corpus/README.md` for attribution (CC BY-NC-SA 4.0). A passage is chosen
+by how much the adaptive engine wants its intervals drilled, and a cleanly
+played passage rests for a few days before it can come back.
 
 ## Data
 
