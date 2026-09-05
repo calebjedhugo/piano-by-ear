@@ -17,6 +17,7 @@ export class Audio {
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.8;
     this.master.connect(this.ctx.destination);
+    this.voices = new Map(); // midi -> sustained voice held while a key is down
   }
 
   get now() {
@@ -47,6 +48,58 @@ export class Audio {
       osc.connect(g).connect(this.master);
       osc.start(start);
       osc.stop(start + dur);
+    }
+  }
+
+  /**
+   * A sustained piano voice for a key that is down. It rises quickly, decays
+   * gently while held (like a real string), and is silenced by stopVoice()
+   * when the key is released -- so the sound tracks how long you actually
+   * hold the note. Retriggering the same pitch restarts it.
+   */
+  startVoice(midi, velocity = 100) {
+    this.stopVoice(midi, 0.005);
+    const start = this.now;
+    const hz = midiToHz(midi);
+    const amp = 0.28 * (velocity / 127) ** 1.5;
+    const out = this.ctx.createGain();
+    out.gain.setValueAtTime(0.0001, start);
+    out.gain.linearRampToValueAtTime(amp, start + 0.006);
+    out.gain.setTargetAtTime(amp * 0.55, start + 0.006, 0.9); // slow decay while held
+    out.connect(this.master);
+    const oscs = [];
+    for (const [mult, level] of [[1, 1], [2, 0.5], [3, 0.25], [4, 0.12], [5, 0.06]]) {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = hz * mult;
+      const g = this.ctx.createGain();
+      g.gain.value = level;
+      osc.connect(g).connect(out);
+      osc.start(start);
+      oscs.push(osc);
+    }
+    const safety = setTimeout(() => this.stopVoice(midi), 15000);
+    safety.unref?.();
+    this.voices.set(midi, { out, oscs, safety });
+  }
+
+  /** Release a held voice (damper): a fast fade so the note stops with the key. */
+  stopVoice(midi, release = 0.08) {
+    const v = this.voices.get(midi);
+    if (!v) return;
+    this.voices.delete(midi);
+    clearTimeout(v.safety);
+    const t = this.now;
+    try {
+      v.out.gain.cancelScheduledValues(t);
+      const cur = Math.max(0.0002, v.out.gain.value);
+      v.out.gain.setValueAtTime(cur, t);
+      v.out.gain.exponentialRampToValueAtTime(0.0004, t + release);
+    } catch {
+      /* fall through to hard stop */
+    }
+    for (const osc of v.oscs) {
+      try { osc.stop(t + release + 0.03); } catch { /* already stopped */ }
     }
   }
 
@@ -125,6 +178,7 @@ export class Audio {
   }
 
   async close() {
+    for (const midi of [...this.voices.keys()]) this.stopVoice(midi, 0.01);
     await this.ctx.close();
   }
 }

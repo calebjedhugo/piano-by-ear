@@ -106,7 +106,7 @@ export class Drill {
   // --- input ---------------------------------------------------------------
 
   onNoteOn({ note, velocity, at, port }) {
-    this.audio.note(note, { velocity });
+    this.audio.startVoice(note, velocity);
     if (port && port !== this.range.portName) this.range.setPort(port);
     if (this.range.observe(note)) {
       this.rangeDirty = true;
@@ -383,6 +383,7 @@ export class Drill {
 
   /** A key was released: grade how long the matching note was held. */
   onNoteOff({ note, at }) {
+    this.audio.stopVoice(note); // always release the sound, even when not grading
     if (this.state !== 'QUESTION') return;
     const h = this.held.get(note);
     if (!h) return;
