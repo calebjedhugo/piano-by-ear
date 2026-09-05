@@ -1,26 +1,17 @@
 #!/usr/bin/env node
-// Download and unpack the Salamander Grand Piano sample set (~410 MB) into
-// ~/.piano-by-ear/samples so the drill plays a real piano for your keys.
-// Samples by Alexander Holm, CC BY 3.0, via freepats.zenvoid.org.
+// Download and unpack the two piano sample sets into ~/.piano-by-ear/samples:
+//   grand    Salamander Grand Piano (~410 MB), Alexander Holm, CC BY 3.0 -- yours
+//   upright  Upright Piano KW (~33 MB), FreePats, CC0 -- the teacher's
 import { createWriteStream, existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { spawnSync } from 'node:child_process';
-import { DEFAULT_SAMPLES_DIR, SampledPiano } from '../src/sampler.js';
+import { INSTRUMENTS, SAMPLES_ROOT, SampledPiano } from '../src/sampler.js';
 
-const URL = 'https://freepats.zenvoid.org/Piano/SalamanderGrandPiano/SalamanderGrandPianoV3+20161209_44khz16bit.tar.xz';
-const root = dirname(DEFAULT_SAMPLES_DIR);
-const archive = join(root, 'salamander-44k16.tar.xz');
-
-if (SampledPiano.available()) {
-  console.log(`already installed: ${DEFAULT_SAMPLES_DIR}`);
-  process.exit(0);
-}
-mkdirSync(root, { recursive: true });
-if (!existsSync(archive)) {
-  console.log(`downloading ${URL}`);
-  const res = await fetch(URL);
+async function download(url, to) {
+  console.log(`downloading ${url}`);
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`download failed: HTTP ${res.status}`);
   const total = Number(res.headers.get('content-length')) || 0;
   let got = 0;
@@ -34,15 +25,32 @@ if (!existsSync(archive)) {
     },
   });
   try {
-    await pipeline(Readable.fromWeb(res.body.pipeThrough(progress)), createWriteStream(archive));
+    await pipeline(Readable.fromWeb(res.body.pipeThrough(progress)), createWriteStream(to));
   } catch (err) {
-    try { unlinkSync(archive); } catch { /* nothing to remove */ }
+    try { unlinkSync(to); } catch { /* nothing to remove */ }
     throw err;
   }
   process.stdout.write('\n');
 }
-console.log(`unpacking ${archive} (${Math.round(statSync(archive).size / 1e6)} MB)`);
-const tar = spawnSync('tar', ['-xJf', archive, '-C', root], { stdio: 'inherit' });
-if (tar.status !== 0) throw new Error('tar failed');
-if (!SampledPiano.available()) throw new Error(`unpacked, but ${DEFAULT_SAMPLES_DIR} is missing the sfz`);
-console.log(`installed: ${DEFAULT_SAMPLES_DIR}\nSalamander Grand Piano by Alexander Holm, CC BY 3.0 (https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html)`);
+
+/** bsdtar (macOS tar) reads tar.xz and 7z alike; fall back to 7z if present. */
+function unpack(archive) {
+  console.log(`unpacking ${archive} (${Math.round(statSync(archive).size / 1e6)} MB)`);
+  let r = spawnSync('tar', ['-xf', archive, '-C', SAMPLES_ROOT], { stdio: 'inherit' });
+  if (r.status !== 0 && archive.endsWith('.7z')) r = spawnSync('7z', ['x', '-y', `-o${SAMPLES_ROOT}`, archive], { stdio: 'inherit' });
+  if (r.status !== 0) throw new Error(`could not unpack ${archive} (need tar with 7z support, or 7z)`);
+}
+
+mkdirSync(SAMPLES_ROOT, { recursive: true });
+for (const [which, inst] of Object.entries(INSTRUMENTS)) {
+  if (SampledPiano.available(which)) {
+    console.log(`${which}: already installed (${join(SAMPLES_ROOT, inst.dir)})`);
+    continue;
+  }
+  const archive = join(SAMPLES_ROOT, inst.archive);
+  if (!existsSync(archive)) await download(inst.url, archive);
+  unpack(archive);
+  if (!SampledPiano.available(which)) throw new Error(`unpacked, but ${join(SAMPLES_ROOT, inst.dir, inst.sfz)} is missing`);
+  console.log(`${which}: installed -- ${inst.credit}`);
+}
+console.log('Both pianos from https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html');

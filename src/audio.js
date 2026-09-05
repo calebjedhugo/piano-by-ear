@@ -1,15 +1,17 @@
 // Headless audio, all scheduled on the AudioContext clock so the grid is
 // sample-accurate rather than setTimeout-accurate.
 //
-// Two instruments, two roles:
-//   - YOUR keys play a real piano: the Salamander Grand sample set once it has
-//     been fetched (src/sampler.js), else resound-sound's additive Piano. A
-//     key rings while it is down and is damped when it comes up, so what you
-//     hear tracks how long you actually held the note.
-//   - THE SYSTEM's call is a sustained, hollow reed-like tone whose partials
-//     sit on exact harmonics. Nothing in it beats or wobbles, so a held call
-//     note sounds like one note for its whole length -- the rhythm you are
-//     asked to copy is only ever in the onsets.
+// A teacher's studio with two pianos (src/sampler.js):
+//   - YOU play the grand (the Salamander sample set), a little to the right.
+//     A key rings while it is down and is damped when it comes up, so what
+//     you hear tracks how long you actually held the note.
+//   - THE TEACHER plays the call on the upright (Upright Piano KW), off to
+//     the left: the same kind of instrument, a different piano, a different
+//     place in the room, so the call is as real as your answer and still
+//     unmistakably not yours.
+// Until the sample sets are fetched (npm run fetch-samples) both fall back to
+// synths: resound-sound's additive Piano for you, an exact-harmonic reed tone
+// for the call (nothing in it beats, so a held note never sounds like two).
 import { AudioContext } from 'node-web-audio-api';
 import { Piano, audioContextManager } from 'resound-sound';
 import { SampledPiano } from './sampler.js';
@@ -19,6 +21,10 @@ import { SampledPiano } from './sampler.js';
 const HOLD_MS = 12000;
 // Never cut a strike shorter than this: a tapped key still sounds the hammer.
 const MIN_STRIKE_S = 0.03;
+// Where the two pianos sit in the room, and the upright's level against the grand.
+const STUDENT_PAN = 0.15;
+const TEACHER_PAN = -0.5;
+const TEACHER_TRIM = 0.6; // measured: the upright peaks ~1.55x the grand at equal velocity
 
 export function midiToHz(note) {
   return 440 * 2 ** ((note - 69) / 12);
@@ -42,7 +48,8 @@ export class Audio {
     this.piano.limiter.connect(this.master);
 
     this.voices = new Map(); // midi -> the synth note's graph while the key is down
-    this.sampled = null; // SampledPiano once load() finds the sample set
+    this.sampled = null; // your grand, once load() finds its samples
+    this.teacher = null; // the teacher's upright, likewise
   }
 
   /**
@@ -51,11 +58,21 @@ export class Audio {
    * meanwhile, so this can run while the MIDI port is already open.
    */
   async load({ lo = 21, hi = 108 } = {}) {
-    if (!SampledPiano.available()) return { voice: 'synth', detail: 'resound-sound piano (run "npm run fetch-samples" for the sampled grand)' };
-    const sampled = new SampledPiano(this.ctx, this.master);
-    const stats = await sampled.load({ lo, hi });
-    this.sampled = sampled;
-    return { voice: 'sampled', detail: `Salamander Grand Piano, ${stats.files} samples decoded in ${stats.ms} ms` };
+    const parts = [];
+    if (SampledPiano.available('grand')) {
+      const grand = new SampledPiano(this.ctx, this.master, 'grand', { pan: STUDENT_PAN });
+      const s = await grand.load({ lo, hi });
+      this.sampled = grand;
+      parts.push(`you: Salamander grand (${s.files} samples, ${s.ms} ms)`);
+    } else parts.push('you: resound-sound synth piano');
+    if (SampledPiano.available('upright')) {
+      const upright = new SampledPiano(this.ctx, this.master, 'upright', { pan: TEACHER_PAN, volume: TEACHER_TRIM });
+      const s = await upright.load({ lo, hi });
+      this.teacher = upright;
+      parts.push(`teacher: Kawai upright (${s.files} samples, ${s.ms} ms)`);
+    } else parts.push('teacher: reed synth');
+    const missing = !this.sampled || !this.teacher;
+    return { voice: missing ? 'partly synth' : 'sampled', detail: parts.join('; ') + (missing ? ' -- run "npm run fetch-samples" for the real pianos' : '') };
   }
 
   get now() {
@@ -63,7 +80,8 @@ export class Audio {
   }
 
   /**
-   * The SYSTEM's voice (the call). Exact-harmonic partials (triangle
+   * The TEACHER's voice (the call): the upright, scheduled on the clock.
+   * Fallback: exact-harmonic partials (triangle
    * fundamental, a sine octave and double octave) with a soft onset, held at
    * level for `duration` seconds and then released: a steady tone whose length
    * you can hear, and clearly not the piano you play. `duration` in s, capped.
@@ -71,6 +89,7 @@ export class Audio {
   note(midi, { at = this.now, velocity = 100, duration = 1.2 } = {}) {
     const start = Math.max(at, this.now);
     const dur = Math.max(0.15, Math.min(2.0, duration));
+    if (this.teacher && this.teacher.play(midi, velocity, start, dur)) return;
     const hz = midiToHz(midi);
     const amp = 0.16 * (velocity / 127) ** 1.5;
     const attack = 0.012;
@@ -175,6 +194,7 @@ export class Audio {
     for (const midi of [...this.voices.keys()]) this.stopVoice(midi, 0.01);
     this.piano.stopAll(0.01);
     this.sampled?.stopAll();
+    this.teacher?.stopAll();
     await this.ctx.close();
   }
 }

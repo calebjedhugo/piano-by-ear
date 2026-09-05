@@ -71,23 +71,27 @@ Requires Node 22.5+ (uses `node:sqlite`). Audio is produced in-process by
 [node-web-audio-api](https://github.com/ircam-ismm/node-web-audio-api);
 MIDI input via [@julusian/midi](https://github.com/Julusian/node-midi).
 
-Two voices, so you always know who is playing. Your keys play a real piano:
-the [Salamander Grand Piano](https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html)
-sample set (a Yamaha C5 by Alexander Holm, CC BY 3.0). Fetch it once with
+It sounds like a teacher's studio with two pianos. You play a grand, the
+[Salamander Grand Piano](https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html)
+sample set (a Yamaha C5 by Alexander Holm, CC BY 3.0), a little to your
+right. The teacher plays the call on an upright, the Upright Piano KW set
+(a Kawai in a living room, FreePats, CC0), off to your left: the same kind
+of instrument, a different piano in a different place, so the call is as
+real as your answer and never mistaken for it. Fetch both once with
 
 ```bash
 npm run fetch-samples
 ```
 
-which downloads about 410 MB into `~/.piano-by-ear/samples`; the drill then
-decodes four of its sixteen velocity layers at startup (about a second and
-a few hundred MB of memory). Until the set is fetched your keys play the
-additive piano from [resound-sound](https://www.npmjs.com/package/resound-sound)
-instead. Either way a key rings while it is down and is damped when it
-comes up, with the real hammer-release noise on the sampled piano. The system's
-call is a steady reed-like tone built only from exact harmonics, so nothing
-in it beats or wobbles; each call note sounds for its written length with a
-small articulation gap before the next, and the rhythm you copy is carried
+which downloads about 450 MB into `~/.piano-by-ear/samples`; the drill then
+decodes four of the grand's sixteen velocity layers and the whole upright
+at startup (about a second, and roughly half a GB of memory). Until the
+sets are fetched you get synths instead: the additive piano from
+[resound-sound](https://www.npmjs.com/package/resound-sound) for your keys
+and an exact-harmonic reed tone for the call. Either way a key rings while
+it is down and is damped when it comes up (with the real hammer-release
+noise on the grand), and each call note sounds for its written length with
+a small articulation gap before the next, so the rhythm you copy is carried
 by the onsets alone.
 
 ## Key range

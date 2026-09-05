@@ -21,14 +21,18 @@ opens every input port.
 ## Layout
 
 - `src/main.js`   wiring, SIGINT shutdown (silent stop, close audio then DB).
-- `src/audio.js`  two voices on one AudioContext: the player's keys strike
-  the Salamander sample set (`src/sampler.js`, in `~/.piano-by-ear/samples`
-  via `npm run fetch-samples`; NOT in the repo) or, until fetched,
-  resound-sound's Piano (`audioContextManager.context` is set to ours before
-  construction). `startVoice`/`stopVoice` = key down/up, damped on release;
-  the call (`note()`) is a sustained exact-harmonic tone. NEVER give the call
-  detuned partials (a 3.01x partial beat against the triangle's 3x harmonic
-  and read as a stutter). Call notes are articulated in `beginQuestion`.
+- `src/audio.js`  two pianos on one AudioContext (`src/sampler.js`,
+  samples in `~/.piano-by-ear/samples` via `npm run fetch-samples`; NOT in
+  the repo): the player's keys strike the Salamander grand (pan +0.15,
+  `startVoice`/`stopVoice` = key down/up, damped on release); the call
+  (`note()`) plays the Upright Piano KW (pan -0.5, trim 0.6) via
+  `SampledPiano.play(key, vel, at, dur)`, scheduled on the clock and
+  independent of the key-down voices. Fallbacks until fetched: resound-sound's
+  Piano (`audioContextManager.context` set to ours first) and an
+  exact-harmonic reed tone -- NEVER give a synth call detuned partials (a
+  3.01x partial beat against the triangle's 3x harmonic and read as a
+  stutter). `parseSfz` handles both sfz layouts (opcodes across lines,
+  group/global inheritance, loops). Call notes are articulated in `beginQuestion`.
 - `src/drill.js`  state machine + teacher. Read its header comment first.
   Question = `{kind, call, graded, durs, meter, gradeFrom}`. THE RESPONSE IS
   A CANON: the click grid is a constant pulse (nextBarAt only advances by
