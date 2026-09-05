@@ -14,7 +14,8 @@
   "private": "false",
   "dependencies": {
     "@julusian/midi": "^3.8.1",
-    "node-web-audio-api": "^2.2.0"
+    "node-web-audio-api": "^2.2.0",
+    "resound-sound": "^0.2.0"
   },
   "bin": {
     "piano-by-ear": "src/main.js"

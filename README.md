@@ -16,18 +16,17 @@ only ever touch the keys.
    expected at the phrase's own rhythm relative to it. The first note is the
    anchor you already know, so you may echo it or skip straight to the
    second note.
-4. Every note is graded on pitch and on timing against the pulse, the first
-   note included: if the phrase starts an eighth off the beat, you play it an
-   eighth off the beat. Right pitch, in time: a soft chime. Right pitch but
-   early or late: a short glide, falling if early, rising if late. Wrong
-   pitch: a low buzz, the beat keeps going, keep trying. After two misses the
-   app plays the note for you; after six it moves on.
+4. Every note is graded on pitch, on its onset against the pulse (the
+   first note included: if the phrase starts an eighth off the beat, you
+   play it an eighth off the beat), and on how long you hold it. There is
+   no feedback while you play. It is a conversation: the reply is the next
+   question. An interval you missed comes back as a remediation drill; a
+   passage with errors comes back two questions later.
 5. Three clean answers in a row earn a **real passage**: a Bach chorale
-   phrase or a bit of a Mozart sonata, announced by a two-note cue, played
-   in its own meter starting on your anchor. Play the whole thing back in
-   time, one phrase-length later. A rising arpeggio means you played it
-   clean; a single tone means it counted but had errors, and it will come
-   back a couple of questions later.
+   phrase or a bit of a Mozart sonata, played in its own meter starting on
+   your anchor. Play the whole thing back in time, following the call. The
+   next call always starts on a bar line at least two beats after your last
+   key press, so it never lands on top of you.
 6. Ten seconds of silence, once an answer was possible, ends the session.
    Play a note to start another.
 
@@ -65,6 +64,14 @@ npm start
 Requires Node 22.5+ (uses `node:sqlite`). Audio is produced in-process by
 [node-web-audio-api](https://github.com/ircam-ismm/node-web-audio-api);
 MIDI input via [@julusian/midi](https://github.com/Julusian/node-midi).
+
+Two voices, so you always know who is playing. Your keys play the additive
+concert-grand piano from [resound-sound](https://www.npmjs.com/package/resound-sound):
+a key rings while it is down and is damped when it comes up. The system's
+call is a steady reed-like tone built only from exact harmonics, so nothing
+in it beats or wobbles; each call note sounds for its written length with a
+small articulation gap before the next, and the rhythm you copy is carried
+by the onsets alone.
 
 ## Key range
 

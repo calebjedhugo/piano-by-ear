@@ -21,6 +21,12 @@ opens every input port.
 ## Layout
 
 - `src/main.js`   wiring, SIGINT shutdown (silent stop, close audio then DB).
+- `src/audio.js`  two voices on one AudioContext: the player's keys strike
+  resound-sound's Piano (`startVoice`/`stopVoice` = key down/up, damped on
+  release; `audioContextManager.context` is set to ours before construction);
+  the call (`note()`) is a sustained exact-harmonic tone. NEVER give the call
+  detuned partials (a 3.01x partial beat against the triangle's 3x harmonic
+  and read as a stutter). Call notes are articulated in `beginQuestion`.
 - `src/drill.js`  state machine + teacher. Read its header comment first.
   Question = `{kind, call, graded, durs, meter, gradeFrom}`. THE RESPONSE IS
   A CANON: the click grid is a constant pulse (nextBarAt only advances by

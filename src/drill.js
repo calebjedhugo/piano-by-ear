@@ -47,6 +47,10 @@ const TIMEOUT_MS = 10000;
 const MIN_VELOCITY = 20; // key brushes are echoed but never graded
 const SCHEDULE_AHEAD_S = 0.15;
 const TICK_MS = 25;
+// Articulation between consecutive call notes: at least this long, or this
+// fraction of the gap between their onsets.
+const CALL_GAP_MIN_S = 0.03;
+const CALL_GAP_FRAC = 0.12;
 const STREAK_FOR_PASSAGE = 3;
 const CLEAN_NOTES_FOR_PASSAGE = 6; // clean graded notes (any kind) also earn a passage
 const RETRY_AFTER_QUESTIONS = 2;
@@ -278,7 +282,19 @@ export class Drill {
     this.engine.beginQuestion();
     this.meter = q.meter;
     const t0 = this.nextBarAt;
-    this.callNotes = q.call.map(([midi, b], i) => [midi, t0 + b * this.beat, Math.min(2, q.durs[i] * this.beat)]);
+    // Each call note sounds for its written length, but never into the next
+    // note: a short articulation gap before every onset keeps a fast note
+    // short and a repeated pitch a clear re-attack, so the rhythm is unambiguous.
+    this.callNotes = q.call.map(([midi, b], i) => {
+      const at = t0 + b * this.beat;
+      let dur = Math.min(2, q.durs[i] * this.beat);
+      const next = q.call[i + 1];
+      if (next) {
+        const gap = (next[1] - b) * this.beat;
+        dur = Math.min(dur, gap - Math.max(CALL_GAP_MIN_S, CALL_GAP_FRAC * gap));
+      }
+      return [midi, at, Math.max(0.05, dur)];
+    });
     this.callScheduled = 0;
     const lastCall = this.callNotes[this.callNotes.length - 1];
     this.callEndAt = lastCall[1] + Math.max(lastCall[2], this.beat);
@@ -342,6 +358,9 @@ export class Drill {
     }
     while (this.callScheduled < this.callNotes.length && this.callNotes[this.callScheduled][1] < horizon) {
       const [midi, at, duration] = this.callNotes[this.callScheduled];
+      // A note whose time has already passed (the event loop stalled past the
+      // lookahead) plays now, bunched against its neighbour; say so in the log.
+      if (at < now - 0.005) this.log(`  call note ${this.callScheduled + 1} late by ${Math.round((now - at) * 1000)}ms`);
       this.audio.note(midi, { at: Math.max(at, now), velocity: 90, duration });
       this.callScheduled += 1;
     }
