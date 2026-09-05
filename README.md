@@ -25,8 +25,9 @@ only ever touch the keys.
 5. Three clean answers in a row earn a **real passage**: a Bach chorale
    phrase or a bit of a Mozart sonata, played in its own meter starting on
    your anchor. Play the whole thing back in time, following the call. The
-   next call always starts on a bar line at least two beats after your last
-   key press, so it never lands on top of you.
+   reply is the next question, and it comes on the first click after one
+   beat of silence: no key down, nothing pressed or released. No call ever
+   contains a beat of silence itself, so silence always means "I am done".
 6. Ten seconds of silence, once an answer was possible, ends the session.
    Play a note to start another.
 
@@ -65,9 +66,20 @@ Requires Node 22.5+ (uses `node:sqlite`). Audio is produced in-process by
 [node-web-audio-api](https://github.com/ircam-ismm/node-web-audio-api);
 MIDI input via [@julusian/midi](https://github.com/Julusian/node-midi).
 
-Two voices, so you always know who is playing. Your keys play the additive
-concert-grand piano from [resound-sound](https://www.npmjs.com/package/resound-sound):
-a key rings while it is down and is damped when it comes up. The system's
+Two voices, so you always know who is playing. Your keys play a real piano:
+the [Salamander Grand Piano](https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html)
+sample set (a Yamaha C5 by Alexander Holm, CC BY 3.0). Fetch it once with
+
+```bash
+npm run fetch-samples
+```
+
+which downloads about 410 MB into `~/.piano-by-ear/samples`; the drill then
+decodes four of its sixteen velocity layers at startup (about a second and
+a few hundred MB of memory). Until the set is fetched your keys play the
+additive piano from [resound-sound](https://www.npmjs.com/package/resound-sound)
+instead. Either way a key rings while it is down and is damped when it
+comes up, with the real hammer-release noise on the sampled piano. The system's
 call is a steady reed-like tone built only from exact harmonics, so nothing
 in it beats or wobbles; each call note sounds for its written length with a
 small articulation gap before the next, and the rhythm you copy is carried
@@ -96,3 +108,15 @@ their meter and pickup, and accompaniment figures are filtered out.
 pitch, velocity, onset error against the beat, first attempt or retry, the
 question kind and phrase, and whether it was graded and in time. The engine
 state, per-controller ranges and passage history live in the `kv` table.
+
+## Not yet: polyphony
+
+Everything is monophonic today: one voice of a chorale or sonata, graded
+note by note. The stated goal is to hear any combination of notes and play
+it back, so the intended path, none of it built, is: two voices (soprano
+and bass of the same chorale bar, graded as two lines), then full four-part
+chorale chords (the corpus already holds all four voices of every Bach
+chorale; only the extractor keeps one), then contrapuntal passages such as
+fugue subject-plus-answer. Each stage would unlock the way passages do now,
+from a sustained clean record at the stage before it, and grading would
+group notes struck within a few tens of milliseconds as one chord.

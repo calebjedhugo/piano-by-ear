@@ -69,6 +69,7 @@ const midi = new Midi({
 midi.debug = args['debug-midi'];
 
 log(`piano-by-ear  ${phrases.size} passages  db: ${args.db}`);
+audio.load().then(({ detail }) => log(`voice: ${detail}`), (err) => log(`voice: synth (samples failed to load: ${err.message})`));
 midi.start();
 if (midi.portNames.length === 0) log('no MIDI inputs yet; plug in a controller (polling every 2s)');
 log('play any note to start a session');

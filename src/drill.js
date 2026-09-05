@@ -57,7 +57,7 @@ const RETRY_AFTER_QUESTIONS = 2;
 const REMEDIATE_MAX_PER_PASSAGE = 2;
 const MAX_PASSAGES_IN_A_ROW = 3; // interval questions are what move the tier ladder
 const DEBOUNCE_S = 0.06;
-const QUIET_BEATS_BEFORE_NEXT = 2; // the next call waits this long after your LAST key press
+const QUIET_BEATS_BEFORE_NEXT = 1; // the next call starts on the first click after this much silence
 // Note duration: a held note should last about its written value. Cutting
 // it below half, or holding it past 1.5x plus a pad, is a defect. A note
 // still held when the question finalizes is never penalized (holding the
@@ -81,6 +81,8 @@ export class Drill {
    * @param {number} [deps.bpmOverride]  debugging only
    */
   constructor({ audio, db, range, makeEngine, phrases, log, bpmOverride = null }) {
+    this.keysDown = new Set(); // every key currently down, graded or not
+    this.lastReleasedAt = null; // audio time of the last key-up
     this.audio = audio;
     this.db = db;
     this.range = range;
@@ -112,6 +114,7 @@ export class Drill {
 
   onNoteOn({ note, velocity, at, port }) {
     this.audio.startVoice(note, velocity);
+    this.keysDown.add(note);
     if (port && port !== this.range.portName) this.range.setPort(port);
     if (this.range.observe(note)) {
       this.rangeDirty = true;
@@ -208,9 +211,10 @@ export class Drill {
   intervalQuestion(kind, target) {
     return {
       kind,
+      // The anchor rings until the target: a call never holds a beat of silence.
       call: [[this.anchor, 0], [target, 2]],
       graded: [[this.anchor, 0], [target, 2]],
-      durs: [1, 1],
+      durs: [2, 1],
       meter: 4,
       gradeFrom: 1,
       label: `${kind === 'interval' ? '' : `${kind}: `}${name(this.anchor)} -> ? (${signed(target - this.anchor)})`,
@@ -365,13 +369,18 @@ export class Drill {
       this.callScheduled += 1;
     }
     if (this.answered) {
-      // Never ask on top of the player: the next call starts on the first bar
-      // line at least QUIET_BEATS_BEFORE_NEXT beats after their last key press.
-      const quietUntil = (this.lastPlayedAt ?? -Infinity) + QUIET_BEATS_BEFORE_NEXT * this.beat;
-      if (quietUntil > this.nextQuestionAt) {
-        const barLen = this.meter * this.beat;
-        const n = Math.ceil((quietUntil - this.nextBarAt) / barLen - 1e-6);
-        this.nextQuestionAt = this.nextBarAt + n * barLen;
+      // The reply comes as soon as you have been silent for a beat: no key
+      // down, nothing pressed or released for QUIET_BEATS_BEFORE_NEXT beats.
+      // The next call starts on the first click after that. The pulse itself
+      // never moves; only the bar's accent pattern restarts there.
+      if (this.keysDown.size === 0) {
+        const quietSince = Math.max(this.lastPlayedAt ?? -Infinity, this.lastReleasedAt ?? -Infinity);
+        // A release within the timing tolerance after a click counts as on it.
+        const earliest = quietSince - this.toleranceMs / 1000 + QUIET_BEATS_BEFORE_NEXT * this.beat;
+        const n = Math.ceil((earliest - this.nextBarAt) / this.beat - 1e-6);
+        this.nextQuestionAt = this.nextBarAt + n * this.beat;
+      } else {
+        this.nextQuestionAt = Infinity;
       }
       if (now >= this.nextQuestionAt - SCHEDULE_AHEAD_S) {
         if (this.awaitingFinalize) this.finalizeQuestion();
@@ -416,6 +425,8 @@ export class Drill {
   /** A key was released: grade how long the matching note was held. */
   onNoteOff({ note, at }) {
     this.audio.stopVoice(note); // always release the sound, even when not grading
+    this.keysDown.delete(note);
+    this.lastReleasedAt = this.perfToAudio(at);
     if (this.state !== 'QUESTION') return;
     const h = this.held.get(note);
     if (!h) return;
@@ -509,13 +520,8 @@ export class Drill {
     const n = this.expected.length;
     this.prevAnchor = n >= 2 ? this.expected[n - 2].midi : this.anchor;
     this.anchor = exp.midi;
-    // Next question on the first bar line at least one beat after the last
-    // answer (judged on the EXPECTED onset unless the answer was really late),
-    // plus a breathing bar after a passage.
-    const barLen = this.meter * this.beat;
-    const ref = Math.max(exp.at, atAudio - this.toleranceMs / 1000);
-    const barsAhead = Math.ceil((ref + this.beat - this.nextBarAt) / barLen - 1e-6);
-    this.nextQuestionAt = this.nextBarAt + (Math.max(1, barsAhead) + (this.q.phrase ? 1 : 0)) * barLen;
+    // When the next question starts is decided in tick(): a beat of silence.
+    this.nextQuestionAt = Infinity;
     if (this.held.size === 0) this.finalizeQuestion();
   }
 

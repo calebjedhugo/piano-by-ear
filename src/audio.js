@@ -2,16 +2,17 @@
 // sample-accurate rather than setTimeout-accurate.
 //
 // Two instruments, two roles:
-//   - YOUR keys play resound-sound's Piano (the additive concert-grand model
-//     used by the ear-training site). A key rings like a real string while it
-//     is down and is damped when it comes up, so what you hear tracks how long
-//     you actually held the note.
+//   - YOUR keys play a real piano: the Salamander Grand sample set once it has
+//     been fetched (src/sampler.js), else resound-sound's additive Piano. A
+//     key rings while it is down and is damped when it comes up, so what you
+//     hear tracks how long you actually held the note.
 //   - THE SYSTEM's call is a sustained, hollow reed-like tone whose partials
 //     sit on exact harmonics. Nothing in it beats or wobbles, so a held call
 //     note sounds like one note for its whole length -- the rhythm you are
 //     asked to copy is only ever in the onsets.
 import { AudioContext } from 'node-web-audio-api';
 import { Piano, audioContextManager } from 'resound-sound';
+import { SampledPiano } from './sampler.js';
 
 // A held key rings this long before the model's own damper; releasing the key
 // damps it much sooner (stopVoice), so this only bounds a key left down.
@@ -40,7 +41,21 @@ export class Audio {
     this.piano.limiter.disconnect();
     this.piano.limiter.connect(this.master);
 
-    this.voices = new Map(); // midi -> the piano note's graph while the key is down
+    this.voices = new Map(); // midi -> the synth note's graph while the key is down
+    this.sampled = null; // SampledPiano once load() finds the sample set
+  }
+
+  /**
+   * Load the sampled piano if the sample set is present. Resolves to a short
+   * description of the voice in use either way; the synth keeps working
+   * meanwhile, so this can run while the MIDI port is already open.
+   */
+  async load({ lo = 21, hi = 108 } = {}) {
+    if (!SampledPiano.available()) return { voice: 'synth', detail: 'resound-sound piano (run "npm run fetch-samples" for the sampled grand)' };
+    const sampled = new SampledPiano(this.ctx, this.master);
+    const stats = await sampled.load({ lo, hi });
+    this.sampled = sampled;
+    return { voice: 'sampled', detail: `Salamander Grand Piano, ${stats.files} samples decoded in ${stats.ms} ms` };
   }
 
   get now() {
@@ -88,6 +103,7 @@ export class Audio {
    * up. Retriggering the same pitch restrikes it.
    */
   startVoice(midi, velocity = 100) {
+    if (this.sampled && this.sampled.startVoice(midi, velocity)) return;
     this.stopVoice(midi, 0.01);
     const before = this.piano.activeOscillators;
     const seen = new Set(before);
@@ -98,6 +114,7 @@ export class Audio {
 
   /** Damper: release a held key's note with a fast fade. */
   stopVoice(midi, release = 0.08) {
+    if (this.sampled && this.sampled.stopVoice(midi)) return;
     const v = this.voices.get(midi);
     if (!v) return;
     this.voices.delete(midi);
@@ -157,6 +174,7 @@ export class Audio {
   async close() {
     for (const midi of [...this.voices.keys()]) this.stopVoice(midi, 0.01);
     this.piano.stopAll(0.01);
+    this.sampled?.stopAll();
     await this.ctx.close();
   }
 }

@@ -22,15 +22,21 @@ opens every input port.
 
 - `src/main.js`   wiring, SIGINT shutdown (silent stop, close audio then DB).
 - `src/audio.js`  two voices on one AudioContext: the player's keys strike
-  resound-sound's Piano (`startVoice`/`stopVoice` = key down/up, damped on
-  release; `audioContextManager.context` is set to ours before construction);
+  the Salamander sample set (`src/sampler.js`, in `~/.piano-by-ear/samples`
+  via `npm run fetch-samples`; NOT in the repo) or, until fetched,
+  resound-sound's Piano (`audioContextManager.context` is set to ours before
+  construction). `startVoice`/`stopVoice` = key down/up, damped on release;
   the call (`note()`) is a sustained exact-harmonic tone. NEVER give the call
   detuned partials (a 3.01x partial beat against the triangle's 3x harmonic
   and read as a stutter). Call notes are articulated in `beginQuestion`.
 - `src/drill.js`  state machine + teacher. Read its header comment first.
   Question = `{kind, call, graded, durs, meter, gradeFrom}`. THE RESPONSE IS
   A CANON: the click grid is a constant pulse (nextBarAt only advances by
-  whole bars, never moves to the player). `startResponse()` fires on the
+  whole bars, never moves to the player). The next question starts on the
+  first click >= one beat after the last key press/release with no key down
+  (tick(), QUIET_BEATS_BEFORE_NEXT); calls must never contain a beat of
+  silence (interval anchor rings until the target; phrases with a rest >= 1
+  beat are dropped in PhraseBank). `startResponse()` fires on the
   player's first note, snaps it to a whole number of beats behind the call
   (>=1), and sets `expected[k].at = callNotes[k].time + N*beat`, preserving
   the phrase's exact sub-beat rhythm. The first note's onset is graded too,

@@ -16,6 +16,8 @@ import { REVIEW_FULL_MS } from './engine.js';
 const CORPUS_PATH = fileURLToPath(new URL('../corpus/phrases.json', import.meta.url));
 const FAILED_BOOST = 1.6;
 
+const MAX_REST_BEATS = 1;
+
 export class PhraseBank {
   /**
    * @param {object} opts
@@ -30,7 +32,12 @@ export class PhraseBank {
         const intervals = [];
         for (let i = 1; i < midis.length; i += 1) if (midis[i] !== midis[i - 1]) intervals.push(midis[i] - midis[i - 1]);
         const last = p.notes[p.notes.length - 1];
+        let maxRest = 0;
+        for (let i = 1; i < p.notes.length; i += 1) {
+          maxRest = Math.max(maxRest, p.notes[i][1] - (p.notes[i - 1][1] + p.notes[i - 1][2]));
+        }
         return {
+          maxRest,
           ...p,
           min: Math.min(...midis),
           max: Math.max(...midis),
@@ -40,6 +47,9 @@ export class PhraseBank {
           lastRel: last[0] - midis[0],
         };
       });
+    // A call never holds a beat of silence (a beat of silence is what asks
+    // for the next question), so phrases with such a rest are never asked.
+    this.phrases = this.phrases.filter((p) => p.maxRest < MAX_REST_BEATS);
     this.byId = new Map(this.phrases.map((p) => [p.id, p]));
     this.store = store;
     this.stats = store.load() || {};
