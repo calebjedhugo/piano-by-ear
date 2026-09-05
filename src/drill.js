@@ -38,11 +38,11 @@
 //             from the previous note in its voice (melodic engine) and the
 //             interval above its chord's bass (harmonic engine). There are
 //             no retries and NO feedback sounds: the reply is the next
-//             question. A BEAT OF SILENCE MEANS YOU ARE DONE: after the last
+//             question, anchored on the last note you actually played (right
+//             or wrong). A BEAT OF SILENCE MEANS YOU ARE DONE: after the last
 //             note the next question comes on the following click; before
 //             the last note, whatever is left is missed and the next question
-//             comes anyway. The top note of the last group becomes the next
-//             anchor. Ten seconds with no response at all ends the session.
+//             comes anyway. Ten seconds with no response at all ends the session.
 //
 // The ONLY sounds are the metronome, the call (the system's turn), the piano
 // under your keys (the controller has no sound of its own), and a two-note
@@ -459,7 +459,7 @@ export class Drill {
         g = { b: n.b, notes: [], at: null, acceptFrom: null, gapMs: null };
         groups.push(g);
       }
-      g.notes.push({ midi: n.midi, dur: n.dur, voice: n.voice, free: Boolean(n.free), done: false, melodicFrom: null, melodicPrev: null, harmonicFrom: null, graded: false });
+      g.notes.push({ midi: n.midi, dur: n.dur, voice: n.voice, free: Boolean(n.free), done: false, played: null, melodicFrom: null, melodicPrev: null, harmonicFrom: null, graded: false });
     }
     const lastInVoice = new Map(); // voice -> [prev, prevPrev] midis
     for (let gi = 0; gi < groups.length; gi += 1) {
@@ -675,6 +675,7 @@ export class Drill {
     }
     this.gradeNote(g, exp, note, velocity, atAudio, correct);
     exp.done = true;
+    exp.played = note;
     if (pending(g).every((e) => e.free)) {
       for (const e of g.notes) e.done = true;
       this.gi += 1;
@@ -772,8 +773,14 @@ export class Drill {
   completeQuestion() {
     this.answered = true;
     this.awaitingFinalize = true;
+    // The conversation continues from where your hands actually are: the
+    // highest note you PLAYED in the last group, right or wrong (the written
+    // note only if you played nothing there).
     const n = this.groups.length;
-    const top = (grp) => Math.max(...grp.notes.map((e) => e.midi));
+    const top = (grp) => {
+      const played = grp.notes.filter((e) => e.played !== null).map((e) => e.played);
+      return Math.max(...(played.length ? played : grp.notes.map((e) => e.midi)));
+    };
     this.prevAnchor = n >= 2 ? top(this.groups[n - 2]) : this.anchor;
     this.anchor = top(this.groups[n - 1]);
     // When the next question starts is decided in tick(): a beat of silence.

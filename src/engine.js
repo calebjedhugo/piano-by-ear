@@ -38,6 +38,7 @@ const CONFUSION_THRESHOLD = 2;
 const DISCRIMINATION_RUN = 4;
 export const WARMUP_QUESTIONS = 5;
 const CELL_SHRINK_K = 4;
+const LOCKED_SCORE = 0.25; // phrase score for an interval outside the unlocked tiers
 const DEFAULT_STATS = Object.freeze({ acc: 0.5, n: 0, rt: null, last: 0 });
 
 const WHITE_PCS = new Set([0, 2, 4, 5, 7, 9, 11]);
@@ -259,6 +260,9 @@ export class AdaptiveEngine {
    */
   scoreInterval(interval, now) {
     if (!ASKABLE.has(Math.abs(interval))) return 0.15;
+    // Beyond the unlocked tiers: not "unseen, explore" but "not yet", so
+    // passages stay a step ahead of the drills rather than several.
+    if (!this.openInPassage(interval)) return LOCKED_SCORE;
     const parent = this.peekStats(interval);
     const cell = this.state.cells[`${AdaptiveEngine.key(interval)}|src:passage`];
     if (cell && cell.n >= 3) {
@@ -334,6 +338,16 @@ export class AdaptiveEngine {
       scope: this.lastScope,
       tapped: confuse ? playedIndex - anchorIndex : 0,
     };
+  }
+
+  /**
+   * May a passage lean on this interval? Unlocked widths, plus the whole
+   * step: the ladder names it late (it is hard to identify cold) but it is
+   * the ordinary motion of every melody. Semitones stay gated, so chromatic
+   * lines wait for the ladder.
+   */
+  openInPassage(interval) {
+    return Math.abs(interval) === 2 || this.unlockedWidth(interval);
   }
 
   /** Widths currently in play (unlocked tiers), for gating discrimination. */

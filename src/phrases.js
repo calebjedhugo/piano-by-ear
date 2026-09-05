@@ -17,6 +17,14 @@ import { REVIEW_FULL_MS } from './engine.js';
 export const MONO_PATH = fileURLToPath(new URL('../corpus/phrases.json', import.meta.url));
 export const POLY_PATH = fileURLToPath(new URL('../corpus/poly.json', import.meta.url));
 const FAILED_BOOST = 1.6;
+// Each melodic interval not open for passages (engine.openInPassage: locked
+// leaps and semitones) and each harmonic interval outside the harmonic
+// engine's tiers multiplies a phrase's weight by this, on top of its low
+// score, so a chromatic line waits for the ladder to reach semitones.
+const LOCKED_PENALTY = 0.6;
+// Consecutive semitones (a chromatic run) are the thing that actually fails;
+// each adjacent pair multiplies the weight by this as well.
+const CHROMATIC_PENALTY = 0.3;
 // A call never holds a beat of silence (a beat of silence is what asks for
 // the next question), so phrases with such a rest are never asked.
 const MAX_REST_BEATS = 1;
@@ -100,6 +108,11 @@ export class PhraseBank {
           }
         }
         let w = n > 0 ? 0.5 * max + 0.5 * (sum / n) : 1;
+        let locked = 0;
+        for (const iv of phrase.melodic) if (!engine.openInPassage(iv)) locked += 1;
+        if (harmonic) for (const iv of phrase.harmonic) if (!harmonic.unlockedWidth(iv)) locked += 1;
+        w *= LOCKED_PENALTY ** locked;
+        if (!engine.unlockedWidth(1)) w *= CHROMATIC_PENALTY ** phrase.chromatic;
         if (st && !st.clean) w *= FAILED_BOOST;
         const lastNote = phrase.notes[phrase.pivot][0] + phrase.lastRel + shift;
         w *= engine.centerPull(anchor - lo, lastNote - lo);
@@ -158,9 +171,18 @@ function analyse(p) {
     byVoice.get(v).push(n);
   }
   const melodic = [];
+  let chromatic = 0; // adjacent semitone pairs within a voice
   for (const notes of byVoice.values()) {
     notes.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
-    for (let i = 1; i < notes.length; i += 1) if (notes[i][0] !== notes[i - 1][0]) melodic.push(notes[i][0] - notes[i - 1][0]);
+    let prevSemi = false;
+    for (let i = 1; i < notes.length; i += 1) {
+      if (notes[i][0] === notes[i - 1][0]) continue;
+      const iv = notes[i][0] - notes[i - 1][0];
+      melodic.push(iv);
+      const semi = Math.abs(iv) === 1;
+      if (semi && prevSemi) chromatic += 1;
+      prevSemi = semi;
+    }
   }
   // harmonic intervals: each chord note above its chord's bass
   const groups = new Map();
@@ -188,6 +210,7 @@ function analyse(p) {
     min: Math.min(...midis),
     max: Math.max(...midis),
     melodic,
+    chromatic,
     harmonic,
     minDur: Math.min(...p.notes.map((n) => n[2])),
     span: maxEnd,
