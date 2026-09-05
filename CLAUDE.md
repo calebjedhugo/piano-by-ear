@@ -22,7 +22,13 @@ opens every input port.
 
 - `src/main.js`   wiring, SIGINT shutdown (silent stop, close audio then DB).
 - `src/drill.js`  state machine + teacher. Read its header comment first.
-  Question = `{kind, call, graded, durs, meter, bars, restBars, gradeFrom}`.
+  Question = `{kind, call, graded, durs, meter, gradeFrom}`. THE RESPONSE IS
+  A CANON: the click grid is a constant pulse (nextBarAt only advances by
+  whole bars, never moves to the player). `startResponse()` fires on the
+  player's first note, snaps it to a whole number of beats behind the call
+  (>=1), and sets `expected[k].at = callNotes[k].time + N*beat`, preserving
+  the phrase's exact sub-beat rhythm. The first note's onset is graded too,
+  so an off-beat phrase played on the beat is a timing defect.
   Kinds: interval | discrimination | remediation | passage | retry.
   Selection order in `makeQuestion()`: discrimination queue, remediation
   queue (intervals missed inside passages), retry queue (failed passages,
@@ -32,12 +38,17 @@ opens every input port.
   45..110 ms and never more than 40% of the note's gap.
   Scheduling is on the AudioContext clock via a 25 ms ticker 150 ms ahead;
   the perf->audio offset is low-passed every tick (clocks drift ~1 ms/min).
-  Silence timeout counts from when an answer was first possible.
+  Silence timeout counts from call end and never runs while `answered` (the
+  wait between questions is not silence).
   `nextQ` is decided at answer time, never inside the tick.
 - `src/engine.js` AdaptiveEngine (ear-training port). Two evidence scopes:
   interval questions update parent stats/cells/confusions/tier controller;
   passage notes (`ask(..., {scope:'passage'})`) update only a
-  `+7|src:passage` cell. rt is NORMALIZED onset error (ms at 60 bpm),
+  `+7|src:passage` cell. Confusions decay each session, only drill widths in
+  unlocked tiers, never cascade (one run at a time), and clear on a clean
+  success. `inwardVariant()` keeps discrimination/remediation from walking
+  the anchor to an edge. `adopt()` carries the in-flight framing across a
+  mid-session range rebuild. rt is NORMALIZED onset error (ms at 60 bpm),
   `fluentMs` 120. `scoreInterval()` is the read-only scorer for phrases.
 - `src/phrases.js` PhraseBank: precomputed per-phrase min/max/intervals,
   `pick()` filters by max notes, fastest note at tempo, 3-day rest after a

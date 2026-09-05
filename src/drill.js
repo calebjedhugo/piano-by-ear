@@ -5,15 +5,19 @@
 //             the anchor and starts a session. Tempo for the session is
 //             chosen from your in-time history (see chooseTempo).
 //   QUESTION  metronome throughout. A question is a CALL (notes the app
-//             plays, spanning `bars` bars) followed, after any rest bar
-//             needed so the call has finished, by a RESPONSE of the same
-//             length in which you play the GRADED notes at the same beat
-//             positions. The response downbeat is a double tick.
-//               interval:  call = anchor on beat 1, target on beat 3 (one bar);
-//                          graded = the target only (the anchor is free).
+//             plays) and your RESPONSE: the same notes, same rhythm. THE
+//             RESPONSE STARTS WHEN YOU START PLAYING. You may follow the
+//             call one beat behind, like a canon, or wait as many clicks as
+//             you like; your first note snaps to the nearest click (keeping
+//             the phrase's own beat fraction), the rest of the phrase is
+//             expected relative to it, and the bar accents re-align to your
+//             entry. The first note is the anchor you already know, so it is
+//             free; you may also skip it and begin with the second note.
+//               interval:  call = anchor on beat 1, target on beat 3;
+//                          graded = the target.
 //               passage:   call = a real phrase transposed to start on the
 //                          anchor, in its own meter with its pickup;
-//                          graded = every note of it.
+//                          graded = every note after the first.
 //             WHICH KIND: a discrimination run or a remediation interval
 //             (an interval you missed inside a passage) always comes first;
 //             a passage you failed earlier is retried a couple of questions
@@ -23,15 +27,17 @@
 //             tier ladder (which only interval questions move) keeps rising.
 //             Passage length is capped by the engine's unlocked tiers and
 //             its fastest note by the session tempo.
-//             GRADING: each note-on is matched against the next graded note
-//             once its own accept window has opened (notes before that are
-//             free play). Right pitch -> onset error recorded, advance;
+//             GRADING: once the response has started each note-on is matched
+//             against the next expected note when its accept window (halfway
+//             back to the previous note) has opened; earlier notes are free.
+//             Right pitch -> onset error recorded, advance;
 //             wrong pitch -> miss (buzz), stay on that note, retries free.
 //             After 2 misses the app demonstrates the note; after 4 it
 //             replays the previous note and the target; after 6 it plays the
 //             note for you and moves on (scored as a miss).
-//             The last note becomes the next anchor. Silence for 10 s once
-//             an answer was possible ends the session.
+//             The last note becomes the next anchor. Ten seconds of silence
+//             after the call has ended (or after your last note) ends the
+//             session.
 //
 // Every note-on is echoed through the synth: the controller has no sounds
 // of its own, so this process IS the piano.
@@ -43,13 +49,14 @@ const MIN_VELOCITY = 20; // key brushes are echoed but never graded
 const SCHEDULE_AHEAD_S = 0.15;
 const TICK_MS = 25;
 const STREAK_FOR_PASSAGE = 3;
+const CLEAN_NOTES_FOR_PASSAGE = 6; // clean graded notes (any kind) also earn a passage
 const RETRY_AFTER_QUESTIONS = 2;
 const REMEDIATE_MAX_PER_PASSAGE = 2;
 const MAX_PASSAGES_IN_A_ROW = 3; // interval questions are what move the tier ladder
 const DEBOUNCE_S = 0.06;
 const FLUENT_NORM_MS = 120; // mastery: onset error <= 12% of a beat (ms at 60 bpm)
 const MIN_NOTE_SEC = 0.15; // fastest passage note allowed at the session tempo
-export const TEMPO = { default: 72, min: 50, max: 132, step: 4, window: 40, minRows: 20, minCorrect: 10, up: 0.8, down: 0.5 };
+export const TEMPO = { default: 80, min: 50, max: 132, step: 4, window: 40, minRows: 20, minCorrect: 10, up: 0.8, down: 0.5 };
 
 export class Drill {
   /**
@@ -70,6 +77,7 @@ export class Drill {
     this.phrases = phrases;
     this.log = log;
     this.bpmOverride = bpmOverride;
+    this.baseBpmStore = db.kv('baseBpm');
     this.state = 'IDLE';
     this.clockOffset = performance.now() / 1000 - audio.now;
   }
@@ -113,7 +121,8 @@ export class Drill {
   /** One tempo per session, from the in-time rate of recent correct first attempts. */
   chooseTempo() {
     if (this.bpmOverride) return this.bpmOverride;
-    const prev = this.db.lastBpm() ?? TEMPO.default;
+    const clamp = (b) => Math.max(TEMPO.min, Math.min(TEMPO.max, Math.round(b)));
+    const prev = clamp(this.baseBpmStore.load()?.bpm ?? TEMPO.default);
     const rows = this.db.recentGraded(TEMPO.window);
     if (rows.length < TEMPO.minRows) return prev;
     const correct = rows.filter((r) => r.correct);
@@ -122,7 +131,7 @@ export class Drill {
     let bpm = prev;
     if (inTime >= TEMPO.up) bpm += TEMPO.step;
     else if (inTime < TEMPO.down) bpm -= TEMPO.step;
-    return Math.max(TEMPO.min, Math.min(TEMPO.max, Math.round(bpm)));
+    return clamp(bpm);
   }
 
   // --- session -------------------------------------------------------------
@@ -135,12 +144,14 @@ export class Drill {
     this.engine = this.makeEngine(this.lo, this.hi, FLUENT_NORM_MS);
     this.engine.startSession();
     this.bpm = this.chooseTempo();
+    if (!this.bpmOverride) this.baseBpmStore.save({ bpm: this.bpm });
     this.beat = 60 / this.bpm;
     this.toleranceMs = Math.max(45, Math.min(110, 7500 / this.bpm));
     this.sessionId = this.db.newSession({ bpm: this.bpm, anchor });
     this.questions = 0;
     this.passagesDone = 0;
     this.streak = 0;
+    this.cleanNotes = 0;
     this.remediationQueue = [];
     this.retryQueue = [];
     this.askedThisSession = new Set();
@@ -156,7 +167,6 @@ export class Drill {
     this.nextBarAt = this.audio.now + this.beat;
     this.scheduledUntil = this.nextBarAt;
     this.meter = 4;
-    this.responseStartAt = -1;
     this.answered = false;
     this.nextQ = this.makeQuestion();
     this.beginQuestion();
@@ -186,12 +196,10 @@ export class Drill {
     return {
       kind,
       call: [[this.anchor, 0], [target, 2]],
-      graded: [[target, 2]],
+      graded: [[this.anchor, 0], [target, 2]],
       durs: [1, 1],
       meter: 4,
-      bars: 1,
-      restBars: 0,
-      gradeFrom: 0,
+      gradeFrom: 1,
       label: `${kind === 'interval' ? '' : `${kind}: `}${name(this.anchor)} -> ? (${signed(target - this.anchor)})`,
     };
   }
@@ -200,9 +208,6 @@ export class Drill {
     const { phrase, notes, octave } = picked;
     const last = notes[notes.length - 1];
     const span = phrase.pickup + last[1] + last[2];
-    const bars = Math.max(1, Math.ceil(span / phrase.meter - 1e-9));
-    const lastOnset = phrase.pickup + last[1];
-    const restBars = bars * phrase.meter - lastOnset < 1 ? 1 : 0;
     const placed = notes.map(([midi, off]) => [midi, phrase.pickup + off]);
     const start = octave === 0 ? '' : `, starts ${name(notes[0][0])} (octave ${octave > 0 ? 'above' : 'below'} anchor)`;
     return {
@@ -211,8 +216,6 @@ export class Drill {
       graded: placed,
       durs: notes.map((n) => n[2]),
       meter: phrase.meter,
-      bars,
-      restBars,
       gradeFrom: 1,
       phrase,
       octave,
@@ -225,11 +228,12 @@ export class Drill {
     const prev = this.prevAnchor === null ? null : this.idx(this.prevAnchor);
     if (engine.discriminationQueue.length > 0) {
       const target = engine.nextTargetIndex(this.idx(this.anchor), prev) + this.lo;
-      return this.intervalQuestion(target === this.anchor ? 'interval' : 'discrimination', target);
+      return this.intervalQuestion(engine.servedQueue ? 'discrimination' : 'interval', target);
     }
     while (this.remediationQueue.length > 0) {
-      const iv = this.remediationQueue.shift();
-      if (engine.feasible(this.idx(this.anchor), iv)) {
+      const raw = this.remediationQueue.shift();
+      const iv = engine.inwardVariant(raw, this.idx(this.anchor));
+      if (iv !== null) {
         const target = engine.ask(iv, this.idx(this.anchor), prev) + this.lo;
         return this.intervalQuestion('remediation', target);
       }
@@ -241,7 +245,7 @@ export class Drill {
         const picked = this.phrases.pickById(retry.id, this.anchor, this.lo, this.hi);
         if (picked) return this.passageQuestion('retry', picked);
       }
-      if (this.streak >= STREAK_FOR_PASSAGE && this.passagesInARow < MAX_PASSAGES_IN_A_ROW) {
+      if ((this.streak >= STREAK_FOR_PASSAGE || this.cleanNotes >= CLEAN_NOTES_FOR_PASSAGE) && this.passagesInARow < MAX_PASSAGES_IN_A_ROW) {
         const picked = this.phrases.pick(this.anchor, this.lo, this.hi, {
           engine,
           maxNotes: 3 + engine.state.tiersUnlocked,
@@ -265,21 +269,15 @@ export class Drill {
     this.engine.beginQuestion();
     this.meter = q.meter;
     const t0 = this.nextBarAt;
-    const responseOffset = (q.bars + q.restBars) * q.meter * this.beat;
-    this.responseStartAt = t0 + responseOffset;
     this.callNotes = q.call.map(([midi, b], i) => [midi, t0 + b * this.beat, Math.min(2, q.durs[i] * this.beat)]);
     this.callScheduled = 0;
-    const lastCallAt = this.callNotes[this.callNotes.length - 1][1];
-    this.expected = q.graded.map(([midi, b]) => ({ midi, at: t0 + b * this.beat + responseOffset }));
-    // Each graded note accepts input from halfway back to the previous event.
-    let prevAt = lastCallAt;
-    for (const e of this.expected) {
-      const gap = e.at - prevAt;
-      e.gapMs = gap * 1000;
-      e.acceptFrom = e.at - Math.min(this.beat / 2, gap / 2);
-      prevAt = e.at;
-    }
-    this.windowOpensAt = this.expected[0].acceptFrom;
+    const lastCall = this.callNotes[this.callNotes.length - 1];
+    this.callEndAt = lastCall[1] + Math.max(lastCall[2], this.beat);
+    // Expected notes carry their beat offsets; `.at` is filled in when the
+    // response starts (your first note sets the grid).
+    this.expected = q.graded.map(([midi, b]) => ({ midi, b, at: null, acceptFrom: null, gapMs: null }));
+    this.earliestStart = this.callNotes[0][1] + this.beat; // one beat behind the call
+    this.responseStarted = false;
     this.k = 0;
     this.firstAttempt = true;
     this.missesOnNote = 0;
@@ -288,6 +286,7 @@ export class Drill {
     this.remediated = 0;
     this.answered = false;
     this.lastAccepted = null;
+    this.lastNoteOn = null;
     if (q.phrase) this.askedThisSession.add(q.phrase.id);
     this.log(`Q${this.questions}: ${q.label}`);
   }
@@ -314,10 +313,14 @@ export class Drill {
   tick() {
     this.syncClock(0.05);
     const now = this.audio.now;
-    const idleSince = Math.max(this.lastInputAt, this.audioToPerf(this.windowOpensAt));
-    if (performance.now() - idleSince > TIMEOUT_MS) {
-      this.endSession('10s of silence');
-      return;
+    // Silence only counts once an answer is actually possible: never during
+    // the wait between questions, and never before the call has finished.
+    if (!this.answered) {
+      const idleSince = Math.max(this.lastInputAt, this.audioToPerf(this.callEndAt));
+      if (performance.now() - idleSince > TIMEOUT_MS) {
+        this.endSession('10s of silence');
+        return;
+      }
     }
     const horizon = now + SCHEDULE_AHEAD_S;
     while (this.scheduledUntil < horizon) {
@@ -325,8 +328,7 @@ export class Drill {
       const beatTime = this.nextBarAt + beatIndex * this.beat;
       if (beatTime >= now && beatTime < horizon) {
         const inBar = ((beatIndex % this.meter) + this.meter) % this.meter;
-        const response = Math.abs(beatTime - this.responseStartAt) < 1e-3;
-        this.audio.click(beatTime, { accent: inBar === 0, response });
+        this.audio.click(beatTime, { accent: inBar === 0 });
       }
       this.scheduledUntil = beatTime + this.beat;
     }
@@ -343,14 +345,49 @@ export class Drill {
 
   // --- grading -------------------------------------------------------------
 
+  /**
+   * Your first note starts the response. It may be the phrase's first note
+   * (the anchor) or, since you already know that one, its second note. It
+   * snaps to the nearest beat that keeps the phrase's own beat fraction, at
+   * least one beat behind the call; every later note is expected relative
+   * to it, and the bar line moves so the accents fit the phrase.
+   */
+  startResponse(note, atAudio) {
+    const e = this.expected;
+    let j = 0;
+    if (
+      this.q.gradeFrom === 1 && e.length > 1 && note !== e[0].midi && note === e[1].midi &&
+      !(this.q.octave && note === this.anchor)
+    ) j = 1;
+    const callAt = this.callNotes[j][1];
+    const behind = Math.max(1, Math.round((atAudio - callAt) / this.beat));
+    const T = callAt + behind * this.beat;
+    for (let k = 0; k < e.length; k += 1) e[k].at = T + (e[k].b - e[j].b) * this.beat;
+    let prevAt = T - this.beat; // the first note's own window is +/- half a beat
+    for (let k = j; k < e.length; k += 1) {
+      const gap = e[k].at - prevAt;
+      e[k].gapMs = gap * 1000;
+      e[k].acceptFrom = e[k].at - Math.min(this.beat / 2, gap / 2);
+      prevAt = e[k].at;
+    }
+    this.k = j;
+    this.responseStarted = true;
+    this.log(`  response started ${behind} beat${behind === 1 ? '' : 's'} behind${j === 1 ? ' (skipping the anchor)' : ''}`);
+  }
+
   handleAnswer(note, velocity, atAudio) {
     if (this.answered) return; // between resolve and the next call: free play
+    if (!this.responseStarted) {
+      if (atAudio < this.earliestStart - this.beat / 2) return; // too early to be an answer
+      this.startResponse(note, atAudio);
+    }
     const exp = this.expected[this.k];
-    if (atAudio < exp.acceptFrom) return; // playing along with the call: free
+    if (atAudio < exp.acceptFrom) return; // ahead of this note's window: free
     if (
-      this.lastAccepted && note === this.lastAccepted.midi && note !== exp.midi &&
-      atAudio - this.lastAccepted.at < DEBOUNCE_S
-    ) return; // key bounce
+      this.lastNoteOn && note === this.lastNoteOn.midi && note !== exp.midi &&
+      atAudio - this.lastNoteOn.at < DEBOUNCE_S
+    ) { this.lastNoteOn = { midi: note, at: atAudio }; return; } // key bounce (any pitch)
+    this.lastNoteOn = { midi: note, at: atAudio };
     const onsetMs = (atAudio - exp.at) * 1000;
     const correct = note === exp.midi || (this.k === 0 && this.q.octave && note === this.anchor);
     const prevMidi = this.k === 0 ? this.anchor : this.expected[this.k - 1].midi;
@@ -383,7 +420,7 @@ export class Drill {
       this.questionClean = false;
       this.missesOnNote += 1;
       this.audio.bad(this.audio.now, this.missesOnNote > 6 ? 0.03 : 0.06);
-      this.log(`  x ${name(note)} wanted ${name(exp.midi)} (${this.k === 0 && passage ? 'anchor' : signed(iv)})`);
+      this.log(`  x ${name(note)} wanted ${name(exp.midi)} (${this.k === 0 ? 'anchor' : signed(iv)})`);
       if (this.missesOnNote === 2) {
         this.audio.note(exp.midi, { at: this.audio.now + 0.35, velocity: 70 });
       } else if (this.missesOnNote === 4) {
@@ -414,6 +451,7 @@ export class Drill {
     else if (!inTime) this.audio.offbeat(now, onsetMs < 0);
     else this.audio.good(now, graded ? 0.07 : 0.03);
     const noteClean = !missed && inTime;
+    if (noteClean && graded) this.cleanNotes += 1; else if (!noteClean) this.cleanNotes = 0;
     if (!noteClean) this.questionClean = false;
     this.prevNoteClean = noteClean;
     this.log(
@@ -433,6 +471,7 @@ export class Drill {
     this.streak = this.questionClean ? this.streak + 1 : 0;
     this.passagesInARow = q.phrase ? this.passagesInARow + 1 : 0;
     if (q.phrase) {
+      this.cleanNotes = 0;
       this.passagesDone += 1;
       this.phrases.record(q.phrase.id, this.questionClean);
       this.audio.passageDone(this.audio.now + 0.3, this.questionClean);

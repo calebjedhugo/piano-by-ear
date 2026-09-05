@@ -99,6 +99,12 @@ export class AdaptiveEngine {
     this.lastAsked = null;
     this.lastAskedCells = [];
     this.pending = null;
+    // Confusion evidence decays between sessions so old near-misses don't
+    // pile up into an endless cascade of discrimination runs.
+    for (const k of Object.keys(this.state.confusions)) {
+      const v = Math.floor(this.state.confusions[k] / 2);
+      if (v > 0) this.state.confusions[k] = v; else delete this.state.confusions[k];
+    }
   }
 
   /** Called once per question of either kind (drives the warm-up ramp). */
@@ -111,6 +117,13 @@ export class AdaptiveEngine {
     this.questionInSession = other.questionInSession;
     this.discriminationQueue = other.discriminationQueue.slice();
     this.prevAnchorIndex = other.prevAnchorIndex === null ? null : other.prevAnchorIndex + indexShift;
+    // The framing of the in-flight question (cells are absolute-pitch
+    // strings, the interval is index-independent) so a question framed on
+    // the old engine still resolves against the right interval.
+    this.lastAsked = other.lastAsked;
+    this.lastAskedCells = other.lastAskedCells.slice();
+    this.lastScope = other.lastScope;
+    this.pending = other.pending;
   }
 
   unlockedIntervals(tiers = this.state.tiersUnlocked) {
@@ -227,14 +240,35 @@ export class AdaptiveEngine {
   }
 
   /**
+   * For a queued/remediation interval, the feasible signed variant (iv or
+   * -iv) whose target moves toward the keyboard center, or null if neither
+   * fits. Direction-agnostic skills (a fifth is a fifth up or down) stay
+   * near the middle instead of walking off an edge.
+   */
+  inwardVariant(interval, anchorIndex) {
+    const opts = [interval, -interval].filter((iv) => this.feasible(anchorIndex, iv));
+    if (opts.length === 0) return null;
+    opts.sort((a, b) => this.centerPull(anchorIndex, anchorIndex + b) - this.centerPull(anchorIndex, anchorIndex + a));
+    return opts[0];
+  }
+
+  /**
    * How much a passage containing this interval is wanted: the ZPD weight
    * using in-melody evidence (parent + src:passage cell). Read-only, no
    * warm-up or center terms. Intervals wider than the tier list score low.
    */
   scoreInterval(interval, now) {
     if (!ASKABLE.has(Math.abs(interval))) return 0.15;
-    const acc = this.predictedAccFrom(interval, this.cellKeysFor(interval, 0, null, 'passage'));
-    return this.baseWeight(interval, acc, now);
+    const parent = this.peekStats(interval);
+    const cell = this.state.cells[`${AdaptiveEngine.key(interval)}|src:passage`];
+    if (cell && cell.n >= 3) {
+      // enough in-melody evidence: score its accuracy on the ZPD curve
+      const acc = Math.max(0, Math.min(1, cell.acc));
+      if (acc >= 0.9) return 0.3;
+      return Math.max(0.2, 2.2 - 2 * Math.abs(acc - 0.7));
+    }
+    if (parent.n >= 3) return this.baseWeight(interval, parent.acc, now);
+    return 1.5; // unseen: explore
   }
 
   /** Frame `interval` from `anchorIndex` as the question in flight. */
@@ -252,10 +286,17 @@ export class AdaptiveEngine {
    * being lost.
    */
   nextTargetIndex(anchorIndex, prevIndex = this.prevAnchorIndex) {
+    this.servedQueue = false;
     const q = this.discriminationQueue;
     for (let tries = 0; tries < q.length; tries += 1) {
       const interval = q.shift();
-      if (this.feasible(anchorIndex, interval)) return this.ask(interval, anchorIndex, prevIndex);
+      // Same discrimination skill up or down; take the direction that keeps
+      // the anchor near the middle of the keyboard.
+      const iv = this.inwardVariant(interval, anchorIndex);
+      if (iv !== null) {
+        this.servedQueue = true;
+        return this.ask(iv, anchorIndex, prevIndex);
+      }
       q.push(interval);
     }
 
@@ -295,17 +336,32 @@ export class AdaptiveEngine {
     };
   }
 
+  /** Widths currently in play (unlocked tiers), for gating discrimination. */
+  unlockedWidth(w) {
+    return TIER_WIDTHS.slice(0, this.state.tiersUnlocked).includes(Math.abs(w));
+  }
+
   recordConfusion(asked, tapped) {
-    if (tapped === asked || tapped === 0 || !ASKABLE.has(Math.abs(tapped))) return;
+    if (tapped === asked || tapped === 0) return;
+    if (!this.unlockedWidth(asked) || !this.unlockedWidth(tapped)) return; // only drill what's in play
     const key = `${AdaptiveEngine.key(asked)}|${AdaptiveEngine.key(tapped)}`;
     const count = (this.state.confusions[key] || 0) + 1;
     if (count >= CONFUSION_THRESHOLD) {
       delete this.state.confusions[key];
-      for (let i = 0; i < DISCRIMINATION_RUN; i += 1) {
-        this.discriminationQueue.push(i % 2 === 0 ? asked : tapped);
+      if (this.discriminationQueue.length === 0) { // one run at a time, never a cascade
+        for (let i = 0; i < DISCRIMINATION_RUN; i += 1) this.discriminationQueue.push(i % 2 === 0 ? asked : tapped);
       }
     } else {
       this.state.confusions[key] = count;
+    }
+  }
+
+  /** A clean success clears the interval's standing confusion pairs. */
+  clearConfusions(interval) {
+    const k = AdaptiveEngine.key(interval);
+    for (const key of Object.keys(this.state.confusions)) {
+      const [a, b] = key.split('|');
+      if (a === k || b === k) delete this.state.confusions[key];
     }
   }
 
@@ -337,6 +393,7 @@ export class AdaptiveEngine {
         if (rtNorm !== null && rtNorm !== undefined) {
           s.rt = s.rt === null ? rtNorm : s.rt * (1 - RT_ALPHA) + RT_ALPHA * rtNorm;
         }
+        this.clearConfusions(asked);
       }
       this.updateCells(cells, !missed);
       newlyMastered = !wasMastered && this.isMastered(s, this.predictedAccFrom(asked, cells));

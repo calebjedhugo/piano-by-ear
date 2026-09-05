@@ -7,14 +7,21 @@ only ever touch the keys.
 1. Plug in a MIDI keyboard and run `npm start`. A two-note rising cue says it
    is listening.
 2. Play any note. That note is the **anchor** and the session begins at a
-   tempo chosen from your history (72 bpm the first time).
-3. The metronome starts. In the call bar you hear the anchor on beat 1 and a
-   **target** on beat 3. On the next downbeat, which is a double tick, you
-   play the target back on beat 3.
-4. Right pitch, in time: a soft chime. Right pitch but early or late: a short
-   glide, falling if you were early, rising if you were late. Wrong pitch: a
-   low buzz, the beat keeps going, keep trying. After two misses the app
-   plays the note for you; after six it moves on.
+   tempo chosen from your history (80 bpm the first time).
+3. The metronome starts as a **constant pulse** and never moves. You hear the
+   call: the anchor, then the target (for a passage, the whole phrase in its
+   own meter). Then you play it back as a **canon** — start on any click at
+   least one beat after the call, following one beat behind or waiting as
+   many clicks as you like. Your first note begins the response; the rest is
+   expected at the phrase's own rhythm relative to it. The first note is the
+   anchor you already know, so you may echo it or skip straight to the
+   second note.
+4. Every note is graded on pitch and on timing against the pulse, the first
+   note included: if the phrase starts an eighth off the beat, you play it an
+   eighth off the beat. Right pitch, in time: a soft chime. Right pitch but
+   early or late: a short glide, falling if early, rising if late. Wrong
+   pitch: a low buzz, the beat keeps going, keep trying. After two misses the
+   app plays the note for you; after six it moves on.
 5. Three clean answers in a row earn a **real passage**: a Bach chorale
    phrase or a bit of a Mozart sonata, announced by a two-note cue, played
    in its own meter starting on your anchor. Play the whole thing back in
@@ -40,7 +47,7 @@ Everything adapts:
   fastest note is limited by the tempo.
 - **Tempo** is one value per session: if at least 80% of your recent correct
   answers were in time it goes up 4 bpm, below 50% it goes down 4, between 50
-  and 132. Timing tolerance is an eighth of a beat.
+  and 132 (80 to start). Timing tolerance is an eighth of a beat.
 
 ## Install
 
