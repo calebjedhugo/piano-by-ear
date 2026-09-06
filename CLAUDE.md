@@ -64,6 +64,10 @@ opens every input port.
   Silence timeout counts from call end and never runs while `answered` (the
   wait between questions is not silence).
   `nextQ` is decided at answer time, never inside the tick.
+  PASSAGE LENGTH is a controller (kv `passageLen`, per kind: +1 after 2
+  clean first-askings in a row, -1 after 3 failures, bounded by LEN.min and
+  the tier ceiling), NOT the tier ladder; retries don't count. Hold grading:
+  short vs the sounded length (capped CALL_MAX_S), long vs the written one.
   GRADING IS BY ONSET GROUP (`buildGroups`): notes with the same offset form
   a group; a key press matches any pending note of the current group by
   pitch, a wrong note consumes the nearest pending graded note, and a press

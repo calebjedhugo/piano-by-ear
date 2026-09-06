@@ -48,8 +48,12 @@ Everything adapts:
   never masquerades as a step you can name cold.
 - **Which kind of passage** follows your polyphony level, from single lines
   to four-part chords and two-hand passages.
-- **How long a passage** is grows with the engine's unlocked tiers, and its
-  fastest note is limited by the tempo.
+- **How long a passage** is follows your passages, not your intervals: it
+  starts at five notes, grows by one after two clean passages in a row,
+  shrinks by one after three failures in a row, and never exceeds a ceiling
+  set by the unlocked tiers. Its fastest note is limited by the tempo. A
+  hold is never graded against more than the teacher actually sounded (two
+  seconds), so a long final note is not a trap.
 - **Tempo** is one value per session: if at least 80% of your recent correct
   answers were in time it goes up 4 bpm, below 50% it goes down 4, between 50
   and 132 (80 to start). Timing tolerance is an eighth of a beat.

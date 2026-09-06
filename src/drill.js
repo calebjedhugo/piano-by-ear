@@ -74,6 +74,16 @@ const DUR_LONG_FRAC = 1.5;
 const DUR_LONG_PAD_S = 0.15;
 const FLUENT_NORM_MS = 120; // mastery: onset error <= 12% of a beat (ms at 60 bpm)
 const MIN_NOTE_SEC = 0.15; // fastest passage note allowed at the session tempo
+const CALL_MAX_S = 2; // the longest a call note sounds; a hold is never graded against more
+// Passage length follows passage results, not the tier ladder: grow a note
+// after LEN.grow clean passages in a row, shrink after LEN.shrink failures in
+// a row, inside [min, ceiling] where the ceiling comes from the engines.
+const LEN = {
+  start: { mono: 5, duo: 8, chorale: 10, poly: 10 },
+  min: { mono: 4, duo: 6, chorale: 8, poly: 8 },
+  grow: 2,
+  shrink: 3,
+};
 export const TEMPO = { default: 80, min: 50, max: 132, step: 4, window: 40, minRows: 20, minCorrect: 10, up: 0.8, down: 0.5 };
 // Polyphony levels and how they are earned (see polyLevel()).
 export const POLY_KINDS = ['mono', 'duo', 'chorale', 'poly'];
@@ -113,6 +123,8 @@ export class Drill {
     this.bpmOverride = bpmOverride;
     this.baseBpmStore = db.kv('baseBpm');
     this.polyStore = db.kv('poly');
+    this.lenStore = db.kv('passageLen');
+    this.len = this.lenStore.load() || {};
     this.state = 'IDLE';
     this.clockOffset = performance.now() / 1000 - audio.now;
   }
@@ -333,6 +345,30 @@ export class Drill {
     return order;
   }
 
+  /** The tier ladder's ceiling on passage length for a kind. */
+  lengthCeiling(kind) {
+    return kind === 'mono' ? 3 + this.engine.state.tiersUnlocked : 6 + 2 * this.harmonic.state.tiersUnlocked;
+  }
+
+  /** Current passage length for a kind: the controller's value, inside its bounds. */
+  passageLength(kind) {
+    const st = this.len[kind] || { notes: LEN.start[kind], cleanRun: 0, failRun: 0 };
+    this.len[kind] = st;
+    return Math.max(LEN.min[kind], Math.min(this.lengthCeiling(kind), st.notes));
+  }
+
+  /** A passage of this kind (first asking, not a retry) ended clean or not. */
+  updatePassageLength(kind, clean) {
+    const st = this.len[kind];
+    const before = this.passageLength(kind);
+    if (clean) { st.cleanRun += 1; st.failRun = 0; } else { st.failRun += 1; st.cleanRun = 0; }
+    if (st.cleanRun >= LEN.grow) { st.notes = before + 1; st.cleanRun = 0; }
+    else if (st.failRun >= LEN.shrink) { st.notes = before - 1; st.failRun = 0; }
+    this.lenStore.save(this.len);
+    const after = this.passageLength(kind);
+    if (after !== before) this.log(`  ${kind} passages now up to ${after} notes`);
+  }
+
   pickPassage() {
     for (const kind of this.passageKinds()) {
       const bank = kind === 'mono' ? this.phrases : this.poly;
@@ -341,7 +377,7 @@ export class Drill {
         engine: this.engine,
         harmonic: kind === 'mono' ? null : this.harmonic,
         kind,
-        maxNotes: kind === 'mono' ? 3 + this.engine.state.tiersUnlocked : 6 + 2 * this.harmonic.state.tiersUnlocked,
+        maxNotes: this.passageLength(kind),
         beatSec: this.beat,
         minNoteSec: MIN_NOTE_SEC,
         exclude: this.askedThisSession,
@@ -421,7 +457,7 @@ export class Drill {
     // short and a repeated pitch a clear re-attack, so the rhythm is unambiguous.
     this.callNotes = notes.map((n) => {
       const at = t0 + n.b * this.beat;
-      let dur = Math.min(2, n.dur * this.beat);
+      let dur = Math.min(CALL_MAX_S, n.dur * this.beat);
       const next = notes.find((m) => m.b > n.b + 1e-9);
       if (next) {
         const gap = (next.b - n.b) * this.beat;
@@ -624,14 +660,17 @@ export class Drill {
 
   gradeHold(h, offAtAudio, stillHeld = false) {
     const heldSec = Math.max(0, offAtAudio - h.onAt);
-    const shortMin = DUR_SHORT_FRAC * h.durSec;
+    // Too short is judged against what the call actually sounded (capped);
+    // too long against the written value, so a long final note is never
+    // penalized for being held as written.
+    const shortMin = DUR_SHORT_FRAC * h.heardSec;
     const longMax = DUR_LONG_FRAC * h.durSec + DUR_LONG_PAD_S;
     const ok = heldSec >= shortMin && (stillHeld || heldSec <= longMax);
     this.db.updateHeld(h.rowId, heldSec * 1000, ok);
     if (!ok) {
       this.questionClean = false;
       this.cleanNotes = 0;
-      this.log(`  hold ${heldSec < shortMin ? 'short' : 'long'} ${(heldSec * 1000).toFixed(0)}ms (want ~${(h.durSec * 1000).toFixed(0)}ms)`);
+      this.log(`  hold ${heldSec < shortMin ? 'short' : 'long'} ${(heldSec * 1000).toFixed(0)}ms (want ~${(h.heardSec * 1000).toFixed(0)}ms)`);
     }
   }
 
@@ -731,7 +770,10 @@ export class Drill {
       phraseId: this.q.phrase?.id ?? null, position: g.index, graded: exp.graded, inTime, beatMs: this.beat * 1000,
     });
     // Remember this key press so its release can be graded for duration.
-    if (exp.graded && correct) this.held.set(note, { rowId, onAt: atAudio, durSec: exp.dur * this.beat });
+    if (exp.graded && correct) {
+      const durSec = exp.dur * this.beat;
+      this.held.set(note, { rowId, onAt: atAudio, durSec, heardSec: Math.min(durSec, CALL_MAX_S) });
+    }
     const noteClean = correct && inTime;
     if (noteClean && exp.graded) this.cleanNotes += 1;
     else if (!noteClean) this.cleanNotes = 0;
@@ -807,6 +849,7 @@ export class Drill {
       const bank = q.phrase.kind === 'mono' ? this.phrases : this.poly;
       bank.record(q.phrase.id, this.questionClean);
       this.recordPolyOutcome(q.phrase.kind, this.questionClean);
+      if (q.kind !== 'retry') this.updatePassageLength(q.phrase.kind, this.questionClean);
       if (!this.questionClean && q.kind !== 'retry') this.retryQueue.push({ id: q.phrase.id, kind: q.phrase.kind, askedAt: this.questions });
       this.log(`  passage ${this.questionClean ? 'clean' : 'done with errors'} (streak ${this.streak})`);
     }
