@@ -359,8 +359,8 @@ export class Drill {
 
   /** A passage of this kind (first asking, not a retry) ended clean or not. */
   updatePassageLength(kind, clean) {
+    const before = this.passageLength(kind); // also creates the kind's state
     const st = this.len[kind];
-    const before = this.passageLength(kind);
     if (clean) { st.cleanRun += 1; st.failRun = 0; } else { st.failRun += 1; st.cleanRun = 0; }
     if (st.cleanRun >= LEN.grow) { st.notes = before + 1; st.cleanRun = 0; }
     else if (st.failRun >= LEN.shrink) { st.notes = before - 1; st.failRun = 0; }
