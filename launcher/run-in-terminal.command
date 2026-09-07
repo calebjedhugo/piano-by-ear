@@ -21,6 +21,7 @@ clear
 if [ "$MODE" = free ]; then
   "$NODE" src/free.js --keys 2>&1 | tee "$DATA/run.log"
 else
-  "$NODE" src/main.js --keys --db "$DATA/profiles/$USER_.db" 2>&1 | tee "$DATA/run.log"
+  # the computer keyboard has its own history: <user>-keys.db, never the piano's
+  "$NODE" src/main.js --keys --db "$DATA/profiles/$USER_-keys.db" 2>&1 | tee "$DATA/run.log"
 fi
 echo; echo "ended. Close this window, or click Piano by Ear."

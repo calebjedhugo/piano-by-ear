@@ -171,6 +171,10 @@ controller in every mode (the process runs in a Terminal window to read it)
 in the GarageBand/Ableton musical-typing layout: home row A S D F G H J K L
 ; ' = C D E F G A B C D E F, W E T Y U O P = sharps, Z/X octave down/up,
 C/V softer/louder, Space = sustain on/off, Q quits; a note is held while its
-key autorepeats. It always boots into the drill. Each user is one SQLite file
+key autorepeats. The computer keyboard trains a different skill (the ear
+without the hands), so the drill then keeps a separate history,
+`<user>-keys.db`, questions stay within the unshifted home row (C4..F5) and
+holds are not graded; `scripts/compare-surfaces.mjs` puts the two histories
+side by side per interval. It always boots into the drill. Each user is one SQLite file
 under `~/.piano-by-ear/profiles/`. `launcher/pbe.sh` is the command-line
 equivalent without the sleep handling.

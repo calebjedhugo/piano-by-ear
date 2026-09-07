@@ -17,7 +17,10 @@ disable lid sleep (Cancel leaves it), then start; click when running: Free
 play / Drill (switch mode), Switch user, Restart, End drill (End re-enables
 sleep), and, only with no MIDI port present, the "Use keyboard keys" toggle
 (`pbe.sh keys on|off`; then `start` opens `run-in-terminal.command` so
-`src/keys.js` can read the computer keyboard, in drill or free play). It always boots into the drill. `launcher/pbe.sh
+`src/keys.js` can read the computer keyboard, in drill or free play; the
+drill then uses `<user>-keys.db`, a SEPARATE history, hidden from the user
+list, and grades no holds from that port; `scripts/compare-surfaces.mjs`
+compares piano vs keys per interval). It always boots into the drill. `launcher/pbe.sh
 status|users|current|mode|midi|keys [on|off]|start [user] [free]|stop` is the process control both the app
 and the `/piano-by-ear` skill use; it never touches sleep. Profiles are one
 DB each in `~/.piano-by-ear/profiles/<user>.db` ("Guest" is always listed

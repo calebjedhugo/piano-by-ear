@@ -3,7 +3,10 @@
 # /piano-by-ear skill. Profiles are one SQLite file each under
 # ~/.piano-by-ear/profiles/<name>.db; the current one is named in
 # ~/.piano-by-ear/current-user. "Guest" is always offered and always starts
-# empty: its history is deleted every time the drill starts as Guest. Sleep
+# empty: its history is deleted every time the drill starts as Guest. With
+# the keyboard-keys toggle on, the drill writes to <name>-keys.db instead:
+# the computer keyboard trains a different skill (ear without the hands),
+# so its history never mixes with the piano's. Sleep
 # handling (pmset) lives in the app / the skill, not here, because it needs
 # an admin dialog.
 #
@@ -54,12 +57,12 @@ case "${1:-status}" in
       "")  [ -f "$USEKEYS" ] && echo on || echo off ;;
       *)   echo "usage: pbe.sh keys [on|off]" >&2; exit 2 ;;
     esac ;;
-  users)   for f in "$PROFILES"/*.db(N); do [ "${f:t:r}" = "$GUEST" ] || echo "${f:t:r}"; done; echo "$GUEST" ;;
+  users)   for f in "$PROFILES"/*.db(N); do n="${f:t:r}"; [ "$n" = "$GUEST" ] || [[ "$n" == *-keys ]] || echo "$n"; done; echo "$GUEST" ;;
   start)
     user="${2:-$(current)}"
     valid "$user" || { echo "bad user name: $user" >&2; exit 2; }
     "$0" stop
-    [ "$user" = "$GUEST" ] && rm -f "$PROFILES/$GUEST.db" "$PROFILES/$GUEST.db-wal" "$PROFILES/$GUEST.db-shm"
+    [ "$user" = "$GUEST" ] && rm -f "$PROFILES/$GUEST"*.db "$PROFILES/$GUEST"*.db-wal "$PROFILES/$GUEST"*.db-shm
     echo "$user" > "$CURRENT"
     cd "$PROJ" || exit 1
     NODE="$(find_node)" || { echo "node not found (install node or nvm)" | tee "$LOG" >&2; exit 1; }
