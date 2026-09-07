@@ -10,10 +10,17 @@ gesture. Every state change must be audible (see `src/audio.js`).
 
 ## Run
 
-Background run used for live testing (the `/piano-by-ear` skill does this):
-`nohup node src/main.js > ~/.piano-by-ear/run.log 2>&1 &` -- restart with
-`pkill -f 'node src/main.js'` after every code change; the log is where a
-session is reviewed afterwards.
+Normal use is the macOS launcher, `launcher/` -> `/Applications/Piano by
+Ear.app` (`launcher/build.sh` rebuilds it; rerun after editing the
+AppleScript, `pbe.sh` or `icon.py`). Click when stopped: admin dialog to
+disable lid sleep (Cancel leaves it), then start; click when running: Switch
+user / Restart / End drill (End re-enables sleep). `launcher/pbe.sh
+status|users|current|start [user]|stop` is the process control both the app
+and the `/piano-by-ear` skill use; it never touches sleep. Profiles are one
+DB each in `~/.piano-by-ear/profiles/<user>.db`, current user in
+`~/.piano-by-ear/current-user`; log always `~/.piano-by-ear/run.log`.
+Restart after every code change with `launcher/pbe.sh start`; the log is
+where a session is reviewed afterwards.
 
 ```bash
 npm start                      # flags: --port <substr> --db <path> --debug-midi
@@ -75,7 +82,10 @@ opens every input port.
   (one miss per abandoned note). Each expected note carries `melodicFrom`
   (previous note in its voice -> melodic engine) and `harmonicFrom` (the
   group's bass -> harmonic engine). Question notes are
-  `{midi, b, dur, voice, free}`; `free` = the note on the anchor.
+  `{midi, b, dur, voice, free, silent}`; `free` = the note on the anchor,
+  `silent` = in the question (grading context, may be echoed) but never
+  sounded in the call. Interval questions: silent anchor at b -1, target
+  on the downbeat, so the call is the target alone.
   POLYPHONY LEVEL (`polyLevel()`, kv `poly` {level, history}) is earned
   from the last 12 passages of the level's kind (promote >= 70%, demote
   < 30%) plus tier gates; NEVER a flag. Level >= 1 adds dyad questions

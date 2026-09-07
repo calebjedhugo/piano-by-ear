@@ -9,13 +9,14 @@ only ever touch the keys.
 2. Play any note. That note is the **anchor** and the session begins at a
    tempo chosen from your history (80 bpm the first time).
 3. The metronome starts as a **constant pulse** and never moves. You hear the
-   call: the anchor, then the target (for a passage, the whole phrase in its
-   own meter). Then you play it back as a **canon** — start on any click at
-   least one beat after the call, following one beat behind or waiting as
+   call: for an interval, just the target note (the anchor is the note you
+   just played, so it is not repeated); for a passage, the whole phrase in
+   its own meter. Then you play it back as a **canon** — start on any click
+   at least one beat after the call, following one beat behind or waiting as
    many clicks as you like. Your first note begins the response; the rest is
-   expected at the phrase's own rhythm relative to it. The first note is the
-   anchor you already know, so you may echo it or skip straight to the
-   second note.
+   expected at the phrase's own rhythm relative to it. The anchor you
+   already know is always yours to echo or skip: for an interval, answer
+   with the target alone.
 4. Every note is graded on pitch, on its onset against the pulse (the
    first note included: if the phrase starts an eighth off the beat, you
    play it an eighth off the beat), and on how long you hold it. There is
@@ -68,7 +69,7 @@ npm start
 | flag | default | meaning |
 |---|---|---|
 | `--port` | all inputs | only open MIDI inputs whose name contains this |
-| `--db` | `~/.piano-by-ear/piano-by-ear.db` | SQLite history |
+| `--db` | `~/.piano-by-ear/piano-by-ear.db` | SQLite history (the launcher passes `~/.piano-by-ear/profiles/<user>.db`) |
 | `--debug-midi` | off | print raw MIDI bytes |
 
 Requires Node 22.5+ (uses `node:sqlite`). Audio is produced in-process by
@@ -151,3 +152,15 @@ The corpus for this is the same set of files: 7,399 duo windows and 3,225
 four-part windows from the 371 chorales, and 3,349 two-hand windows from the
 sonatas, all bar-aligned, two to eight beats, at most four notes sounding at
 once, with the phrase's melodic window as the frame.
+
+## macOS launcher
+
+`launcher/build.sh` builds `Piano by Ear.app` into `/Applications` (piano-key
+icon). Click it when the drill is stopped: it offers to disable lid sleep for
+the run (standard admin password dialog; Cancel leaves sleep alone), then
+starts the drill as the current user. Click it while running for
+**Switch user** (pick a profile or type a new name for a clean slate),
+**Restart** (same user, sleep untouched) or **End drill** (stops, and
+re-enables sleep if the launcher disabled it). Each user is one SQLite file
+under `~/.piano-by-ear/profiles/`. `launcher/pbe.sh` is the command-line
+equivalent without the sleep handling.
