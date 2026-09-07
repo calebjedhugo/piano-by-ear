@@ -97,13 +97,13 @@ on run
 		set user to currentUser()
 		set mode to currentMode()
 		if mode is "free" then
-			set items to {"Drill", "Switch user", "Restart", "End drill"}
+			set menuItems to {"Drill", "Switch user", "Restart", "End drill"}
 			set what to "Free play, as " & user & "."
 		else
-			set items to {"Free play", "Switch user", "Restart", "End drill"}
+			set menuItems to {"Free play", "Switch user", "Restart", "End drill"}
 			set what to "Drill running as " & user & "."
 		end if
-		set act to choose from list items with title "Piano by Ear" with prompt what OK button name "OK" cancel button name "Cancel"
+		set act to choose from list menuItems with title "Piano by Ear" with prompt what OK button name "OK" cancel button name "Cancel"
 		if act is false then return
 		set act to item 1 of act
 		if act is "Free play" then
