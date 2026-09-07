@@ -2,8 +2,10 @@
 # piano-by-ear process control, shared by the macOS launcher app and the
 # /piano-by-ear skill. Profiles are one SQLite file each under
 # ~/.piano-by-ear/profiles/<name>.db; the current one is named in
-# ~/.piano-by-ear/current-user. Sleep handling (pmset) lives in the app /
-# the skill, not here, because it needs an admin dialog.
+# ~/.piano-by-ear/current-user. "Guest" is always offered and always starts
+# empty: its history is deleted every time the drill starts as Guest. Sleep
+# handling (pmset) lives in the app / the skill, not here, because it needs
+# an admin dialog.
 #
 #   pbe.sh status            running <user> drill|free | stopped <user>
 #   pbe.sh users             one profile name per line
@@ -17,6 +19,7 @@ DATA="$HOME/.piano-by-ear"
 PROFILES="$DATA/profiles"
 LOG="$DATA/run.log"
 CURRENT="$DATA/current-user"
+GUEST="Guest"
 mkdir -p "$PROFILES"
 
 current() { [ -s "$CURRENT" ] && cat "$CURRENT" || echo "default"; }
@@ -37,11 +40,12 @@ case "${1:-status}" in
   status)  running && echo "running $(current) $(mode)" || echo "stopped $(current)" ;;
   current) current ;;
   mode)    mode ;;
-  users)   for f in "$PROFILES"/*.db(N); do echo "${f:t:r}"; done ;;
+  users)   for f in "$PROFILES"/*.db(N); do [ "${f:t:r}" = "$GUEST" ] || echo "${f:t:r}"; done; echo "$GUEST" ;;
   start)
     user="${2:-$(current)}"
     valid "$user" || { echo "bad user name: $user" >&2; exit 2; }
     "$0" stop
+    [ "$user" = "$GUEST" ] && rm -f "$PROFILES/$GUEST.db" "$PROFILES/$GUEST.db-wal" "$PROFILES/$GUEST.db-shm"
     echo "$user" > "$CURRENT"
     cd "$PROJ" || exit 1
     NODE="$(find_node)" || { echo "node not found (install node or nvm)" | tee "$LOG" >&2; exit 1; }

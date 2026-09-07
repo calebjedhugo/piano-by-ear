@@ -18,7 +18,8 @@ play / Drill (switch mode), Switch user, Restart, End drill (End re-enables
 sleep). It always boots into the drill. `launcher/pbe.sh
 status|users|current|mode|start [user] [free]|stop` is the process control both the app
 and the `/piano-by-ear` skill use; it never touches sleep. Profiles are one
-DB each in `~/.piano-by-ear/profiles/<user>.db`, current user in
+DB each in `~/.piano-by-ear/profiles/<user>.db` ("Guest" is always listed
+and wiped on every start as Guest), current user in
 `~/.piano-by-ear/current-user`; log always `~/.piano-by-ear/run.log`.
 Restart after every code change with `launcher/pbe.sh start`; the log is
 where a session is reviewed afterwards.

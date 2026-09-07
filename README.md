@@ -161,7 +161,9 @@ the run (standard admin password dialog; Cancel leaves sleep alone), then
 starts the drill as the current user. Click it while running for
 **Free play** (the same pianos plus the sustain pedal, nothing graded or recorded; `src/free.js`)
 or **Drill** to switch back, **Switch user** (pick a profile or type a new
-name for a clean slate), **Restart** (same user and mode, sleep untouched)
+name for a clean slate; **Guest** is always offered and starts empty every
+time, its history is discarded on each start), **Restart** (same user and
+mode, sleep untouched)
 or **End drill** (stops, and re-enables sleep if the launcher disabled it).
 It always boots into the drill. Each user is one SQLite file
 under `~/.piano-by-ear/profiles/`. `launcher/pbe.sh` is the command-line
