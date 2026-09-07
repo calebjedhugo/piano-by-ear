@@ -41,7 +41,7 @@ opens every input port.
 
 - `src/main.js`   wiring, SIGINT shutdown (silent stop, close audio then DB).
 - `src/free.js`   free play: MIDI straight to the pianos (+ sustain pedal, CC 64), no drill, no DB.
-- `src/keys.js`   the computer keyboard as a controller (`--keys` on main.js or free.js; musical-typing layout, needs a TTY; note-off synthesized 350 ms after the last autorepeat).
+- `src/keys.js`   the computer keyboard as a controller (`--keys`, needs a TTY). free.js: musical-typing note layout (note-off synthesized 350 ms after the last autorepeat). main.js: INTERVAL mode, number row = semitones down (Shift = up) from `refNote()` (= drill.lastNoteOn ?? anchor); the named note is emitted as a 150 ms press and graded normally.
 - `src/audio.js`  two pianos on one AudioContext (`src/sampler.js`,
   samples in `~/.piano-by-ear/samples` via `npm run fetch-samples`; NOT in
   the repo): the player's keys strike the Salamander grand (pan +0.15,
@@ -131,8 +131,7 @@ opens every input port.
   chorale for 4-voice files, poly for 2-staff files; limits in `POLY`.
 - `src/range.js`  per-port range: guessed from a standalone key count in the
   name, else 48..72; widening snaps to a standard layout while guessed.
-  `FIXED` ports (the computer keyboard: 60..77, the home row unshifted)
-  never widen, so questions stay answerable without an octave shift.
+  `FIXED` ports (the computer keyboard: 36..84) never widen.
 - `src/db.js`     node:sqlite, WAL, busy_timeout. Guarded migrations add
   columns. `kv(key)` returns a guarded {load, save}.
 

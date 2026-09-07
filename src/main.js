@@ -2,7 +2,7 @@
 // piano-by-ear: headless learn-piano-by-ear drill for a MIDI controller.
 //
 //   node src/main.js [--port <substring>] [--db <path>] [--debug-midi] [--keys]
-//   --keys: also take the computer keyboard as a controller (needs a terminal; src/keys.js)
+//   --keys: answer from the computer keyboard by naming intervals (needs a terminal; src/keys.js)
 //
 // No musical settings: tempo, question type, passage length and timing
 // tolerance are all decided from your history (see src/drill.js).
@@ -74,7 +74,11 @@ const midi = new Midi({
   onNoteOff: (e) => drill.onNoteOff(e),
   onPort,
 });
+// The computer keyboard answers by naming intervals (src/keys.js): each typed
+// interval is measured from the last note of the answer so far, else the anchor.
 const keys = args.keys ? new Keys({
+  intervals: true,
+  refNote: () => (drill.state === 'IDLE' ? null : (drill.lastNoteOn?.midi ?? drill.anchor)),
   onNoteOn: (e) => drill.onNoteOn(e),
   onNoteOff: (e) => drill.onNoteOff(e),
   onPort,

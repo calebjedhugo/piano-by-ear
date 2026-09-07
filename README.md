@@ -166,15 +166,19 @@ time, its history is discarded on each start), **Restart** (same user and
 mode, sleep untouched)
 or **End drill** (stops, and re-enables sleep if the launcher disabled it).
 While no MIDI keyboard is connected the menu also offers **Use keyboard
-keys: on/off**: with it on, the computer keyboard stands in for the
-controller in every mode (the process runs in a Terminal window to read it)
-in the GarageBand/Ableton musical-typing layout: home row A S D F G H J K L
-; ' = C D E F G A B C D E F, W E T Y U O P = sharps, Z/X octave down/up,
-C/V softer/louder, Space = sustain on/off, Q quits; a note is held while its
-key autorepeats. The computer keyboard trains a different skill (the ear
-without the hands), so the drill then keeps a separate history,
-`<user>-keys.db`, questions stay within the unshifted home row (C4..F5) and
-holds are not graded; `scripts/compare-surfaces.mjs` puts the two histories
-side by side per interval. It always boots into the drill. Each user is one SQLite file
+keys: on/off**. With it on, the process runs in a Terminal window and the
+computer keyboard stands in for the controller. In **free play** it is a
+piano in the GarageBand/Ableton musical-typing layout (home row A S D F G H
+J K L ; ' = C D E F G A B C D E F, W E T Y U O P = sharps, Z/X octave, C/V
+softer/louder, Space = sustain, Q quits; a note is held while its key
+autorepeats). In the **drill** you answer by naming the interval instead of
+finding the note: the number row 1-9, 0 (=10), - (=11), = (=12) is that many
+semitones down from the reference note (the anchor, or the last note of your
+answer so far), and the same keys with Shift go up; the named note sounds
+and is graded like a played one, timing included. That trains the ear
+without the hands, so the drill keeps a separate history, `<user>-keys.db`,
+and grades no holds there; `scripts/compare-surfaces.mjs` puts the piano and
+keyboard histories side by side per interval (weak on both = ear, weak on
+the piano only = ear-to-hand). It always boots into the drill. Each user is one SQLite file
 under `~/.piano-by-ear/profiles/`. `launcher/pbe.sh` is the command-line
 equivalent without the sleep handling.

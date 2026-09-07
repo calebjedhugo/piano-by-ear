@@ -10,6 +10,12 @@
 // A terminal never reports key release, so a note is held while its key
 // autorepeats and released RELEASE_MS after the last repeat (longer than
 // macOS's ~250 ms initial autorepeat delay).
+//
+// INTERVAL mode (the drill): you answer by naming the interval instead of
+// finding the note. Number row 1..9 0 - = is 1..12 semitones DOWN from the
+// reference note (the anchor, or the last note of your answer so far);
+// the same keys with Shift (! @ # $ % ^ & * ( ) _ +) go UP. The named note
+// is emitted as a short key press, so the drill grades it like any note.
 export const PORT_NAME = 'Computer keyboard';
 const KEYMAP = { a: 0, w: 1, s: 2, e: 3, d: 4, f: 5, t: 6, g: 7, y: 8, h: 9, u: 10, j: 11, k: 12, o: 13, l: 14, p: 15, ';': 16, "'": 17 };
 const RELEASE_MS = 350;
@@ -18,15 +24,20 @@ const CTRL_C = '\u0003';
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 export const noteName = (n) => `${NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
 export const LAYOUT = "A S D F G H J K L ; ' = C D E F G A B C D E F, W E T Y U O P = sharps, Z/X octave, C/V velocity, Space sustain, Q quit";
+export const INTERVAL_LAYOUT = "type the interval in semitones: 1-9, 0 = 10, - = 11, = = 12 (down); hold Shift for up; any of them starts a session on C4; Q quit";
+const DOWN_KEYS = '1234567890-=';
+const UP_KEYS = '!@#$%^&*()_+';
+const TYPED_NOTE_MS = 150;
 
 export class Keys {
   /**
    * @param {object} opts  same callbacks as Midi: onNoteOn({note, velocity, at, port}),
    *   onNoteOff({note, at, port}), onControl({type, number, value, port}), onPort(name, connected);
-   *   plus onQuit(), echo (print each note name), log.
+   *   plus onQuit(), echo (print each note name), log; intervals: true for
+   *   interval mode, with refNote() returning the note intervals are measured from.
    */
-  constructor({ onNoteOn, onNoteOff, onControl, onPort, onQuit, echo = false, log = console.log }) {
-    Object.assign(this, { onNoteOn, onNoteOff, onControl, onPort, onQuit, echo, log });
+  constructor({ onNoteOn, onNoteOff, onControl, onPort, onQuit, echo = false, log = console.log, intervals = false, refNote = null }) {
+    Object.assign(this, { onNoteOn, onNoteOff, onControl, onPort, onQuit, echo, log, intervals, refNote });
     this.octave = 4;
     this.velocity = 90;
     this.pedal = false;
@@ -47,7 +58,7 @@ export class Keys {
     process.stdin.setEncoding('utf8');
     process.stdin.on('data', this.onData);
     this.active = true;
-    this.log(`computer keyboard: ${LAYOUT}`);
+    this.log(`computer keyboard: ${this.intervals ? INTERVAL_LAYOUT : LAYOUT}`);
     this.onPort?.(PORT_NAME, true);
     return true;
   }
@@ -63,9 +74,26 @@ export class Keys {
     this.onPort?.(PORT_NAME, false);
   }
 
+  /** Interval mode: a number-row key names semitones down (Shift: up) from the reference note. */
+  handleInterval(ch) {
+    let semis = DOWN_KEYS.indexOf(ch) + 1;
+    let sign = -1;
+    if (semis === 0) { semis = UP_KEYS.indexOf(ch) + 1; sign = 1; }
+    if (semis === 0) return;
+    const ref = this.refNote?.();
+    // No reference yet (no session): any interval key starts one on middle C.
+    const note = ref == null ? 60 : ref + sign * semis;
+    if (note < 0 || note > 127) return;
+    const at = performance.now();
+    this.onNoteOn?.({ note, velocity: 90, at, port: PORT_NAME });
+    if (this.echo) process.stdout.write(`${sign > 0 ? '+' : '-'}${semis} `);
+    setTimeout(() => this.onNoteOff?.({ note, at: performance.now(), port: PORT_NAME }), TYPED_NOTE_MS);
+  }
+
   handle(chunk) {
     for (const ch of chunk) {
       if (ch === CTRL_C || ch === 'q' || ch === 'Q') { this.onQuit?.(); return; }
+      if (this.intervals) { this.handleInterval(ch); continue; }
       const lower = ch.toLowerCase();
       if (lower === 'z') { this.octave = Math.max(0, this.octave - 1); this.log(`octave: A = C${this.octave}`); continue; }
       if (lower === 'x') { this.octave = Math.min(8, this.octave + 1); this.log(`octave: A = C${this.octave}`); continue; }
