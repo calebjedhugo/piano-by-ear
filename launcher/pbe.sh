@@ -5,11 +5,12 @@
 # ~/.piano-by-ear/current-user. Sleep handling (pmset) lives in the app /
 # the skill, not here, because it needs an admin dialog.
 #
-#   pbe.sh status            running <user> | stopped <user>
+#   pbe.sh status            running <user> drill|free | stopped <user>
 #   pbe.sh users             one profile name per line
 #   pbe.sh current           the current user's name
-#   pbe.sh start [user]      start the drill (stops a running one first)
-#   pbe.sh stop              stop the drill
+#   pbe.sh mode              drill | free (what a running process is; drill if none)
+#   pbe.sh start [user] [free]   start the drill, or free play (stops a running one first)
+#   pbe.sh stop              stop whatever is running
 set -u
 PROJ="${0:A:h:h}"
 DATA="$HOME/.piano-by-ear"
@@ -28,12 +29,14 @@ find_node() {
   done
   return 1
 }
-running() { pgrep -f 'node src/main.js' >/dev/null; }
+running() { pgrep -f 'src/(main|free)\.js' >/dev/null; }
+mode() { pgrep -f 'src/free\.js' >/dev/null && echo free || echo drill; }
 valid() { [[ "$1" =~ '^[A-Za-z0-9][A-Za-z0-9 _-]{0,31}$' ]]; }
 
 case "${1:-status}" in
-  status)  running && echo "running $(current)" || echo "stopped $(current)" ;;
+  status)  running && echo "running $(current) $(mode)" || echo "stopped $(current)" ;;
   current) current ;;
+  mode)    mode ;;
   users)   for f in "$PROFILES"/*.db(N); do echo "${f:t:r}"; done ;;
   start)
     user="${2:-$(current)}"
@@ -42,14 +45,18 @@ case "${1:-status}" in
     echo "$user" > "$CURRENT"
     cd "$PROJ" || exit 1
     NODE="$(find_node)" || { echo "node not found (install node or nvm)" | tee "$LOG" >&2; exit 1; }
-    nohup "$NODE" src/main.js --db "$PROFILES/$user.db" > "$LOG" 2>&1 &
+    if [ "${3:-}" = "free" ]; then
+      nohup "$NODE" src/free.js > "$LOG" 2>&1 &
+    else
+      nohup "$NODE" src/main.js --db "$PROFILES/$user.db" > "$LOG" 2>&1 &
+    fi
     disown
     sleep 4
-    echo "started as $user"
+    echo "started as $user ($([ "${3:-}" = free ] && echo free play || echo drill))"
     tail -4 "$LOG"
     ;;
   stop)
-    if running; then pkill -f 'node src/main.js'; sleep 1; echo "stopped"; fi
+    if running; then pkill -f 'src/(main|free)\.js'; sleep 1; echo "stopped"; fi
     ;;
-  *) echo "usage: pbe.sh status|users|current|start [user]|stop" >&2; exit 2 ;;
+  *) echo "usage: pbe.sh status|users|current|mode|start [user] [free]|stop" >&2; exit 2 ;;
 esac

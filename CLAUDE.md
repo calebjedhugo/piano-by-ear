@@ -13,9 +13,10 @@ gesture. Every state change must be audible (see `src/audio.js`).
 Normal use is the macOS launcher, `launcher/` -> `/Applications/Piano by
 Ear.app` (`launcher/build.sh` rebuilds it; rerun after editing the
 AppleScript, `pbe.sh` or `icon.py`). Click when stopped: admin dialog to
-disable lid sleep (Cancel leaves it), then start; click when running: Switch
-user / Restart / End drill (End re-enables sleep). `launcher/pbe.sh
-status|users|current|start [user]|stop` is the process control both the app
+disable lid sleep (Cancel leaves it), then start; click when running: Free
+play / Drill (switch mode), Switch user, Restart, End drill (End re-enables
+sleep). It always boots into the drill. `launcher/pbe.sh
+status|users|current|mode|start [user] [free]|stop` is the process control both the app
 and the `/piano-by-ear` skill use; it never touches sleep. Profiles are one
 DB each in `~/.piano-by-ear/profiles/<user>.db`, current user in
 `~/.piano-by-ear/current-user`; log always `~/.piano-by-ear/run.log`.
@@ -33,6 +34,7 @@ opens every input port.
 ## Layout
 
 - `src/main.js`   wiring, SIGINT shutdown (silent stop, close audio then DB).
+- `src/free.js`   free play: MIDI straight to the pianos, no drill, no DB.
 - `src/audio.js`  two pianos on one AudioContext (`src/sampler.js`,
   samples in `~/.piano-by-ear/samples` via `npm run fetch-samples`; NOT in
   the repo): the player's keys strike the Salamander grand (pan +0.15,

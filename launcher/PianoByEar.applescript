@@ -1,7 +1,8 @@
 -- Piano by Ear launcher. Click when stopped: offer to disable lid sleep
 -- (admin dialog; Cancel leaves it alone), then start the drill as the current
--- user. Click when running: Switch user / Restart / End drill. Only launch
--- and End drill touch the sleep setting.
+-- user. Click when running: Free play or Drill (switch mode), Switch user,
+-- Restart, End drill. Only launch and End drill touch the sleep setting.
+-- It always boots into the drill; free play is only reached from the menu.
 -- @@PBE@@ is replaced with the path to launcher/pbe.sh by build.sh.
 property pbe : "@@PBE@@"
 property flagFile : "~/.piano-by-ear/lid-sleep-disabled"
@@ -18,10 +19,23 @@ on currentUser()
 	return sh(quoted form of pbe & " current")
 end currentUser
 
+on currentMode()
+	return sh(quoted form of pbe & " mode")
+end currentMode
+
 on startDrill(user)
-	sh(quoted form of pbe & " start " & quoted form of user & " >/dev/null 2>&1")
-	display notification ("Running as " & user & ". Play any note to start a session.") with title "Piano by Ear"
+	startAs(user, "drill")
 end startDrill
+
+on startAs(user, mode)
+	if mode is "free" then
+		sh(quoted form of pbe & " start " & quoted form of user & " free >/dev/null 2>&1")
+		display notification "Free play: nothing is graded or recorded." with title "Piano by Ear"
+	else
+		sh(quoted form of pbe & " start " & quoted form of user & " >/dev/null 2>&1")
+		display notification ("Running as " & user & ". Play any note to start a session.") with title "Piano by Ear"
+	end if
+end startAs
 
 on disableSleep()
 	try
@@ -71,7 +85,7 @@ on switchUser()
 			return
 		end if
 	end if
-	startDrill(user)
+	startAs(user, currentMode())
 end switchUser
 
 on run
@@ -81,13 +95,25 @@ on run
 		startDrill(currentUser())
 	else
 		set user to currentUser()
-		set act to choose from list {"Switch user", "Restart", "End drill"} with title "Piano by Ear" with prompt ("Running as " & user & ".") OK button name "OK" cancel button name "Cancel"
+		set mode to currentMode()
+		if mode is "free" then
+			set items to {"Drill", "Switch user", "Restart", "End drill"}
+			set what to "Free play, as " & user & "."
+		else
+			set items to {"Free play", "Switch user", "Restart", "End drill"}
+			set what to "Drill running as " & user & "."
+		end if
+		set act to choose from list items with title "Piano by Ear" with prompt what OK button name "OK" cancel button name "Cancel"
 		if act is false then return
 		set act to item 1 of act
-		if act is "Switch user" then
+		if act is "Free play" then
+			startAs(user, "free")
+		else if act is "Drill" then
+			startAs(user, "drill")
+		else if act is "Switch user" then
 			switchUser()
 		else if act is "Restart" then
-			startDrill(user)
+			startAs(user, mode)
 		else if act is "End drill" then
 			sh(quoted form of pbe & " stop >/dev/null 2>&1")
 			restoreSleep()
