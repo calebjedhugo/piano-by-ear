@@ -5,6 +5,7 @@
 -- It always boots into the drill; free play is only reached from the menu.
 -- @@PBE@@ is replaced with the path to launcher/pbe.sh by build.sh.
 property pbe : "@@PBE@@"
+property freeKeys : "@@KEYS@@"
 property flagFile : "~/.piano-by-ear/lid-sleep-disabled"
 
 on sh(cmd)
@@ -97,10 +98,10 @@ on run
 		set user to currentUser()
 		set mode to currentMode()
 		if mode is "free" then
-			set menuItems to {"Drill", "Switch user", "Restart", "End drill"}
+			set menuItems to {"Drill", "Free play (computer keys)", "Switch user", "Restart", "End drill"}
 			set what to "Free play, as " & user & "."
 		else
-			set menuItems to {"Free play", "Switch user", "Restart", "End drill"}
+			set menuItems to {"Free play", "Free play (computer keys)", "Switch user", "Restart", "End drill"}
 			set what to "Drill running as " & user & "."
 		end if
 		set act to choose from list menuItems with title "Piano by Ear" with prompt what OK button name "OK" cancel button name "Cancel"
@@ -108,6 +109,9 @@ on run
 		set act to item 1 of act
 		if act is "Free play" then
 			startAs(user, "free")
+		else if act is "Free play (computer keys)" then
+			-- opens a Terminal window running free play with --keys (it stops the drill first)
+			sh("open " & quoted form of freeKeys)
 		else if act is "Drill" then
 			startAs(user, "drill")
 		else if act is "Switch user" then

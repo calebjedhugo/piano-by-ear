@@ -159,8 +159,12 @@ once, with the phrase's melodic window as the frame.
 icon). Click it when the drill is stopped: it offers to disable lid sleep for
 the run (standard admin password dialog; Cancel leaves sleep alone), then
 starts the drill as the current user. Click it while running for
-**Free play** (the same pianos plus the sustain pedal, nothing graded or recorded; `src/free.js`)
-or **Drill** to switch back, **Switch user** (pick a profile or type a new
+**Free play** (the same pianos plus the sustain pedal, nothing graded or recorded; `src/free.js`),
+**Free play (computer keys)** (the same in a Terminal window, playable from
+the laptop keyboard in the GarageBand/Ableton musical-typing layout: home row
+A S D F G H J K L ; ' = C D E F G A B C D E F, W E T Y U O P = sharps, Z/X
+octave down/up, C/V softer/louder, Space = sustain on/off, Q quits; a note is
+held while its key autorepeats) or **Drill** to switch back, **Switch user** (pick a profile or type a new
 name for a clean slate; **Guest** is always offered and starts empty every
 time, its history is discarded on each start), **Restart** (same user and
 mode, sleep untouched)

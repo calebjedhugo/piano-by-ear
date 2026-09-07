@@ -14,7 +14,8 @@ Normal use is the macOS launcher, `launcher/` -> `/Applications/Piano by
 Ear.app` (`launcher/build.sh` rebuilds it; rerun after editing the
 AppleScript, `pbe.sh` or `icon.py`). Click when stopped: admin dialog to
 disable lid sleep (Cancel leaves it), then start; click when running: Free
-play / Drill (switch mode), Switch user, Restart, End drill (End re-enables
+play / Drill (switch mode), Free play (computer keys) (Terminal window,
+`free-keys.command`), Switch user, Restart, End drill (End re-enables
 sleep). It always boots into the drill. `launcher/pbe.sh
 status|users|current|mode|start [user] [free]|stop` is the process control both the app
 and the `/piano-by-ear` skill use; it never touches sleep. Profiles are one
@@ -35,7 +36,7 @@ opens every input port.
 ## Layout
 
 - `src/main.js`   wiring, SIGINT shutdown (silent stop, close audio then DB).
-- `src/free.js`   free play: MIDI straight to the pianos (+ sustain pedal, CC 64), no drill, no DB.
+- `src/free.js`   free play: MIDI straight to the pianos (+ sustain pedal, CC 64), no drill, no DB. `--keys` adds the computer keyboard (musical-typing layout, needs a TTY; `launcher/free-keys.command` opens it in Terminal).
 - `src/audio.js`  two pianos on one AudioContext (`src/sampler.js`,
   samples in `~/.piano-by-ear/samples` via `npm run fetch-samples`; NOT in
   the repo): the player's keys strike the Salamander grand (pan +0.15,
