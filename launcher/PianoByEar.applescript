@@ -1,11 +1,12 @@
 -- Piano by Ear launcher. Click when stopped: offer to disable lid sleep
 -- (admin dialog; Cancel leaves it alone), then start the drill as the current
 -- user. Click when running: Free play or Drill (switch mode), Switch user,
--- Restart, End drill. Only launch and End drill touch the sleep setting.
--- It always boots into the drill; free play is only reached from the menu.
+-- Restart, End drill, and, only while no MIDI keyboard is connected, the
+-- "Use keyboard keys" toggle (the computer keyboard stands in for the
+-- controller; the process then runs in a Terminal window). Only launch and
+-- End drill touch the sleep setting. It always boots into the drill.
 -- @@PBE@@ is replaced with the path to launcher/pbe.sh by build.sh.
 property pbe : "@@PBE@@"
-property freeKeys : "@@KEYS@@"
 property flagFile : "~/.piano-by-ear/lid-sleep-disabled"
 
 on sh(cmd)
@@ -23,6 +24,14 @@ end currentUser
 on currentMode()
 	return sh(quoted form of pbe & " mode")
 end currentMode
+
+on midiPresent()
+	return (sh(quoted form of pbe & " midi") is not "")
+end midiPresent
+
+on keysOn()
+	return (sh(quoted form of pbe & " keys") is "on")
+end keysOn
 
 on startDrill(user)
 	startAs(user, "drill")
@@ -98,20 +107,35 @@ on run
 		set user to currentUser()
 		set mode to currentMode()
 		if mode is "free" then
-			set menuItems to {"Drill", "Free play (computer keys)", "Switch user", "Restart", "End drill"}
+			set menuItems to {"Drill", "Switch user", "Restart", "End drill"}
 			set what to "Free play, as " & user & "."
 		else
-			set menuItems to {"Free play", "Free play (computer keys)", "Switch user", "Restart", "End drill"}
+			set menuItems to {"Free play", "Switch user", "Restart", "End drill"}
 			set what to "Drill running as " & user & "."
+		end if
+		set keysLabel to ""
+		if not midiPresent() then
+			if keysOn() then
+				set keysLabel to "Use keyboard keys: on"
+			else
+				set keysLabel to "Use keyboard keys: off"
+			end if
+			set menuItems to menuItems & {keysLabel}
+			set what to what & " No MIDI keyboard connected."
 		end if
 		set act to choose from list menuItems with title "Piano by Ear" with prompt what OK button name "OK" cancel button name "Cancel"
 		if act is false then return
 		set act to item 1 of act
 		if act is "Free play" then
 			startAs(user, "free")
-		else if act is "Free play (computer keys)" then
-			-- opens a Terminal window running free play with --keys (it stops the drill first)
-			sh("open " & quoted form of freeKeys)
+		else if act is keysLabel then
+			-- toggle, then restart in the same mode so it takes effect
+			if keysOn() then
+				sh(quoted form of pbe & " keys off")
+			else
+				sh(quoted form of pbe & " keys on")
+			end if
+			startAs(user, mode)
 		else if act is "Drill" then
 			startAs(user, "drill")
 		else if act is "Switch user" then

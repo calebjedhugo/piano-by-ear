@@ -160,15 +160,17 @@ icon). Click it when the drill is stopped: it offers to disable lid sleep for
 the run (standard admin password dialog; Cancel leaves sleep alone), then
 starts the drill as the current user. Click it while running for
 **Free play** (the same pianos plus the sustain pedal, nothing graded or recorded; `src/free.js`),
-**Free play (computer keys)** (the same in a Terminal window, playable from
-the laptop keyboard in the GarageBand/Ableton musical-typing layout: home row
-A S D F G H J K L ; ' = C D E F G A B C D E F, W E T Y U O P = sharps, Z/X
-octave down/up, C/V softer/louder, Space = sustain on/off, Q quits; a note is
-held while its key autorepeats) or **Drill** to switch back, **Switch user** (pick a profile or type a new
+or **Drill** to switch back, **Switch user** (pick a profile or type a new
 name for a clean slate; **Guest** is always offered and starts empty every
 time, its history is discarded on each start), **Restart** (same user and
 mode, sleep untouched)
 or **End drill** (stops, and re-enables sleep if the launcher disabled it).
-It always boots into the drill. Each user is one SQLite file
+While no MIDI keyboard is connected the menu also offers **Use keyboard
+keys: on/off**: with it on, the computer keyboard stands in for the
+controller in every mode (the process runs in a Terminal window to read it)
+in the GarageBand/Ableton musical-typing layout: home row A S D F G H J K L
+; ' = C D E F G A B C D E F, W E T Y U O P = sharps, Z/X octave down/up,
+C/V softer/louder, Space = sustain on/off, Q quits; a note is held while its
+key autorepeats. It always boots into the drill. Each user is one SQLite file
 under `~/.piano-by-ear/profiles/`. `launcher/pbe.sh` is the command-line
 equivalent without the sleep handling.
