@@ -15,13 +15,8 @@ Ear.app` (`launcher/build.sh` rebuilds it; rerun after editing the
 AppleScript, `pbe.sh` or `icon.py`). Click when stopped: admin dialog to
 disable lid sleep (Cancel leaves it), then start; click when running: Free
 play / Drill (switch mode), Switch user, Restart, End drill (End re-enables
-sleep), and, only with no MIDI port present, the "Use keyboard keys" toggle
-(`pbe.sh keys on|off`; then `start` opens `run-in-terminal.command` so
-`src/keys.js` can read the computer keyboard, in drill or free play; the
-drill then uses `<user>-keys.db`, a SEPARATE history, hidden from the user
-list, and grades no holds from that port; `scripts/compare-surfaces.mjs`
-compares piano vs keys per interval). It always boots into the drill. `launcher/pbe.sh
-status|users|current|mode|midi|keys [on|off]|start [user] [free]|stop` is the process control both the app
+sleep). It always boots into the drill. `launcher/pbe.sh
+status|users|current|mode|start [user] [free]|stop` is the process control both the app
 and the `/piano-by-ear` skill use; it never touches sleep. Profiles are one
 DB each in `~/.piano-by-ear/profiles/<user>.db` ("Guest" is always listed
 and wiped on every start as Guest), current user in
@@ -41,7 +36,6 @@ opens every input port.
 
 - `src/main.js`   wiring, SIGINT shutdown (silent stop, close audio then DB).
 - `src/free.js`   free play: MIDI straight to the pianos (+ sustain pedal, CC 64), no drill, no DB.
-- `src/keys.js`   the computer keyboard as a controller (`--keys`, needs a TTY). free.js: musical-typing note layout (note-off synthesized 350 ms after the last autorepeat). main.js: INTERVAL mode, number row = semitones down (Shift = up) from `refNote()` (= drill.lastNoteOn ?? anchor); the named note is emitted as a 150 ms press and graded normally.
 - `src/audio.js`  two pianos on one AudioContext (`src/sampler.js`,
   samples in `~/.piano-by-ear/samples` via `npm run fetch-samples`; NOT in
   the repo): the player's keys strike the Salamander grand (pan +0.15,
@@ -131,7 +125,6 @@ opens every input port.
   chorale for 4-voice files, poly for 2-staff files; limits in `POLY`.
 - `src/range.js`  per-port range: guessed from a standalone key count in the
   name, else 48..72; widening snaps to a standard layout while guessed.
-  `FIXED` ports (the computer keyboard: 36..84) never widen.
 - `src/db.js`     node:sqlite, WAL, busy_timeout. Guarded migrations add
   columns. `kv(key)` returns a guarded {load, save}.
 

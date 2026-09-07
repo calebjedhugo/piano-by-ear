@@ -3,10 +3,7 @@
 # /piano-by-ear skill. Profiles are one SQLite file each under
 # ~/.piano-by-ear/profiles/<name>.db; the current one is named in
 # ~/.piano-by-ear/current-user. "Guest" is always offered and always starts
-# empty: its history is deleted every time the drill starts as Guest. With
-# the keyboard-keys toggle on, the drill writes to <name>-keys.db instead:
-# the computer keyboard trains a different skill (ear without the hands),
-# so its history never mixes with the piano's. Sleep
+# empty: its history is deleted every time the drill starts as Guest. Sleep
 # handling (pmset) lives in the app / the skill, not here, because it needs
 # an admin dialog.
 #
@@ -14,10 +11,6 @@
 #   pbe.sh users             one profile name per line
 #   pbe.sh current           the current user's name
 #   pbe.sh mode              drill | free (what a running process is; drill if none)
-#   pbe.sh midi              names of the MIDI input ports present now (empty = none)
-#   pbe.sh keys [on|off]     the "use keyboard keys" toggle (~/.piano-by-ear/use-keys):
-#                            with it on, start runs in a Terminal window and the
-#                            computer keyboard is a controller (src/keys.js)
 #   pbe.sh start [user] [free]   start the drill, or free play (stops a running one first)
 #   pbe.sh stop              stop whatever is running
 set -u
@@ -27,8 +20,6 @@ PROFILES="$DATA/profiles"
 LOG="$DATA/run.log"
 CURRENT="$DATA/current-user"
 GUEST="Guest"
-USEKEYS="$DATA/use-keys"
-LAUNCH="$DATA/keys-launch"
 mkdir -p "$PROFILES"
 
 current() { [ -s "$CURRENT" ] && cat "$CURRENT" || echo "default"; }
@@ -49,33 +40,21 @@ case "${1:-status}" in
   status)  running && echo "running $(current) $(mode)" || echo "stopped $(current)" ;;
   current) current ;;
   mode)    mode ;;
-  midi)    NODE="$(find_node)" || exit 1; cd "$PROJ" && "$NODE" launcher/midi-ports.mjs 2>/dev/null ;;
-  keys)
-    case "${2:-}" in
-      on)  touch "$USEKEYS"; echo on ;;
-      off) rm -f "$USEKEYS"; echo off ;;
-      "")  [ -f "$USEKEYS" ] && echo on || echo off ;;
-      *)   echo "usage: pbe.sh keys [on|off]" >&2; exit 2 ;;
-    esac ;;
-  users)   for f in "$PROFILES"/*.db(N); do n="${f:t:r}"; [ "$n" = "$GUEST" ] || [[ "$n" == *-keys ]] || echo "$n"; done; echo "$GUEST" ;;
+  users)   for f in "$PROFILES"/*.db(N); do [ "${f:t:r}" = "$GUEST" ] || echo "${f:t:r}"; done; echo "$GUEST" ;;
   start)
     user="${2:-$(current)}"
     valid "$user" || { echo "bad user name: $user" >&2; exit 2; }
     "$0" stop
-    [ "$user" = "$GUEST" ] && rm -f "$PROFILES/$GUEST"*.db "$PROFILES/$GUEST"*.db-wal "$PROFILES/$GUEST"*.db-shm
+    [ "$user" = "$GUEST" ] && rm -f "$PROFILES/$GUEST.db" "$PROFILES/$GUEST.db-wal" "$PROFILES/$GUEST.db-shm"
     echo "$user" > "$CURRENT"
     cd "$PROJ" || exit 1
     NODE="$(find_node)" || { echo "node not found (install node or nvm)" | tee "$LOG" >&2; exit 1; }
-    if [ -f "$USEKEYS" ]; then
-      # the computer keyboard needs a terminal: hand the launch to a Terminal window
-      printf '%s\n%s\n' "${3:-drill}" "$user" > "$LAUNCH"
-      open "$PROJ/launcher/run-in-terminal.command"
-    elif [ "${3:-}" = "free" ]; then
+    if [ "${3:-}" = "free" ]; then
       nohup "$NODE" src/free.js > "$LOG" 2>&1 &
     else
       nohup "$NODE" src/main.js --db "$PROFILES/$user.db" > "$LOG" 2>&1 &
     fi
-    disown 2>/dev/null
+    disown
     sleep 4
     echo "started as $user ($([ "${3:-}" = free ] && echo free play || echo drill))"
     tail -4 "$LOG"
@@ -83,5 +62,5 @@ case "${1:-status}" in
   stop)
     if running; then pkill -f 'src/(main|free)\.js'; sleep 1; echo "stopped"; fi
     ;;
-  *) echo "usage: pbe.sh status|users|current|mode|midi|keys [on|off]|start [user] [free]|stop" >&2; exit 2 ;;
+  *) echo "usage: pbe.sh status|users|current|mode|start [user] [free]|stop" >&2; exit 2 ;;
 esac

@@ -159,26 +159,12 @@ once, with the phrase's melodic window as the frame.
 icon). Click it when the drill is stopped: it offers to disable lid sleep for
 the run (standard admin password dialog; Cancel leaves sleep alone), then
 starts the drill as the current user. Click it while running for
-**Free play** (the same pianos plus the sustain pedal, nothing graded or recorded; `src/free.js`),
+**Free play** (the same pianos plus the sustain pedal, nothing graded or recorded; `src/free.js`)
 or **Drill** to switch back, **Switch user** (pick a profile or type a new
 name for a clean slate; **Guest** is always offered and starts empty every
 time, its history is discarded on each start), **Restart** (same user and
 mode, sleep untouched)
 or **End drill** (stops, and re-enables sleep if the launcher disabled it).
-While no MIDI keyboard is connected the menu also offers **Use keyboard
-keys: on/off**. With it on, the process runs in a Terminal window and the
-computer keyboard stands in for the controller. In **free play** it is a
-piano in the GarageBand/Ableton musical-typing layout (home row A S D F G H
-J K L ; ' = C D E F G A B C D E F, W E T Y U O P = sharps, Z/X octave, C/V
-softer/louder, Space = sustain, Q quits; a note is held while its key
-autorepeats). In the **drill** you answer by naming the interval instead of
-finding the note: the number row 1-9, 0 (=10), - (=11), = (=12) is that many
-semitones down from the reference note (the anchor, or the last note of your
-answer so far), and the same keys with Shift go up; the named note sounds
-and is graded like a played one, timing included. That trains the ear
-without the hands, so the drill keeps a separate history, `<user>-keys.db`,
-and grades no holds there; `scripts/compare-surfaces.mjs` puts the piano and
-keyboard histories side by side per interval (weak on both = ear, weak on
-the piano only = ear-to-hand). It always boots into the drill. Each user is one SQLite file
+It always boots into the drill. Each user is one SQLite file
 under `~/.piano-by-ear/profiles/`. `launcher/pbe.sh` is the command-line
 equivalent without the sleep handling.

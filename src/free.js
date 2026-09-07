@@ -4,20 +4,15 @@
 // pedal holds it); nothing is graded or recorded. Started by the launcher's "Free play" (launcher/pbe.sh start
 // <user> free); src/main.js is the drill and is untouched by this.
 //
-//   node src/free.js [--port <substring>] [--debug-midi] [--keys]
-//
-// --keys also plays from the computer keyboard (needs a terminal); layout in
-// src/keys.js.
+//   node src/free.js [--port <substring>] [--debug-midi]
 import { parseArgs } from 'node:util';
 import { Audio } from './audio.js';
 import { Midi } from './midi.js';
-import { Keys } from './keys.js';
 
 const { values: args } = parseArgs({
   options: {
     port: { type: 'string' },
     'debug-midi': { type: 'boolean', default: false },
-    keys: { type: 'boolean', default: false },
   },
 });
 
@@ -52,9 +47,6 @@ const midi = new Midi({
 midi.debug = args['debug-midi'];
 
 log('piano-by-ear  free play (nothing is graded or recorded)');
-const keys = args.keys ? new Keys({ onNoteOn, onNoteOff, onControl, onQuit: () => shutdown(), echo: true, log,
-  onPort: (name, connected) => { if (connected) { log(`in: ${name}`); audio.ready(); } } }) : null;
-keys?.start();
 audio.load().then(({ detail }) => log(`voice: ${detail}`), (err) => log(`voice: synth (samples failed to load: ${err.message})`));
 midi.start();
 if (midi.portNames.length === 0) log('no MIDI inputs yet; plug in a controller (polling every 2s)');
@@ -64,7 +56,6 @@ let closing = false;
 function shutdown() {
   if (closing) return;
   closing = true;
-  keys?.stop();
   midi.stop();
   audio.close().catch(() => {}).finally(() => process.exit(0));
 }

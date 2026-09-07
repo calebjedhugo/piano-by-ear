@@ -148,9 +148,6 @@ export class Drill {
 
   onNoteOn({ note, velocity, at, port }) {
     this.audio.startVoice(note, velocity);
-    // A terminal cannot report key release (src/keys.js fakes it from
-    // autorepeat), so holds from the computer keyboard are never graded.
-    this.holdsGradable = port !== 'Computer keyboard';
     this.keysDown.add(note);
     if (port && port !== this.range.portName) this.range.setPort(port);
     if (this.range.observe(note)) {
@@ -781,7 +778,7 @@ export class Drill {
       phraseId: this.q.phrase?.id ?? null, position: g.index, graded: exp.graded, inTime, beatMs: this.beat * 1000,
     });
     // Remember this key press so its release can be graded for duration.
-    if (exp.graded && correct && this.holdsGradable !== false) {
+    if (exp.graded && correct) {
       const durSec = exp.dur * this.beat;
       this.held.set(note, { rowId, onAt: atAudio, durSec, heardSec: Math.min(durSec, CALL_MAX_S) });
     }
