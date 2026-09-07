@@ -34,7 +34,7 @@ opens every input port.
 ## Layout
 
 - `src/main.js`   wiring, SIGINT shutdown (silent stop, close audio then DB).
-- `src/free.js`   free play: MIDI straight to the pianos, no drill, no DB.
+- `src/free.js`   free play: MIDI straight to the pianos (+ sustain pedal, CC 64), no drill, no DB.
 - `src/audio.js`  two pianos on one AudioContext (`src/sampler.js`,
   samples in `~/.piano-by-ear/samples` via `npm run fetch-samples`; NOT in
   the repo): the player's keys strike the Salamander grand (pan +0.15,
