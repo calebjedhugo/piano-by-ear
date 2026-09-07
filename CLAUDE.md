@@ -128,6 +128,8 @@ opens every input port.
   chorale for 4-voice files, poly for 2-staff files; limits in `POLY`.
 - `src/range.js`  per-port range: guessed from a standalone key count in the
   name, else 48..72; widening snaps to a standard layout while guessed.
+  `FIXED` ports (the computer keyboard: 60..77, the home row unshifted)
+  never widen, so questions stay answerable without an octave shift.
 - `src/db.js`     node:sqlite, WAL, busy_timeout. Guarded migrations add
   columns. `kv(key)` returns a guarded {load, save}.
 
