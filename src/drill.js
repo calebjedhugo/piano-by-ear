@@ -291,8 +291,11 @@ export class Drill {
   intervalQuestion(kind, target) {
     return {
       kind,
-      // The anchor rings until the target: a call never holds a beat of silence.
-      notes: [{ midi: this.anchor, b: 0, dur: 2, voice: 0, free: true }, { midi: target, b: 2, dur: 1, voice: 0 }],
+      // The anchor is the note you just played, so the call sounds only the
+      // target, on the downbeat. The anchor stays in the question, silent, a
+      // beat before it: it is the target's melodic context for grading and
+      // the free note you may echo or skip when you answer.
+      notes: [{ midi: this.anchor, b: -1, dur: 1, voice: 0, free: true, silent: true }, { midi: target, b: 0, dur: 1, voice: 0 }],
       meter: 4,
       label: `${kind === 'interval' ? '' : `${kind}: `}${name(this.anchor)} -> ? (${signed(target - this.anchor)})`,
     };
@@ -455,10 +458,12 @@ export class Drill {
     // Each call note sounds for its written length, but never into the next
     // onset: a short articulation gap before every onset keeps a fast note
     // short and a repeated pitch a clear re-attack, so the rhythm is unambiguous.
-    this.callNotes = notes.map((n) => {
+    this.callT0 = t0; // where beat 0 of the question falls on the audio clock
+    const sounded = notes.filter((n) => !n.silent);
+    this.callNotes = sounded.map((n) => {
       const at = t0 + n.b * this.beat;
       let dur = Math.min(CALL_MAX_S, n.dur * this.beat);
-      const next = notes.find((m) => m.b > n.b + 1e-9);
+      const next = sounded.find((m) => m.b > n.b + 1e-9);
       if (next) {
         const gap = (next.b - n.b) * this.beat;
         dur = Math.min(dur, gap - Math.max(CALL_GAP_MIN_S, CALL_GAP_FRAC * gap));
@@ -495,7 +500,7 @@ export class Drill {
         g = { b: n.b, notes: [], at: null, acceptFrom: null, gapMs: null };
         groups.push(g);
       }
-      g.notes.push({ midi: n.midi, dur: n.dur, voice: n.voice, free: Boolean(n.free), done: false, played: null, melodicFrom: null, melodicPrev: null, harmonicFrom: null, graded: false });
+      g.notes.push({ midi: n.midi, dur: n.dur, voice: n.voice, free: Boolean(n.free), silent: Boolean(n.silent), done: false, played: null, melodicFrom: null, melodicPrev: null, harmonicFrom: null, graded: false });
     }
     const lastInVoice = new Map(); // voice -> [prev, prevPrev] midis
     for (let gi = 0; gi < groups.length; gi += 1) {
@@ -624,12 +629,15 @@ export class Drill {
   startResponse(note, atAudio) {
     const g = this.groups;
     let j = 0;
+    // A first note that is not the free anchor belongs to the second group
+    // when it matches it, or whenever the anchor was never sounded: with a
+    // silent anchor, a wrong first note is a wrong target, not a wrong anchor.
     if (g.length > 1 && g[0].notes.every((e) => e.free) && !g[0].notes.some((e) => this.matches(e, note)) &&
-        g[1].notes.some((e) => !e.free && this.matches(e, note))) {
+        (g[1].notes.some((e) => !e.free && this.matches(e, note)) || g[0].notes.every((e) => e.silent))) {
       j = 1;
       for (const e of g[0].notes) e.done = true;
     }
-    const callAt = this.callNotes[0][1] + (g[j].b - g[0].b) * this.beat;
+    const callAt = this.callT0 + g[j].b * this.beat; // when the call sounded (or would have) this group
     const behind = Math.max(1, Math.round((atAudio - callAt) / this.beat));
     const T = callAt + behind * this.beat;
     for (const grp of g) grp.at = T + (grp.b - g[j].b) * this.beat;
