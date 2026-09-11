@@ -152,8 +152,10 @@ opens every input port.
   graded (`q.chord`), never pre-asked. KEYED PASSAGES grade the pivot too
   (it is not the note under the hand): buildGroups frames it from the
   anchor -- EVERY voice's first note (a duo's first bass note was ungraded
-  yet fatal); on a RETRY each voice's first note is framed from itself
-  (interval 0: just heard, not a new leap). The octave is the one whose
+  yet fatal); on a RETRY each voice's first note is FREE (just heard, not a
+  new leap). FREE MEANS FREE: a wrong press when only free notes are pending
+  consumes nothing (logged "on a free note: ignored"); it used to consume
+  the free note and sink the passage. The octave is the one whose
   pivot is nearest the anchor, wider than an octave folds to the simple
   interval, and the label says `first note +N from X` (not on retries).
   VARIANT in the relative key of the original placement is no transposition

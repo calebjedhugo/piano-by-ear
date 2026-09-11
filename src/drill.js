@@ -564,8 +564,15 @@ export class Drill {
     const { phrase, notes, octave, key } = picked;
     // Placed in a key, the pivot is no longer the note under the hand: it is
     // a heard note like any other and is graded (buildGroups frames it from
-    // the anchor). Placed on the anchor, it stays free.
-    const placed = notes.map(([midi, off, dur, voice], i) => ({ midi, b: phrase.pickup + off, dur, voice, free: !key && i === phrase.pivot }));
+    // the anchor). Placed on the anchor, it stays free. On a RETRY every
+    // voice's first note was just heard: free, so a fumbled start costs
+    // nothing and the correction is about the notes that were missed.
+    const seen = new Set();
+    const placed = notes.map(([midi, off, dur, voice], i) => {
+      const firstInVoice = !seen.has(voice);
+      seen.add(voice);
+      return { midi, b: phrase.pickup + off, dur, voice, free: (!key && i === phrase.pivot) || (kind === 'retry' && firstInVoice) };
+    });
     const pivotMidi = notes[phrase.pivot][0];
     const start = key ? `, in ${keyName(key)}${kind === 'retry' ? '' : `, first note ${signed(pivotMidi - this.anchor)} from ${name(this.anchor)}`}` : octave === 0 ? '' : `, starts ${name(pivotMidi)} (octave ${octave > 0 ? 'above' : 'below'} anchor)`;
     const poly = phrase.kind !== 'mono';
@@ -948,12 +955,11 @@ export class Drill {
     const lastInVoice = new Map(); // voice -> [prev, prevPrev] midis
     // A keyed passage is heard from the note under the hand: EVERY voice's
     // first note is framed from the anchor and graded (a duo's first bass
-    // note was ungraded yet fatal). On a retry the first notes were just
-    // heard: each is framed from itself (interval 0, not a new leap).
-    if (this.q?.placed?.key) {
-      const retry = this.q.kind === 'retry';
+    // note was ungraded yet fatal). Not on a retry: there the first notes
+    // are free (passageQuestion), just heard, not a new leap.
+    if (this.q?.placed?.key && this.q.kind !== 'retry') {
       for (const n of notes) {
-        if (!lastInVoice.has(n.voice)) lastInVoice.set(n.voice, retry ? [n.midi, null] : [this.anchor, this.prevAnchor]);
+        if (!lastInVoice.has(n.voice)) lastInVoice.set(n.voice, [this.anchor, this.prevAnchor]);
       }
     }
     // The echo ask-back's first note is found again from the playback's last
@@ -1232,11 +1238,16 @@ export class Drill {
     }
     let correct = true;
     if (!exp) {
-      // Wrong note: it consumes the nearest pending note of the group (a
-      // graded one if any is left).
+      // Wrong note: it consumes the nearest pending GRADED note of the group.
+      // When only free notes are pending (the pivot, a retry's first notes),
+      // it consumes nothing: free means free, never fatal. The right note may
+      // still follow, or the next group may simply begin.
       const cands = pending(g).filter((e) => !e.free);
-      const pool = cands.length ? cands : pending(g);
-      exp = pool.reduce((best, e) => (Math.abs(e.midi - note) < Math.abs(best.midi - note) ? e : best), pool[0]);
+      if (cands.length === 0) {
+        this.log(`  (${name(note)} on a free note: ignored)`);
+        return;
+      }
+      exp = cands.reduce((best, e) => (Math.abs(e.midi - note) < Math.abs(best.midi - note) ? e : best), cands[0]);
       correct = false;
     }
     this.gradeNote(g, exp, note, velocity, atAudio, correct);

@@ -65,7 +65,7 @@ while (drill.state === 'QUESTION' && drill.questions <= Number(maxQ)) {
     for (const e of g.notes) {
       if (e.free && e.silent) continue;
       const from = e.melodicFrom ?? drill.anchor;
-      const m = e.free ? e.midi : answerFor(prevPlayed ?? from, e.midi);
+      const m = e.free ? (player === 'sloppy' && Math.random() < Number(process.env.FUMBLE ?? 0.25) ? e.midi + 1 : e.midi) : answerFor(prevPlayed ?? from, e.midi);
       const delay = Math.max(0, (at - audio.now) * 1000);
       setTimeout(() => press(m, at), delay);
       if (!e.free) prevPlayed = m;
