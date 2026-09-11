@@ -286,6 +286,29 @@ function section2() {
   const savingsRows = savingsDays.map((day) => [day, num(mean(savingsByDay.get(day))), savingsByDay.get(day).length]);
   printTable('Savings on re-encounter (later-day score - own first-day score)', ['day', 'mean savings', 'n'], savingsRows);
 
+  // DID HE HEAR IT? A note missed and then caught -- gone back for before the
+  // next note was due -- says the ear noticed, whatever the hands did. It is
+  // the amateur recovery and it is the good kind: the professional one (play
+  // on, get back onto the line later) is `recovered`, and it is silent about
+  // whether anything was noticed at all. Rows before 2026-09-11 have no
+  // catches because the drill threw those presses away unread.
+  if (hasColumn('passages', 'self_corrected')) {
+    const scRows = db.prepare(`
+      SELECT ts, notes, exact, self_corrected FROM passages
+      WHERE exact < notes AND qkind IN ('passage', 'retry') AND ts >= ?`).all(cutoff);
+    const byScDay = groupBy(scRows, (r) => localDay(r.ts));
+    const scDays = [...byScDay.keys()].sort();
+    const scOut = scDays.map((day) => {
+      const list = byScDay.get(day);
+      const missed = list.reduce((a, r) => a + (r.notes - r.exact), 0);
+      const caught = list.reduce((a, r) => a + (r.self_corrected || 0), 0);
+      const anyCaught = list.filter((r) => (r.self_corrected || 0) > 0).length;
+      return [day, list.length, missed, caught, missed ? `${Math.round((100 * caught) / missed)}%` : '-', `${anyCaught}/${list.length}`];
+    });
+    printTable('Notes caught (missed, then gone back for before the next note was due)',
+      ['day', 'failed passages', 'missed notes', 'caught', 'caught rate', 'passages with a catch'], scOut);
+  }
+
   // Variants: does a passage nailed and then re-shaped (new key/transposition/mode) transfer?
   const variantRows = db.prepare(`
     SELECT ts, phrase_id, notes, exact, ${col('passages', 'pitch_clean')}

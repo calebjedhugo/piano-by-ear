@@ -90,7 +90,16 @@
 // group (any order within a chord), judged on timing against the constant
 // grid and on how long you hold it. A wrong note consumes the nearest
 // pending note of the group. Starting the next group abandons what was left
-// of this one. Each note carries up to two skills: the melodic interval from
+// of this one.
+// ONE RE-ATTACK PER NOTE: if you miss a note and go back for it before the
+// next one is due, that catch is recorded (`self_corrected`) and counts
+// toward rungScore -- it is not a second chance at the note, which stays a
+// miss, and a passage still passes or fails on exact pitch, first try. Until
+// 2026-09-11 that press was thrown away unread, so the drill could not tell
+// a player who hears his own mistakes from one who never notices. You get
+// exactly one: the next press closes the window whatever it is, because
+// hunting through four pitches is searching, not catching.
+// Each note carries up to two skills: the melodic interval from
 // the previous note in its voice (melodic engine) and the interval above its
 // chord's bass (harmonic engine). PITCH AND TIME ARE SEPARATE VERDICTS: a
 // passage passes on exact pitch alone (retry, length, streak, promotion all
@@ -944,6 +953,7 @@ export class Drill {
     this.remediated = 0;
     this.answered = false;
     this.lastNoteOn = null;
+    this.reattack = null; // { exp, at, until }: the missed note still open for its one catch
     this.collected = [];
     this.held = new Map(); // midi -> { rowId, onAt, durSec } for notes awaiting release
     this.awaitingFinalize = false;
@@ -1212,6 +1222,27 @@ export class Drill {
       if (atAudio < this.earliestStart - this.beat / 2) return; // still the call: free
       this.startResponse(note, atAudio);
     }
+    // ONE RE-ATTACK. You missed a note and went back for it before the next
+    // one was due. That is the amateur recovery -- the professional one is to
+    // say nothing and get back onto the line further down (`recovered` in
+    // src/rungs.js) -- and it is the one that proves you HEARD the mistake.
+    // Before this, the press was thrown away unread: it arrives ahead of the
+    // next group's window, and the line below dropped it.
+    //
+    // It is graded as a catch, not as a note: the miss stands (a passage
+    // still fails on exact pitch, first try) and the grid does not move. You
+    // get exactly ONE -- the next press closes the window whatever it is, so
+    // hunting through four pitches is searching, not catching.
+    const re = this.reattack;
+    if (re) {
+      this.reattack = null;
+      if (note === re.exp.midi && atAudio < re.until && !this.dueNow(note, atAudio)) {
+        re.exp.selfCorrected = true;
+        if (re.exp.rowId) this.db.selfCorrected(re.exp.rowId);
+        this.log(`  caught it: ${name(note)}, ${Math.round((atAudio - re.at) * 1000)}ms later`);
+        return;
+      }
+    }
     let g = this.groups[this.gi];
     if (atAudio < g.acceptFrom) return; // ahead of this group's slot: free
     // Ignore an exact double-trigger of the same key (hardware bounce, or a
@@ -1274,6 +1305,23 @@ export class Drill {
       this.gi += 1;
       if (this.gi >= this.groups.length) this.completeQuestion(atAudio);
     }
+    // A missed note stays open for one re-attack, until the next note is
+    // actually due (its onset, not its accept window: a player who stops to
+    // fix something is behind by then, and that is the whole point).
+    if (!correct && exp.graded && !this.answered) {
+      const next = this.groups[this.gi];
+      this.reattack = { exp, at: atAudio, until: next && next.at !== null ? next.at : atAudio + this.beat };
+    } else {
+      this.reattack = null;
+    }
+  }
+
+  /** Is this pitch a pending note of the group that is accepting right now?
+   *  Then it is that note, played on time, not a catch of the last one. */
+  dueNow(note, atAudio) {
+    const g = this.groups[this.gi];
+    return Boolean(g && g.acceptFrom !== null && atAudio >= g.acceptFrom
+      && g.notes.some((e) => !e.done && !e.free && e.midi === note));
   }
 
   /** Is this an isolated interval answer (the stage's business)? */
@@ -1360,6 +1408,7 @@ export class Drill {
       credit: isolated || q.prime ? credit : null, stage: isolated || q.prime ? this.stage.current : null, heightErr: q.wide ? heightErr : null,
       voice: exp.voice ?? null, behind: this.behind,
     });
+    exp.rowId = rowId; // so a re-attack can mark this note caught
     // Remember this key press so its release can be graded for duration.
     if (exp.graded && correct) {
       const durSec = exp.dur * this.beat;
@@ -1463,7 +1512,9 @@ export class Drill {
       this.passagesDone += 1;
       const bank = q.phrase.kind === 'mono' ? this.phrases : this.poly;
       const rungs = summarizeRungs(
-        this.groups.flatMap((g) => g.notes.map((e) => ({ expected: e.midi, played: e.played ?? null, free: e.free || e.silent, b: g.b, voice: e.voice }))),
+        this.groups.flatMap((g) => g.notes.map((e) => ({
+          expected: e.midi, played: e.played ?? null, free: e.free || e.silent, b: g.b, voice: e.voice, selfCorrected: Boolean(e.selfCorrected),
+        }))),
       );
       this.db.passage({
         sessionId: this.sessionId, question: this.questions, phraseId: q.phrase.id, kind: q.phrase.kind, qkind: q.kind,

@@ -164,6 +164,19 @@ opens every input port.
   matching the NEXT group (inside its window) abandons the rest of this one.
   Each expected note carries `melodicFrom` and `harmonicFrom`. Question
   notes are `{midi, b, dur, voice, free, silent}`.
+  ONE RE-ATTACK (`this.reattack`, `dueNow()`): a missed note stays open until
+  the next note's ONSET (not its accept window -- a player who stops to fix
+  something is behind by then). The expected pitch arriving in that gap is a
+  CATCH: logged `caught it: X, Nms later`, stored as `attempts.self_corrected`
+  and counted in `passages.self_corrected`, worth half an exact note in
+  `rungScore`. It is NOT a second chance -- the note stays missed, pitchClean
+  stays false, the grid does not move, the engines and the stage see only the
+  first attempt. Exactly ONE: any other press closes the window (hunting is
+  searching, not catching). Distinct from rungs' `recovered`, which is the
+  professional recovery -- play on, get back onto the line later -- and says
+  nothing about whether the player noticed. Before 2026-09-11 the re-attack
+  press hit `atAudio < g.acceptFrom` and was discarded unread, so 2026-09-11
+  and earlier data has no catches at all.
   POLYPHONY LEVEL (`polyLevel()`, kv `poly`): level 0 -> 1 is earned from
   interval confidence (POLY.melodicTiersForDyads tiers AND
   POLY.masteredForDyads mastered), not passages; higher levels from the

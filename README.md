@@ -25,7 +25,11 @@ only ever touch the keys.
 4. Every note is graded on pitch, on its onset against the pulse, and on how
    long you hold it, but **pitch and time are separate verdicts**: a phrase
    passes on its notes; the timing is reported beside it and never decides
-   what comes next. There is no feedback while you play, and there are no
+   what comes next. Miss a note and go back for it before the next one is
+   due and the drill records that you **caught** it — the note still counts
+   as missed, but hearing your own mistake is its own skill and it is
+   measured. You get one re-attack; after that you are searching, not
+   catching. There is no feedback while you play, and there are no
    cues, chimes or error sounds anywhere in this program: **nothing is ever
    played that you are not being asked to play back.** It is a conversation,
    and the reply is the next question. A phrase you missed comes back; a

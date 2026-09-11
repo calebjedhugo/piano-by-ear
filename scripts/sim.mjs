@@ -4,6 +4,9 @@
 // players: perfect | sloppy (20% one-semitone slips) | kid (direction right
 // 85%, size random) | liz (half exact, else 1-2 semitones off) | random.
 // "nophrases" leaves the passage banks out (the round needs plain questions).
+// FUMBLE=x   how often a free/pivot note is fumbled (sloppy only).
+// SELFFIX=x  how often a wrong note is followed by the right one, a third of
+//            a beat later: the player who stops and catches his own mistake.
 import { Audio } from '../src/audio.js';
 import { Db } from '../src/db.js';
 import { AdaptiveEngine } from '../src/engine.js';
@@ -68,6 +71,13 @@ while (drill.state === 'QUESTION' && drill.questions <= Number(maxQ)) {
       const delay = Math.max(0, (at - audio.now) * 1000);
       setTimeout(() => press(m, at), delay);
       if (!e.free) prevPlayed = m;
+      // The player who hears his own mistake and goes back for it.
+      const fix = Number(process.env.SELFFIX ?? 0);
+      if (!e.free && m !== e.midi && Math.random() < fix) {
+        const back = at + 0.3 * beat;
+        setTimeout(() => press(e.midi, back), Math.max(0, (back - audio.now) * 1000));
+        prevPlayed = e.midi; // caught it: he is back on the written line
+      }
     }
   }
   seen += 1;

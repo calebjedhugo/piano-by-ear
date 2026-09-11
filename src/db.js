@@ -19,6 +19,12 @@ const ATTEMPT_COLUMNS = {
   height_err: 'INTEGER', // compound ask: pitch class right, octave wrong
   voice: 'INTEGER', // the voice within a chord / polyphonic passage (0 = the bass or the melody)
   behind: 'INTEGER', // beats between the call and the response's first note: the effort signature
+  // The player missed this note and then went back and played it right,
+  // before the next note was due -- the one re-attack a note gets. The note
+  // is still a miss (the passage fails on exact pitch, first try), but the
+  // difference between a player who catches his own note and one who never
+  // notices is most of what separates a musician from a typist.
+  self_corrected: 'INTEGER',
 };
 // passage_clean: the window follows clean passages too (sampled): false alarms vs hits.
 // learning: one of the first windows, before the player has ever pressed in one -- not evidence.
@@ -30,7 +36,7 @@ const SESSION_COLUMNS = { passages: 'INTEGER NOT NULL DEFAULT 0' };
 // `clean` keeps its old meaning (pitch AND time) for continuity; the
 // controllers read pitch_clean (pitch and rhythm are separable skills:
 // Pfordresher 2003; Brown & Penhune 2018).
-const PASSAGE_COLUMNS = { pitch_clean: 'INTEGER' };
+const PASSAGE_COLUMNS = { pitch_clean: 'INTEGER', self_corrected: 'INTEGER' };
 
 export class Db {
   constructor(path) {
@@ -124,10 +130,12 @@ export class Db {
         SELECT anchor, target, CASE WHEN velocity > 0 THEN played ELSE NULL END played, stage FROM attempts
         WHERE graded = 1 AND kind IN ('interval', 'discrimination', 'remediation', 'echo') ORDER BY id DESC LIMIT ?`),
       updateHeld: this.db.prepare('UPDATE attempts SET held_ms = ?, dur_ok = ? WHERE id = ?'),
+      selfCorrected: this.db.prepare('UPDATE attempts SET self_corrected = 1 WHERE id = ?'),
       passage: this.db.prepare(`
         INSERT INTO passages (session_id, question, ts, phrase_id, kind, qkind, bpm, notes, attempted, exact, clean,
-                              intervals, direction, near, exact_interval, first_error, recovered, backfilled, pitch_clean)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+                              intervals, direction, near, exact_interval, first_error, recovered, backfilled, pitch_clean,
+                              self_corrected)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
       passageHistory: this.db.prepare('SELECT * FROM passages WHERE phrase_id = ? ORDER BY ts DESC LIMIT ?'),
       passageCount: this.db.prepare('SELECT COUNT(*) n FROM passages'),
       passageAttempts: this.db.prepare(`
@@ -200,6 +208,11 @@ export class Db {
     return this.stmts.recentIsolated.all(limit);
   }
 
+  /** The player went back and caught his own note before the next one was due. */
+  selfCorrected(rowId) {
+    this.stmts.selfCorrected.run(rowId);
+  }
+
   updateHeld(id, heldMs, durOk) {
     this.stmts.updateHeld.run(heldMs, durOk === null ? null : durOk ? 1 : 0, id);
   }
@@ -211,6 +224,7 @@ export class Db {
       p.notes, p.attempted, p.exact, p.clean ? 1 : 0, p.intervals, p.direction, p.near, p.exactInterval,
       p.firstError ?? null, nb(p.recovered), p.backfilled ? 1 : 0,
       p.pitchClean === undefined ? (p.exact === p.notes ? 1 : 0) : p.pitchClean ? 1 : 0,
+      p.selfCorrected ?? 0,
     );
   }
 
