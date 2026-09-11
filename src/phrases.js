@@ -124,6 +124,14 @@ export class PhraseBank {
           shift = shiftToKey(phrase, phrase.tonalKey, key, anchor, lo, hi) ?? shiftToKey(phrase, phrase.tonalKey, key, placementPoint(anchor, lo, hi), lo, hi);
         } else shift = placement(phrase, anchor, lo, hi, octave);
         if (shift === null) continue;
+        // IN A KEY, THE PHRASE STILL STARTS ON THE NOTE UNDER YOUR HAND.
+        // Placing it merely "in the key" put the first note somewhere the
+        // player had to find cold, and he starts where he is sitting because
+        // that is what the drill has always taught: 13 of 22 failed passages
+        // in the 2026-09-11 10:35 session failed on the FIRST note. When no
+        // phrase in the key starts on the anchor, pickPassage falls back to
+        // anchor placement without the key.
+        if (key && phrase.notes[phrase.pivot][0] + shift !== anchor) continue;
         let max = 0;
         let sum = 0;
         let n = 0;

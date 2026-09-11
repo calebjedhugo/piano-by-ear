@@ -85,10 +85,15 @@ opens every input port.
   ("timing 3/4 in time, 1 hold off") and stored (`passages.clean` = both,
   `passages.pitch_clean` = pitch). JUDGE WINDOW: EVERY failed passage and
   JUDGE_CLEAN_RATE (half) of the clean ones at the exact stage are followed
-  by a `judge` cue and JUDGE_BEATS of silence in which one key press = "the
+  by a `judge` cue (a soft LOW rising fourth: the high version was heard as
+  an error buzzer) and JUDGE_BEATS of silence in which one key press = "the
   note I missed" (`judgments` table with passage_clean: hits, misses, false
   alarms, correct rejections; then the retry if there is one). Its arrival
-  must never reveal the verdict. THE CUE TEACHES ITSELF: kv `judge` {seen,
+  must never reveal the verdict -- and must never sound like one: the cue is
+  a soft LOW rising fourth (the first high version was heard as an error
+  buzzer after a passage he had nailed, and he hunted for a wrong note).
+  A `variant` gets its own rising-triad cue so the phrase you NAILED coming
+  back is never mistaken for a correction. THE CUE TEACHES ITSELF: kv `judge` {seen,
   pressed}; until the first press or JUDGE_LEARNING_WINDOWS windows, the cue
   plays twice, the window is JUDGE_LEARNING_BEATS, and the row is
   `learning` = 1 (not evidence). QUIET_BEATS: a retry or variant answer ends
@@ -151,11 +156,19 @@ opens every input port.
   at >= 5); each chord tone is framed for the harmonic engine as it is
   graded (`q.chord`), never pre-asked. KEYED PASSAGES grade the pivot too
   (it is not the note under the hand): buildGroups frames it from the
-  anchor -- EVERY voice's first note (a duo's first bass note was ungraded
-  yet fatal); on a RETRY each voice's first note is FREE (just heard, not a
-  new leap). FREE MEANS FREE: a wrong press when only free notes are pending
-  consumes nothing (logged "on a free note: ignored"); it used to consume
-  the free note and sink the passage. The octave is the one whose
+  anchor: the duo's BASS first note (its pivot voice starts on the anchor
+  and is free). A KEYED PASSAGE STILL STARTS ON THE NOTE UNDER YOUR HAND --
+  `PhraseBank.pick` with a key REQUIRES the pivot to land on the anchor and
+  pickPassage falls back to anchor placement (no key) when nothing does. The
+  pivot is free, as it always was. Placing a phrase merely "in the key" made
+  its first note something to find cold, and the player starts where he is
+  sitting because that is what the drill taught: 13 of 22 failed passages in
+  the 2026-09-11 10:35 session failed on the FIRST note. Do not re-introduce
+  it. On a RETRY every voice's first note is FREE (just heard, not a new
+  leap). FREE MEANS FREE, ONCE: the first wrong press when only free notes
+  are pending is ignored (logged "on a free note: ignored"); a second one
+  skips them and is graded against the next group, so a transposed shape is
+  graded, not swallowed press after press. The octave is the one whose
   pivot is nearest the anchor, wider than an octave folds to the simple
   interval, and the label says `first note +N from X` (not on retries).
   VARIANT in the relative key of the original placement is no transposition

@@ -223,14 +223,18 @@ export class Audio {
    * 'round' = the round is on (two quick rising notes), 'roundOver' = back
    * to call and response (the same two falling), 'stage' = the rung you are
    * graded on moved (three quick notes up, or down), 'judge' = the judge
-   * window is open (two soft high notes: a question). All through note(), so
+   * window is open (a soft rising fourth, low: a question, never an error --
+   * it follows clean passages too; the high version was heard as a buzzer),
+   * 'variant' = the phrase you nailed, back somewhere new (a rising triad,
+   * so it is never mistaken for a correction). All through note(), so
    * the instrument's own sound carries them too.
    */
   cue(kind, at = this.now) {
     const v = 64;
     if (kind === 'round') { this.note(79, { at, velocity: v, duration: 0.12 }); this.note(86, { at: at + 0.12, velocity: v, duration: 0.3 }); }
     else if (kind === 'roundOver') { this.note(86, { at, velocity: v, duration: 0.12 }); this.note(79, { at: at + 0.12, velocity: v, duration: 0.3 }); }
-    else if (kind === 'judge') { this.note(88, { at, velocity: 40, duration: 0.1 }); this.note(91, { at: at + 0.1, velocity: 40, duration: 0.25 }); }
+    else if (kind === 'judge') { this.note(55, { at, velocity: 48, duration: 0.12 }); this.note(60, { at: at + 0.14, velocity: 48, duration: 0.3 }); }
+    else if (kind === 'variant') { this.note(67, { at, velocity: 44, duration: 0.1 }); this.note(72, { at: at + 0.11, velocity: 44, duration: 0.1 }); this.note(76, { at: at + 0.22, velocity: 44, duration: 0.28 }); }
     else if (kind === 'stageUp') for (const [i, m] of [72, 76, 79].entries()) this.note(m, { at: at + i * 0.1, velocity: v, duration: 0.15 });
     else if (kind === 'stageDown') for (const [i, m] of [79, 76, 72].entries()) this.note(m, { at: at + i * 0.1, velocity: v, duration: 0.15 });
   }

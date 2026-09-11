@@ -571,10 +571,12 @@ export class Drill {
     const placed = notes.map(([midi, off, dur, voice], i) => {
       const firstInVoice = !seen.has(voice);
       seen.add(voice);
-      return { midi, b: phrase.pickup + off, dur, voice, free: (!key && i === phrase.pivot) || (kind === 'retry' && firstInVoice) };
+      // The pivot is the note under your hand, in a key or not (PhraseBank
+      // places it there): free, as it always was.
+      return { midi, b: phrase.pickup + off, dur, voice, free: i === phrase.pivot || (kind === 'retry' && firstInVoice) };
     });
     const pivotMidi = notes[phrase.pivot][0];
-    const start = key ? `, in ${keyName(key)}${kind === 'retry' ? '' : `, first note ${signed(pivotMidi - this.anchor)} from ${name(this.anchor)}`}` : octave === 0 ? '' : `, starts ${name(pivotMidi)} (octave ${octave > 0 ? 'above' : 'below'} anchor)`;
+    const start = key ? `, in ${keyName(key)}` : octave === 0 ? '' : `, starts ${name(pivotMidi)} (octave ${octave > 0 ? 'above' : 'below'} anchor)`;
     const poly = phrase.kind !== 'mono';
     return {
       kind,
@@ -933,6 +935,9 @@ export class Drill {
       this.audio.cue('judge', t0); // the window is open: a question, quietly
       if (q.judge.learning) this.audio.cue('judge', t0 + 0.6); // twice, until it has taught itself
     }
+    // A variant is the phrase you NAILED coming back somewhere new, not a
+    // correction: it must never be mistaken for a retry.
+    if (q.kind === 'variant') this.audio.cue('variant', t0);
     if (q.round) this.nextQuestionAt = t0 + q.lead * this.beat; // the caller does not wait
     this.log(`Q${this.questions}: ${q.label} @ ${this.bpm} bpm (±${this.toleranceMs.toFixed(0)}ms)${this.block && q.kind === 'interval' ? `  [${keyName(this.block.key)}]` : ''}`);
   }
@@ -959,7 +964,7 @@ export class Drill {
     // are free (passageQuestion), just heard, not a new leap.
     if (this.q?.placed?.key && this.q.kind !== 'retry') {
       for (const n of notes) {
-        if (!lastInVoice.has(n.voice)) lastInVoice.set(n.voice, [this.anchor, this.prevAnchor]);
+        if (!lastInVoice.has(n.voice) && !n.free) lastInVoice.set(n.voice, [this.anchor, this.prevAnchor]);
       }
     }
     // The echo ask-back's first note is found again from the playback's last
@@ -1242,13 +1247,30 @@ export class Drill {
       // When only free notes are pending (the pivot, a retry's first notes),
       // it consumes nothing: free means free, never fatal. The right note may
       // still follow, or the next group may simply begin.
-      const cands = pending(g).filter((e) => !e.free);
+      let cands = pending(g).filter((e) => !e.free);
       if (cands.length === 0) {
-        this.log(`  (${name(note)} on a free note: ignored)`);
-        return;
+        // One fumble is free; a second wrong press on the same free notes
+        // means the player has moved on: the free notes are skipped and this
+        // press is graded against the next group (a transposed shape must
+        // not be swallowed press after press).
+        g.fumbles = (g.fumbles || 0) + 1;
+        if (g.fumbles === 1 || !this.groups[this.gi + 1]) {
+          this.log(`  (${name(note)} on a free note: ignored)`);
+          return;
+        }
+        for (const e of g.notes) e.done = true;
+        this.gi += 1;
+        g = this.groups[this.gi];
+        exp = pending(g).find((e) => this.matches(e, note));
+        if (exp) { correct = true; } else {
+          cands = pending(g).filter((e) => !e.free);
+          if (cands.length === 0) { this.log(`  (${name(note)} on a free note: ignored)`); return; }
+        }
       }
-      exp = cands.reduce((best, e) => (Math.abs(e.midi - note) < Math.abs(best.midi - note) ? e : best), cands[0]);
-      correct = false;
+      if (!exp) {
+        exp = cands.reduce((best, e) => (Math.abs(e.midi - note) < Math.abs(best.midi - note) ? e : best), cands[0]);
+        correct = false;
+      }
     }
     this.gradeNote(g, exp, note, velocity, atAudio, correct);
     exp.done = true;
