@@ -77,41 +77,55 @@ opens every input port.
   the miss: `retry.placed`), block prime, pair listen, remediation queues
   (folded to simple intervals), due variant, passage (streak >= 3 or 6
   clean notes, < 3 in a row; top stage only), echo game (echo stage always,
-  contour every 3rd), dyad/chord slot, then a plain target (wide ask,
-  discrimination from the pair focus, gesture GESTURE_RATE, or interval).
+  contour every 3rd), dyad/chord slot, then a plain target (discrimination
+  from the pair focus, wide ask, gesture GESTURE_RATE, or interval). The
+  harmonic engine's pair focus gets its listen pass too (as dyads).
   PITCH AND TIME ARE SEPARATE: `pitchClean` drives streak, retry, length,
   poly promotion, variants; `timeClean`/`timing` are logged beside it
   ("timing 3/4 in time, 1 hold off") and stored (`passages.clean` = both,
-  `passages.pitch_clean` = pitch). JUDGE WINDOW: a failed passage at the
-  exact stage is followed by JUDGE_BEATS of silence in which one key press =
-  "the note I missed" (`judgments` table), then the retry. VARIANTS: a
-  nailed passage returns VARIANT_DELAY questions later in the block's new
-  key, else the other mode (`modeSwap`), else +-2/3 semitones; passage-scope
-  evidence only, never the length controller or the retry loop.
+  `passages.pitch_clean` = pitch). JUDGE WINDOW: EVERY failed passage and
+  JUDGE_CLEAN_RATE (half) of the clean ones at the exact stage are followed
+  by a `judge` cue and JUDGE_BEATS of silence in which one key press = "the
+  note I missed" (`judgments` table with passage_clean: hits, misses, false
+  alarms, correct rejections; then the retry if there is one). Its arrival
+  must never reveal the verdict. VARIANTS: a nailed passage returns in the
+  NEXT block (variantQueue[].block < blockN), in the block's new key, else
+  +-2/3 semitones (same hand shape), else the other mode (`modeSwap`, last:
+  it changes the melody); passage-scope evidence only, never the length
+  controller or the retry loop.
   THE ROUND: ROUND.trigger clean, in-time plain answers started <= 2 beats
   behind (passages neither count nor reset) open a run: kind `round`, the
-  next call at a fixed lead (`nextQuestionAt` set in beginQuestion, an
-  unfinished answer is abandoned when it comes), a 2-down/1-up staircase on
-  one dimension per run (interval = extra tiers, tempo = +6 bpm/level, lead
-  = 4/3/2 beats), ends after ROUND.calls or ROUND.misses with one
-  cool-down call at level 0, cues `round`/`roundOver`, evidence scope
-  'round' (cells only, never the tier ladder), cooldown before the next.
+  next call at a fixed lead (`nextQuestionAt` set in beginQuestion and
+  never renegotiated by the silence rule; an unfinished answer is abandoned
+  once the lead has passed by more than the tolerance), a 2-down/1-up
+  staircase on one dimension per run (interval = extra tiers, tempo = +6
+  bpm/level, lead = 4/3/2 beats), ends after ROUND.calls (16) or
+  ROUND.misses (5) with one cool-down call at level 0, cues
+  `round`/`roundOver`, evidence scope 'round' (cells only: never the tier
+  ladder, never the stage, never a focus trial), a record per run in kv
+  `rounds`, cooldown before the next. A staircase miss is pitch only,
+  except on the tempo dimension where time is the game.
   STAGE (`src/stage.js`): `this.stage.credit()` decides what an isolated
   note counts as (direction / within 2 / exact); the engine and streak see
   the credit, `attempts.correct` stays exact, `attempts.credit`/`stage`
   record the judgment. Below exact: the anchor is SOUNDED (on the downbeat,
   target a beat later -- never at b -1, that note would already be in the
   past), the stage's pool replaces the ladder, questions stay inside
-  `stage.window()` (anchor brought back), timeout is longer, no passages,
-  gestures, wide asks or rounds. ECHO GAME: `collect` question (cue, then
+  `stage.window()` (the anchor is clamped where it is set, completeQuestion),
+  timeout is longer, no passages, gestures, wide asks, dyads/chords or
+  rounds. Question flag `optionalAnchor` (interval kinds) is what lets a
+  wrong first note count as a wrong target; the echo ask-back has no free
+  note at all (it is the child's own figure). Block count: KEYED_KINDS only. ECHO GAME: `collect` question (cue, then
   the player's 2-4 notes until a beat of silence) -> listen playback -> the
   same figure asked back, graded on the stage's rung.
   COMPOUND ASKS: `engine.lastWide` marks a target an octave wider than the
   asked simple interval (label "+8ve"); pitch class right but octave wrong
   = `height_err`, credited to the interval, debited to `engine.state.height`.
-  BURSTS ARE ONE SITTING: kv `carry` (endedAt, block key, warm-up count,
-  retry, variants, remediation, asked ids) is restored by a session started
-  within CARRY_MS (30 min) and the key re-primed.
+  BURSTS ARE ONE SITTING: kv `carry` (endedAt, block key + number, warm-up
+  count, retry and variants as id/shift/key re-placed from the bank and
+  dropped if they no longer fit, the pending judge, remediation, asked ids)
+  is restored by a session started within CARRY_MS (30 min) and the key
+  re-primed; roundStreak/cooldown and the streak reset per burst.
   PASSAGE LENGTH is a controller (kv `passageLen`, +1 after 2 clean
   first-askings, -1 after 3 failures, bounded by LEN.min and the tier
   ceiling). TEMPO IS NOT A CONTROLLER and must never become one.
@@ -125,8 +139,12 @@ opens every input port.
   interval confidence (POLY.melodicTiersForDyads tiers AND
   POLY.masteredForDyads mastered), not passages; higher levels from the
   last 12 passages of the level's kind (>= 70% / < 30%) plus tier gates.
-  Dyads keep the anchor as a FIXED BASS; every 9th plain slot is a `chord`
-  from CHORD_SHAPES once harmonic tiers >= 3 (dom7 at >= 5).
+  Demotion 1 -> 0 on duo passages < 30% holds the gate closed for
+  POLY_DEMOTE_HOLD_MS. Dyads keep the anchor as a FIXED BASS; every 9th
+  plain slot is a `chord` from CHORD_SHAPES once harmonic tiers >= 3 (dom7
+  at >= 5); each chord tone is framed for the harmonic engine as it is
+  graded (`q.chord`), never pre-asked. KEYED PASSAGES grade the pivot too
+  (it is not the note under the hand): buildGroups frames it from the anchor.
 - `src/engine.js` AdaptiveEngine (ear-training port), instantiated twice:
   melodic (kv `engine`) and harmonic (kv `engine:harmonic`). TIER_WIDTHS is
   SIMPLE INTERVALS ONLY (12 tiers; `simpleOf()` folds compounds; a loaded
@@ -136,10 +154,13 @@ opens every input port.
   near-miss confusions; the round (`scope:'round'`) updates `src:round`
   cells only. CONFUSIONS decay by the DAY (`confusionsDecayedAt`), not per
   session; a pair (same direction, widths within 2) at CONFUSION_THRESHOLD
-  becomes `state.focus` {a, b, left, listen}: `takeListen()` hands the
-  drill one listen-only pass, then about FOCUS_SHARE of the next
-  FOCUS_TRIALS plain asks are one of the pair in its own direction
-  (`servedQueue` = true -> kind 'discrimination'). No queue, no A-B-A-B run.
+  becomes `state.focus` {a, b, left, listen, served, recent}: `takeListen()`
+  hands the drill a listen-only pass at open and every FOCUS_LISTEN_EVERY
+  pair trials (practice + exposure), about FOCUS_SHARE of the next
+  FOCUS_TRIALS (30, spanning sittings) plain asks are one of the pair in its
+  own direction (`servedQueue` = true -> kind 'discrimination'), and the
+  focus closes early once the last FOCUS_DONE_WINDOW pair trials reach
+  FOCUS_DONE_ACC. Never served inside a round. No queue, no A-B-A-B run.
   `nextTargetIndex(a, prev, {allowWide, pool, bounds, extraTiers, lean,
   scope})`: pool = a stage's signed list instead of the ladder; bounds = an
   index window; extraTiers = the round's escalation; lean = per-target
@@ -262,9 +283,10 @@ opens every input port.
   stage's judgment, `height_err` = right pitch class wrong octave),
   `passages` (one row per passage question, see rungs.js; `clean` = pitch
   AND time, `pitch_clean` = pitch, backfilled from exact = notes),
-  `judgments` (the judge window: guessed, hit). kv: `engine`,
-  `engine:harmonic`, `poly`, `passageLen`, `phraseStats`, `polyStats`,
-  `ranges`, `carry`, `stage`. `backfillPassages()` builds `passages`
+  `judgments` (the judge window: guessed, hit, passage_clean); `attempts.voice`
+  for per-voice dyad/chord accuracy. kv: `engine`, `engine:harmonic`, `poly`,
+  `passageLen`, `phraseStats`, `polyStats`, `ranges`, `carry`, `stage`,
+  `rounds`. `backfillPassages()` builds `passages`
   from `attempts` once when the table is empty (main.js calls it at startup)
   so history exists from day one; attempts carry no voice, so backfilled
   polyphonic rows have contour zeroed.

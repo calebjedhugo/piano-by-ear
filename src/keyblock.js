@@ -14,7 +14,7 @@
 // a retry always lands in the key it was missed in.
 import { simpleOf } from './engine.js';
 
-const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+export const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const MAJOR = [0, 2, 4, 5, 7, 9, 11];
 // Minor as natural plus the raised leading note (harmonic): a phrase is "in"
 // a minor key if it stays inside that. The full melodic union would hold
@@ -67,10 +67,11 @@ export function phraseKey(phrase) {
   const piece = parseKey(phrase.key);
   const pcs = new Set(phrase.notes.map((n) => ((n[0] % 12) + 12) % 12));
   const fits = (k) => [...pcs].every((pc) => diatonicIn(pc, k));
-  // The piece's key stands when at most one pitch class of a phrase of four
-  // or more notes is foreign to it: a chromatic neighbour does not change key.
-  const foreign = (k) => [...pcs].filter((pc) => !diatonicIn(pc, k)).length;
-  if (piece && (fits(piece) || (phrase.notes.length >= 4 && foreign(piece) <= 1))) return piece;
+  // The piece's key stands when at most one NOTE of a phrase of four or more
+  // is foreign to it: one chromatic neighbour does not change key; a
+  // recurring foreign note is a modulation, and gets the key it implies.
+  const foreignNotes = (k) => phrase.notes.filter((n) => !diatonicIn(n[0], k)).length;
+  if (piece && (fits(piece) || (phrase.notes.length >= 4 && foreignNotes(piece) <= 1))) return piece;
   let best = null;
   for (let tonic = 0; tonic < 12; tonic += 1) {
     for (const mode of ['major', 'minor']) {
@@ -113,7 +114,14 @@ export function primeNotes(k, near, lo, hi) {
   while (tonic + 12 > hi) tonic -= 12;
   while (tonic < lo) tonic += 12;
   const third = k.mode === 'minor' ? 3 : 4;
-  return [[tonic, 0, 0.5], [tonic + third, 0.5, 0.5], [tonic + 7, 1, 0.5], [tonic + 12, 1.5, 1.5]].filter(([m]) => m >= lo && m <= hi);
+  const all = [[tonic, 0, 0.5], [tonic + third, 0.5, 0.5], [tonic + 7, 1, 0.5], [tonic + 12, 1.5, 1.5]];
+  const notes = all.filter(([m]) => m >= lo && m <= hi);
+  return { notes, dropped: all.length - notes.length };
+}
+
+/** Where a keyed phrase is placed: the anchor drawn halfway back toward the middle of the keyboard. */
+export function placementPoint(anchor, lo, hi) {
+  return (anchor + (lo + hi) / 2) / 2;
 }
 
 /**

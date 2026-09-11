@@ -16,7 +16,7 @@
 // 2014) -- and a phrase due for review is wanted a little more.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { phraseKey, shiftToKey } from './keyblock.js';
+import { phraseKey, shiftToKey, placementPoint } from './keyblock.js';
 
 export const MONO_PATH = fileURLToPath(new URL('../corpus/phrases.json', import.meta.url));
 export const HYMNS_PATH = fileURLToPath(new URL('../corpus/hymns.json', import.meta.url));
@@ -53,6 +53,17 @@ export class PhraseBank {
     this.byId = new Map(this.phrases.map((p) => [p.id, p]));
     this.store = store;
     this.stats = store.load() || {};
+    // Stats from before the schedule existed: give them the due date the
+    // schedule would have, so a clean phrase keeps its rest and a failed
+    // one is due (they were due the next day anyway).
+    let touched = false;
+    for (const st of Object.values(this.stats)) {
+      if (st.dueAt === undefined && st.last) {
+        st.dueAt = st.last + (st.clean ? DUE_AFTER_CLEAN_MS[0] : DUE_AFTER_FAIL_MS);
+        touched = true;
+      }
+    }
+    if (touched) store.save(this.stats);
   }
 
   get size() {
@@ -108,7 +119,7 @@ export class PhraseBank {
           if (octave > 0 || !phrase.tonalKey) continue; // the key decides the octave
           // The octave nearest the anchor, drawn halfway back toward the
           // middle of the keyboard so a walk that wandered low is not pinned there.
-          shift = shiftToKey(phrase, phrase.tonalKey, key, (anchor + (lo + hi) / 2) / 2, lo, hi);
+          shift = shiftToKey(phrase, phrase.tonalKey, key, placementPoint(anchor, lo, hi), lo, hi);
         } else shift = placement(phrase, anchor, lo, hi, octave);
         if (shift === null) continue;
         let max = 0;
@@ -161,7 +172,7 @@ export class PhraseBank {
   pickInKey(id, key, anchor, lo, hi) {
     const phrase = this.byId.get(id);
     if (!phrase || !phrase.tonalKey) return null;
-    const shift = shiftToKey(phrase, phrase.tonalKey, key, (anchor + (lo + hi) / 2) / 2, lo, hi);
+    const shift = shiftToKey(phrase, phrase.tonalKey, key, placementPoint(anchor, lo, hi), lo, hi);
     return shift === null ? null : this.place(phrase, shift, anchor, key);
   }
 

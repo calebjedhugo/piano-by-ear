@@ -26,8 +26,13 @@ const WINDOW = 20;
 const MIN_EVIDENCE = 8;
 // Promotion thresholds, and a margin below each for demotion (hysteresis).
 const EXACT_UP = 0.4;
+// Promotion is on DIRECTION for the two lower bars: contour is what you
+// work on at 'echo'/'contour', and once direction is secure the next thing
+// to work on is size -- so 'sizing' is entered on direction, not on size,
+// and left for 'exact' on exact pitch. Chance for direction is 0.5 and the
+// binomial noise at n=20 is about 0.11, so the contour bar sits well above it.
 const SIZING_UP = 0.85; // direction right
-const CONTOUR_UP = 0.6; // direction right
+const CONTOUR_UP = 0.75; // direction right
 const HYSTERESIS = 0.15;
 export const POOLS = {
   echo: [2, 3, 4],

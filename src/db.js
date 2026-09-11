@@ -17,7 +17,11 @@ const ATTEMPT_COLUMNS = {
   credit: 'INTEGER', // the stage's judgment of the note (src/stage.js); null = same as correct
   stage: 'TEXT',
   height_err: 'INTEGER', // compound ask: pitch class right, octave wrong
+  voice: 'INTEGER', // the voice within a chord / polyphonic passage (0 = the bass or the melody)
 };
+const JUDGMENT_COLUMNS = { passage_clean: 'INTEGER' }; // the window follows clean passages too (sampled): false alarms vs hits
+/** A tri-state boolean for SQLite: undefined/null -> NULL, else 1/0. */
+const nb = (v) => (v === undefined || v === null ? null : v ? 1 : 0);
 const SESSION_COLUMNS = { passages: 'INTEGER NOT NULL DEFAULT 0' };
 // pitch_clean: every graded note exactly right, whatever the timing and holds.
 // `clean` keeps its old meaning (pitch AND time) for continuity; the
@@ -89,6 +93,7 @@ export class Db {
     this.migrate('attempts', ATTEMPT_COLUMNS);
     this.migrate('sessions', SESSION_COLUMNS);
     this.migrate('passages', PASSAGE_COLUMNS);
+    this.migrate('judgments', JUDGMENT_COLUMNS);
     this.db.exec('UPDATE passages SET pitch_clean = (exact = notes) WHERE pitch_clean IS NULL');
     this.stmts = {
       getKv: this.db.prepare('SELECT value FROM kv WHERE key = ?'),
@@ -104,13 +109,13 @@ export class Db {
         ORDER BY id DESC LIMIT ?`),
       attempt: this.db.prepare(`
         INSERT INTO attempts (session_id, ts, anchor, target, played, velocity, correct, first_attempt, onset_ms,
-                              question, kind, phrase_id, position, graded, in_time, beat_ms, credit, stage, height_err)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
+                              question, kind, phrase_id, position, graded, in_time, beat_ms, credit, stage, height_err, voice)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
       recentIsolated: this.db.prepare(`
         SELECT anchor, target, CASE WHEN velocity > 0 THEN played ELSE NULL END played, stage FROM attempts
-        WHERE graded = 1 AND kind IN ('interval', 'discrimination', 'remediation') ORDER BY id DESC LIMIT ?`),
+        WHERE graded = 1 AND kind IN ('interval', 'discrimination', 'remediation', 'echo') ORDER BY id DESC LIMIT ?`),
       judgment: this.db.prepare(`
-        INSERT INTO judgments (session_id, question, ts, phrase_id, guessed, hit) VALUES (?, ?, ?, ?, ?, ?)`),
+        INSERT INTO judgments (session_id, question, ts, phrase_id, guessed, hit, passage_clean) VALUES (?, ?, ?, ?, ?, ?, ?)`),
       updateHeld: this.db.prepare('UPDATE attempts SET held_ms = ?, dur_ok = ? WHERE id = ?'),
       passage: this.db.prepare(`
         INSERT INTO passages (session_id, question, ts, phrase_id, kind, qkind, bpm, notes, attempted, exact, clean,
@@ -179,9 +184,7 @@ export class Db {
       a.sessionId, Date.now(), a.anchor, a.target, a.played, a.velocity,
       a.correct ? 1 : 0, a.firstAttempt ? 1 : 0, a.onsetMs ?? null,
       a.question ?? null, a.kind ?? null, a.phraseId ?? null, a.position ?? null,
-      a.graded ? 1 : 0, a.inTime === undefined || a.inTime === null ? null : a.inTime ? 1 : 0, a.beatMs ?? null,
-      a.credit === undefined || a.credit === null ? null : a.credit ? 1 : 0, a.stage ?? null,
-      a.heightErr === undefined || a.heightErr === null ? null : a.heightErr ? 1 : 0,
+      a.graded ? 1 : 0, nb(a.inTime), a.beatMs ?? null, nb(a.credit), a.stage ?? null, nb(a.heightErr), a.voice ?? null,
     ).id;
   }
 
@@ -192,8 +195,7 @@ export class Db {
 
   /** After a failed passage: did the player point at a missed note, and was it one? */
   judgment(j) {
-    this.stmts.judgment.run(j.sessionId, j.question ?? null, Date.now(), j.phraseId ?? null, j.guessed ? 1 : 0,
-      j.hit === null || j.hit === undefined ? null : j.hit ? 1 : 0);
+    this.stmts.judgment.run(j.sessionId, j.question ?? null, Date.now(), j.phraseId ?? null, j.guessed ? 1 : 0, nb(j.hit), nb(j.passageClean));
   }
 
   updateHeld(id, heldMs, durOk) {
@@ -205,7 +207,7 @@ export class Db {
     this.stmts.passage.run(
       p.sessionId, p.question ?? null, p.ts ?? Date.now(), p.phraseId, p.kind ?? null, p.qkind ?? null, p.bpm ?? null,
       p.notes, p.attempted, p.exact, p.clean ? 1 : 0, p.intervals, p.direction, p.near, p.exactInterval,
-      p.firstError ?? null, p.recovered === null || p.recovered === undefined ? null : p.recovered ? 1 : 0, p.backfilled ? 1 : 0,
+      p.firstError ?? null, nb(p.recovered), p.backfilled ? 1 : 0,
       p.pitchClean === undefined ? (p.exact === p.notes ? 1 : 0) : p.pitchClean ? 1 : 0,
     );
   }

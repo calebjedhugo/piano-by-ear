@@ -50,7 +50,8 @@ while (drill.state === 'QUESTION' && drill.questions <= Number(maxQ)) {
   await sleep(20);
   const q = drill.q;
   if (!q || drill.answered || played === drill.questions) continue;
-  if (q.listen || q.judge && Math.random() < 0.5) { if (q.judge) { played = drill.questions; press(q.judge.missed[0] ?? 60, audio.now); } continue; }
+  if (q.listen) continue;
+  if (q.judge && Math.random() < 0.6) { played = drill.questions; const at = drill.callT0 + 0.5 * drill.beat; setTimeout(() => press(q.judge.missed[0] ?? 60, at), Math.max(0, (at - audio.now) * 1000)); continue; }
   if (q.judge) { played = drill.questions; continue; }
   if (q.collect) { played = drill.questions; const t = audio.now + 0.2; press(60, t); setTimeout(() => press(64, audio.now), drill.beat * 1000); setTimeout(() => press(62, audio.now), 2 * drill.beat * 1000); continue; }
   played = drill.questions;

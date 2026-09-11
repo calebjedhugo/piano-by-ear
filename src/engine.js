@@ -60,8 +60,11 @@ const CONFUSION_HALF_LIFE_MS = 20 * 60 * 60 * 1000;
 // the next FOCUS_TRIALS plain questions are one of the pair, in a constant
 // register, and the focus opens with one listen-only pass of both
 // (practice + exposure, Little, Cheng & Wright 2019).
-const FOCUS_TRIALS = 10;
+const FOCUS_TRIALS = 30; // persists in state, so it spans sittings; Little et al. needed ~1000 trials over days
 const FOCUS_SHARE = 0.5;
+const FOCUS_LISTEN_EVERY = 6; // exposure recurs: a listen pass every this many pair trials
+const FOCUS_DONE_WINDOW = 8; // close early once the last N pair trials are this accurate
+const FOCUS_DONE_ACC = 0.85;
 export const WARMUP_QUESTIONS = 5;
 const CELL_SHRINK_K = 4;
 const LOCKED_SCORE = 0.25; // phrase score for an interval outside the unlocked tiers
@@ -354,8 +357,11 @@ export class AdaptiveEngine {
     this.servedQueue = false;
     this.lastWide = false;
     const inBounds = (t) => !bounds || (t >= bounds.lo && t <= bounds.hi);
+    this.lastFromFocus = false;
     const f = this.state.focus;
-    if (!poolOverride && f && f.left > 0 && Math.random() < FOCUS_SHARE) {
+    // Never inside a round: its evidence is scoped away, so a focus trial
+    // served there would be spent without being seen.
+    if (!poolOverride && scope !== 'round' && f && f.left > 0 && Math.random() < FOCUS_SHARE) {
       // One of the confused pair, in its own direction so the register stays
       // put (register and direction shift perceived size); flipped only when
       // the keyboard runs out.
@@ -364,17 +370,23 @@ export class AdaptiveEngine {
       const iv = ok(pick) ? pick : ok(-pick) ? -pick : null;
       if (iv !== null) {
         f.left -= 1;
+        f.served = (f.served || 0) + 1;
+        if (f.served % FOCUS_LISTEN_EVERY === 0) f.listen = true;
         if (f.left <= 0) this.state.focus = null;
         this.save();
         this.servedQueue = true;
+        this.lastFromFocus = true;
         return this.ask(iv, anchorIndex, prevIndex, { scope });
       }
     }
 
     const now = Date.now();
     let pool;
-    if (poolOverride) pool = poolOverride.filter((i) => this.feasible(anchorIndex, i) && inBounds(anchorIndex + i));
-    else {
+    if (poolOverride) {
+      pool = poolOverride.filter((i) => this.feasible(anchorIndex, i) && inBounds(anchorIndex + i));
+      if (pool.length === 0) pool = poolOverride.filter((i) => this.feasible(anchorIndex, i));
+      if (pool.length === 0) pool = this.poolFor(anchorIndex);
+    } else {
       pool = this.poolFor(anchorIndex, extraTiers).filter((i) => inBounds(anchorIndex + i));
       if (pool.length === 0) pool = this.poolFor(anchorIndex, extraTiers);
     }
@@ -492,6 +504,13 @@ export class AdaptiveEngine {
    */
   reportResolved(rtNorm) {
     const missed = this.pending !== null;
+    // A focus closes early once the pair has separated.
+    const f = this.state.focus;
+    if (this.lastFromFocus && f) {
+      f.recent = [...(f.recent || []), missed ? 0 : 1].slice(-FOCUS_DONE_WINDOW);
+      if (f.recent.length >= FOCUS_DONE_WINDOW && f.recent.reduce((a, b) => a + b, 0) / f.recent.length >= FOCUS_DONE_ACC) this.state.focus = null;
+      this.lastFromFocus = false;
+    }
     const asked = missed ? this.pending.asked : this.lastAsked;
     const cells = missed ? this.pending.cells : this.lastAskedCells;
     const scope = missed ? this.pending.scope : this.lastScope;
