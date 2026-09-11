@@ -36,10 +36,10 @@ export class Audio {
    * @param {AudioContext} [opts.ctx]
    * @param {boolean} [opts.hardware] the instrument makes its own sound: the
    *   two pianos below give way to it (src/midiout.js), their samples are
-   *   never loaded, and the clicks and chimes go out to it as well, so a
-   *   player wearing headphones on the piano hears the whole drill. Every one
-   *   of those falls back to the voice below if the output port is missing,
-   *   so a pulled cable leaves the drill audible rather than mute.
+   *   never loaded, and the clicks go out to its woodblock as well, so a
+   *   player wearing headphones on the piano hears the whole drill. Both fall
+   *   back to the voice below if the output port is missing, so a pulled
+   *   cable leaves the drill audible rather than mute.
    */
   constructor({ ctx, hardware = false } = {}) {
     this.ctx = ctx ?? new AudioContext();
@@ -204,45 +204,23 @@ export class Audio {
   }
 
   /**
-   * MIDI controller connected and listening. On the instrument's own sound the
-   * same two pitches are played rather than sounded here, so a player wearing
-   * headphones on the piano still hears it.
+   * MIDI controller connected and listening. TWO CLICKS, not two notes: no
+   * pitch is ever sounded that you are not being asked to play back, so the
+   * connection signal cannot be mistaken for a call (see the rule at the top
+   * of src/drill.js). Goes to the instrument's woodblock on hardware, so a
+   * player wearing headphones on the piano still hears it.
    */
   ready(at = this.now) {
-    if (this.out?.ready) {
-      this.note(84, { at, velocity: 70, duration: 0.15 }); // C6
-      this.note(91, { at: at + 0.15, velocity: 70, duration: 0.3 }); // G6
-      return;
-    }
-    this.tone(1047, at, 0.15, 0.06);
-    this.tone(1568, at + 0.15, 0.2, 0.06);
+    this.click(at);
+    this.click(at + 0.15, { accent: true });
   }
 
-  /**
-   * Cues for a state change the player must hear (there is no screen):
-   * 'round' = the round is on (two quick rising notes), 'roundOver' = back
-   * to call and response (the same two falling), 'stage' = the rung you are
-   * graded on moved (three quick notes up, or down), 'judge' = the judge
-   * window is open (a soft rising fourth, low: a question, never an error --
-   * it follows clean passages too; the high version was heard as a buzzer),
-   * 'variant' = the phrase you nailed, back somewhere new (a rising triad,
-   * so it is never mistaken for a correction). All through note(), so
-   * the instrument's own sound carries them too.
-   */
-  cue(kind, at = this.now) {
-    const v = 64;
-    if (kind === 'round') { this.note(79, { at, velocity: v, duration: 0.12 }); this.note(86, { at: at + 0.12, velocity: v, duration: 0.3 }); }
-    else if (kind === 'roundOver') { this.note(86, { at, velocity: v, duration: 0.12 }); this.note(79, { at: at + 0.12, velocity: v, duration: 0.3 }); }
-    else if (kind === 'judge') { this.note(55, { at, velocity: 48, duration: 0.12 }); this.note(60, { at: at + 0.14, velocity: 48, duration: 0.3 }); }
-    else if (kind === 'variant') { this.note(67, { at, velocity: 44, duration: 0.1 }); this.note(72, { at: at + 0.11, velocity: 44, duration: 0.1 }); this.note(76, { at: at + 0.22, velocity: 44, duration: 0.28 }); }
-    else if (kind === 'stageUp') for (const [i, m] of [72, 76, 79].entries()) this.note(m, { at: at + i * 0.1, velocity: v, duration: 0.15 });
-    else if (kind === 'stageDown') for (const [i, m] of [79, 76, 72].entries()) this.note(m, { at: at + i * 0.1, velocity: v, duration: 0.15 });
-  }
-
-  /** Two descending tones: session over. */
+  /** Session over: three slowing clicks. No pitch -- the only pitched sound
+   *  this program makes is a call you are being asked to play back. */
   sessionOver(at = this.now) {
-    this.note(64, { at, velocity: 60, duration: 0.5 });
-    this.note(57, { at: at + 0.25, velocity: 60, duration: 0.8 });
+    this.click(at, { accent: true });
+    this.click(at + 0.22);
+    this.click(at + 0.5);
   }
 
   async close() {

@@ -4,12 +4,12 @@ A headless "learn piano by ear" drill for a MIDI controller. No screen, no
 settings: the process is the piano, the metronome, and the teacher, and you
 only ever touch the keys.
 
-1. Plug in a MIDI keyboard and run `npm start`. A two-note rising cue says it
-   is listening.
+1. Plug in a MIDI keyboard and run `npm start`. Two clicks say it is
+   listening.
 2. Play any note. That note is the **anchor** and the session begins. The
-   drill answers with the **key**: do-mi-sol-do on your note, about two
-   seconds, then silence. Every eight questions the note you happen to be
-   on becomes the next tonic and the key changes.
+   drill answers with the **key**: do-mi-sol-do from your note — and that
+   is a call like any other, so you play it back. Every eight questions the
+   note you happen to be on becomes the next tonic and the key changes.
 3. The metronome starts as a **constant pulse** and never moves. You hear the
    call: for an interval, just the target note (the anchor is the note you
    just played, so it is not repeated); for a passage, the whole phrase in
@@ -22,15 +22,18 @@ only ever touch the keys.
 4. Every note is graded on pitch, on its onset against the pulse, and on how
    long you hold it, but **pitch and time are separate verdicts**: a phrase
    passes on its notes; the timing is reported beside it and never decides
-   what comes next. There is no feedback while you play. It is a
-   conversation: the reply is the next question.
+   what comes next. There is no feedback while you play, and there are no
+   cues, chimes or error sounds anywhere in this program: **nothing is ever
+   played that you are not being asked to play back.** It is a conversation,
+   and the reply is the next question. A phrase you missed comes back; a
+   phrase you nailed comes back somewhere new; when you are on top of it the
+   caller stops waiting. You hear where you stand in what you are given.
 5. Three clean answers in a row earn a **real passage**: a Bach chorale
    phrase, a bit of a Mozart sonata, or a hymn tune, in its own meter in the
-   current key. Miss it and there is a pause of a few beats first — play the
-   note you think you missed if you can — then the phrase comes straight
-   back, same key, same register, up to three tries while you are getting
-   closer. Nail it and it comes back a few questions later in the next key,
-   or the other mode, or a step away.
+   current key. Miss it and the phrase comes straight back, same key, same
+   register, up to three tries while you are getting closer. Nail it and it
+   comes back a few questions later in the next key, or the other mode, or a
+   step away.
 6. Play the intervals back clean and on the pulse for a while and the caller
    stops waiting: **the round**. The next call comes while you are still
    answering the last, and the intervals, the tempo, or the lead get harder
@@ -48,8 +51,9 @@ Everything adapts:
   aural-difficulty order, sometimes asks a secure one an octave wider (the
   octave is judged on its own), and counts an interval mastered only when
   you hit it accurately **and** on the beat. A pair you keep confusing
-  (fourth and fifth, the two sixths) is played once for listening and then
-  slipped in among the ordinary questions until it separates. A second
+  (fourth and fifth, the two sixths) is asked once as a single call carrying
+  both, and then slipped in among the ordinary questions until it
+  separates. A second
   engine of the same kind tracks the intervals inside chords (see
   Polyphony below).
 - **What a note is graded on** depends on where you are. A beginner who
@@ -57,8 +61,9 @@ Everything adapts:
   direction, then for landing within two keys, then for the note itself,
   each stage earned from the last twenty answers; below the top stage the
   anchor is sounded before the target, the questions stay near the middle
-  of the keyboard, and every third question is an echo game: you make up
-  two or three notes, the drill plays them back, then asks for them.
+  of the keyboard, and every third question is an echo game: the drill goes
+  quiet, you make up two or three notes, and it asks for them straight
+  back — your own figure becomes the call.
 - **When you get a passage** is the clean streak above. An interval you miss
   inside a passage is drilled on its own right after. Notes inside passages
   train a separate in-melody model, so a step you can sing inside a chorale

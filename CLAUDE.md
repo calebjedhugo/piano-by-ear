@@ -64,39 +64,46 @@ opens every input port.
   questions are a flat INTERVAL_BPM 72 (the round's tempo dimension is the
   one exception and resets after). Tolerance = beat/8 clamped 45..110 ms
   and never more than 40% of the note's gap.
+  **THE ONE RULE: NO NOTE IS PLAYED THAT THE PLAYER IS NOT BEING ASKED TO
+  PLAY BACK.** No listen-only questions, no cues, no chimes, no error
+  sounds, anywhere. Feedback is intrinsic to the content served: a miss is
+  the same phrase asked again, the key is an arpeggio he plays, the round is
+  a caller that stops waiting, a stage move is a change in what is asked.
+  The only sounds are the metronome (a woodblock, never a pitch), the call,
+  and the piano under the player's own keys. `ready()` and `sessionOver()`
+  are clicks for the same reason. A note flagged `free` is still a note he
+  is asked to play -- free means not held against him, NOT decoration.
+  YOU MUST NOT add a cue, a chime, a listen pass or a sounded hint to this
+  program. If a feature needs one to work, the feature does not belong here
+  (that is what removed the judge window on 2026-09-11).
   KEY BLOCKS (`src/keyblock.js`): every BLOCK_QUESTIONS (8) the note the
-  player is on becomes a new tonic (mode rotates), a `prime` listen question
-  plays do-mi-sol-do', and the block holds: passages are transposed INTO
-  the key (`PhraseBank.pick({key})`, pivot no longer on the anchor),
-  gestures step diatonically in it, plain targets lean diatonic
-  (DIATONIC_LEAN). No cadence, no drone, no emergent key (tonalfield.js is
-  gone: it renamed the key almost every question).
-  KINDS: prime | listen | interval | gesture | discrimination | remediation |
-  dyad | chord | passage | retry | judge | variant | round | echo. Selection
-  order in `makeQuestion()`: round, judge window, retry (SAME placement as
-  the miss: `retry.placed`), block prime, pair listen, remediation queues
+  player is on becomes a new tonic (mode rotates) and the block opens with a
+  `prime`: do-mi-sol-do' FROM THAT NOTE, asked and played back like any
+  other call (`primeNotes` puts do on the anchor whenever the tonic's pitch
+  class allows, which chooseKey makes near-certain). That arpeggio IS how
+  the tonal centre is established -- nothing announces it. The block then
+  holds: passages are transposed INTO the key (`PhraseBank.pick({key})`,
+  pivot still on the anchor), gestures step diatonically in it, plain
+  targets lean diatonic (DIATONIC_LEAN). No cadence, no drone, no emergent
+  key (tonalfield.js is gone: it renamed the key almost every question).
+  KINDS: prime | interval | gesture | discrimination | exposure | remediation |
+  dyad | chord | passage | retry | variant | round | echo. Selection
+  order in `makeQuestion()`: round, retry (SAME placement as
+  the miss: `retry.placed`), block prime, pair exposure, remediation queues
   (folded to simple intervals), due variant, passage (streak >= 3 or 6
   clean notes, < 3 in a row; top stage only), echo game (echo stage always,
   contour every 3rd), dyad/chord slot, then a plain target (discrimination
   from the pair focus, wide ask, gesture GESTURE_RATE, or interval). The
-  harmonic engine's pair focus gets its listen pass too (as dyads).
+  harmonic engine's pair focus gets its exposure call too (as dyads).
   PITCH AND TIME ARE SEPARATE: `pitchClean` drives streak, retry, length,
   poly promotion, variants; `timeClean`/`timing` are logged beside it
   ("timing 3/4 in time, 1 hold off") and stored (`passages.clean` = both,
-  `passages.pitch_clean` = pitch). JUDGE WINDOW: EVERY failed passage and
-  JUDGE_CLEAN_RATE (half) of the clean ones at the exact stage are followed
-  by a `judge` cue (a soft LOW rising fourth: the high version was heard as
-  an error buzzer) and JUDGE_BEATS of silence in which one key press = "the
-  note I missed" (`judgments` table with passage_clean: hits, misses, false
-  alarms, correct rejections; then the retry if there is one). Its arrival
-  must never reveal the verdict -- and must never sound like one: the cue is
-  a soft LOW rising fourth (the first high version was heard as an error
-  buzzer after a passage he had nailed, and he hunted for a wrong note).
-  A `variant` gets its own rising-triad cue so the phrase you NAILED coming
-  back is never mistaken for a correction. THE CUE TEACHES ITSELF: kv `judge` {seen,
-  pressed}; until the first press or JUDGE_LEARNING_WINDOWS windows, the cue
-  plays twice, the window is JUDGE_LEARNING_BEATS, and the row is
-  `learning` = 1 (not evidence). QUIET_BEATS: a retry or variant answer ends
+  `passages.pitch_clean` = pitch). THE JUDGE WINDOW IS GONE (2026-09-11):
+  error estimation before feedback is well supported, but the window can
+  only be opened by a sound the player is not asked to play, and it broke
+  the one rule. Its cue was also read as an error buzzer after passages he
+  had nailed. `judgments` stays in the schema as history and nothing writes
+  it. The retry IS the feedback. QUIET_BEATS: a retry or variant answer ends
   after TWO beats of silence (recall, not echo), everything else one. VARIANTS: a nailed passage returns in the
   NEXT block (variantQueue[].block < blockN), in the block's new key, else
   +-2/3 semitones (same hand shape), else the other mode (`modeSwap`, last:
@@ -109,8 +116,8 @@ opens every input port.
   once the lead has passed by more than the tolerance), a 2-down/1-up
   staircase on one dimension per run (interval = extra tiers, tempo = +6
   bpm/level, lead = 4/3/2 beats), ends after ROUND.calls (16) or
-  ROUND.misses (5) with one cool-down call at level 0, cues
-  `round`/`roundOver`, evidence scope 'round' (cells only: never the tier
+  ROUND.misses (5) with one cool-down call at level 0, ANNOUNCED BY NOTHING
+  (the caller simply stops waiting), evidence scope 'round' (cells only: never the tier
   ladder, never the stage, never a focus trial), a record per run in kv
   `rounds`, cooldown before the next. A staircase miss is pitch only,
   except on the tempo dimension where time is the game.
@@ -126,17 +133,23 @@ opens every input port.
   wrong first note count as a wrong target; the echo ask-back has no free
   note at all (its first note is framed from the playback's last note and
   graded on the stage's rung).
-  Block count: KEYED_KINDS only. ECHO GAME: `collect` question (cue, then
-  the player's 2-4 notes until a beat of silence) -> listen playback -> the
-  same figure asked back, graded on the stage's rung.
+  Block count: KEYED_KINDS only (the prime, retries, rounds, echoes and
+  exposures are not the key's). ECHO GAME: `collect` question (SILENT -- the
+  drill just goes quiet and takes the player's 2-4 notes until a beat of
+  silence) -> that same figure asked straight back as the call, graded on
+  the stage's rung. One question, not two: the playback and the ask are the
+  same thing, because nothing is played that is not being asked for.
   COMPOUND ASKS: `engine.lastWide` marks a target an octave wider than the
   asked simple interval (label "+8ve"); pitch class right but octave wrong
   = `height_err`, credited to the interval, debited to `engine.state.height`.
   BURSTS ARE ONE SITTING: kv `carry` (endedAt, block key + number, warm-up
   count, retry and variants as id/shift/key re-placed from the bank and
-  dropped if they no longer fit, the pending judge, remediation, asked ids)
-  is restored by a session started within CARRY_MS (30 min) and the key
-  re-primed; roundStreak/cooldown and the streak reset per burst.
+  dropped if they no longer fit, remediation, asked ids)
+  is restored by a session started within CARRY_MS (30 min). The block
+  itself is NOT carried, only its number: a resumed sitting opens a fresh
+  block on the note the player has just sat down on, because the prime is a
+  call and a call starts under the hand. roundStreak/cooldown and the streak
+  reset per burst.
   PASSAGE LENGTH is a controller (kv `passageLen`, +1 after 2 clean
   first-askings, -1 after 3 failures, bounded by LEN.min and the tier
   ceiling). TEMPO IS NOT A CONTROLLER and must never become one.
@@ -188,8 +201,8 @@ opens every input port.
   near-miss confusions; the round (`scope:'round'`) updates `src:round`
   cells only. CONFUSIONS decay by the DAY (`confusionsDecayedAt`), not per
   session; a pair (same direction, widths within 2) at CONFUSION_THRESHOLD
-  becomes `state.focus` {a, b, left, listen, served, recent}: `takeListen()`
-  hands the drill a listen-only pass at open and every FOCUS_LISTEN_EVERY
+  becomes `state.focus` {a, b, left, expose, served, recent}: `takeExposure()`
+  hands the drill a both-of-them CALL at open and every FOCUS_EXPOSE_EVERY
   pair trials (practice + exposure), about FOCUS_SHARE of the next
   FOCUS_TRIALS (30, spanning sittings) plain asks are one of the pair in its
   own direction (`servedQueue` = true -> kind 'discrimination'), and the
@@ -229,7 +242,9 @@ opens every input port.
   foreign; else the nearest key on the circle of fifths that holds every
   note; null = chromatic, gets no prime), `shiftToKey` (mode reconciled via
   the relative key, octave nearest a point drawn halfway from the anchor to
-  the keyboard middle), `primeNotes` (do-mi-sol-do' over two beats),
+  the keyboard middle), `primeNotes` (do-mi-sol-do' over two beats,
+  do ON THE ANCHOR whenever the tonic's pitch class allows -- the prime is a
+  call, and every call starts under the hand),
   `modeSwap` (3/6/7 moved), `chooseKey` (tonic = the anchor's pitch class,
   mode rotates), `diatonicStep`. Evidence: Cuddy & Badertscher 1987 (three
   notes set a key), Dowling 1986 / Bartlett & Dowling 1980 (a drifting or
@@ -240,7 +255,7 @@ opens every input port.
   answers are in (hysteresis HYSTERESIS below each bar). Per stage: POOLS
   (steps first, fifth/octave as the first leaps), TIMEOUT_MS, a
   keyboard `window()` of an octave and a half, `soundsAnchor()` (below
-  exact, or while tiers <= 3). `stageMoved()` in drill.js cues stageUp/Down
+  exact, or while tiers <= 3). `stageMoved()` in drill.js logs the move
   and persists kv `stage`.
 - `src/rungs.js`  THE RUNGS BENEATH EXACT PITCH: direction (contour), near
   (within a semitone: sizing), recovered (a later exact note after the first
@@ -321,7 +336,8 @@ opens every input port.
   stage's judgment, `height_err` = right pitch class wrong octave),
   `passages` (one row per passage question, see rungs.js; `clean` = pitch
   AND time, `pitch_clean` = pitch, backfilled from exact = notes),
-  `judgments` (the judge window: guessed, hit, passage_clean); `attempts.voice`
+  `judgments` (HISTORICAL: the judge window, removed 2026-09-11; nothing
+  writes it); `attempts.voice`
   for per-voice dyad/chord accuracy. kv: `engine`, `engine:harmonic`, `poly`,
   `passageLen`, `phraseStats`, `polyStats`, `ranges`, `carry`, `stage`,
   `rounds`. `backfillPassages()` builds `passages`

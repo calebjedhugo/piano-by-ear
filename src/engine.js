@@ -58,11 +58,12 @@ const CONFUSION_HALF_LIFE_MS = 20 * 60 * 60 * 1000;
 // ordinary questions (Goldstone 1994 acquired distinctiveness; Wong, Chen &
 // Lim 2021 interleaving beats blocking), not as an A-B-A-B run: about half of
 // the next FOCUS_TRIALS plain questions are one of the pair, in a constant
-// register, and the focus opens with one listen-only pass of both
-// (practice + exposure, Little, Cheng & Wright 2019).
+// register, and the focus opens with one call that serves BOTH of them from
+// one anchor (practice + exposure, Little, Cheng & Wright 2019). That call is
+// played back like every other: nothing here is listen-only.
 const FOCUS_TRIALS = 30; // persists in state, so it spans sittings; Little et al. needed ~1000 trials over days
 const FOCUS_SHARE = 0.5;
-const FOCUS_LISTEN_EVERY = 6; // exposure recurs: a listen pass every this many pair trials
+const FOCUS_EXPOSE_EVERY = 6; // exposure recurs: a both-of-them call every this many pair trials
 const FOCUS_DONE_WINDOW = 8; // close early once the last N pair trials are this accurate
 const FOCUS_DONE_ACC = 0.85;
 export const WARMUP_QUESTIONS = 5;
@@ -91,7 +92,7 @@ function freshState() {
     cells: {},
     confusions: {},
     confusionsDecayedAt: 0,
-    focus: null, // { a, b, left, listen } the confused pair being categorised
+    focus: null, // { a, b, left, expose } the confused pair being categorised
     height: { n: 0, acc: 0.5 }, // octave placement on compound asks
   };
 }
@@ -149,16 +150,17 @@ export class AdaptiveEngine {
     }
   }
 
-  /** The confused pair in focus, if any: { a, b, left, listen }. */
+  /** The confused pair in focus, if any: { a, b, left, expose }. */
   get focus() {
     return this.state.focus;
   }
 
-  /** True once, when a focus has just opened: the drill plays both intervals for listening. */
-  takeListen() {
+  /** True once, when a focus has just opened (and every FOCUS_EXPOSE_EVERY
+   *  trials after): the drill asks for both intervals in one call. */
+  takeExposure() {
     const f = this.state.focus;
-    if (!f || !f.listen) return null;
-    f.listen = false;
+    if (!f || !f.expose) return null;
+    f.expose = false;
     this.save();
     return { a: f.a, b: f.b };
   }
@@ -374,7 +376,7 @@ export class AdaptiveEngine {
       if (iv !== null) {
         f.left -= 1;
         f.served = (f.served || 0) + 1;
-        if (f.served % FOCUS_LISTEN_EVERY === 0) f.listen = true;
+        if (f.served % FOCUS_EXPOSE_EVERY === 0) f.expose = true;
         if (f.left <= 0) this.state.focus = null;
         this.save();
         this.servedQueue = true;
@@ -494,7 +496,7 @@ export class AdaptiveEngine {
     if (count >= CONFUSION_THRESHOLD) {
       delete this.state.confusions[key];
       if (!this.state.focus) { // one pair at a time, never a cascade
-        this.state.focus = { a: asked, b: tapped, left: FOCUS_TRIALS, listen: true };
+        this.state.focus = { a: asked, b: tapped, left: FOCUS_TRIALS, expose: true };
       }
     } else {
       this.state.confusions[key] = count;

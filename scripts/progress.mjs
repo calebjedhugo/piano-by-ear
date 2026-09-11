@@ -345,16 +345,19 @@ function section3() {
   });
   printTable('Retries by day', ['day', 'retries', 'nailed', 'rested'], rowsOut);
 
-  if (!hasTable('judgments')) {
-    console.log('\n(judgments table not present yet)');
-    return;
-  }
+  // HISTORICAL. The judge window was removed on 2026-09-11, when the drill
+  // adopted its one rule: no note is played that the player is not being
+  // asked to play back, and a window cannot be opened without a sound that
+  // opens it. These tables describe sessions recorded before that; they will
+  // not grow. See the rule at the top of src/drill.js.
+  if (!hasTable('judgments')) return;
   // learning: one of the first judge windows, before the player had ever
   // pressed in one -- not evidence, so it is excluded from the rates below
   // and reported as its own count. Missing column = guarded to 0 (not learning).
   const jrows = db.prepare(`
     SELECT ts, guessed, hit, ${col('judgments', 'passage_clean')}, ${col('judgments', 'learning')}
     FROM judgments WHERE ts >= ? ORDER BY ts ASC`).all(cutoff);
+  if (jrows.length === 0) return; // nothing in range: the window is gone
 
   if (!hasColumn('judgments', 'passage_clean')) {
     const perJDay = groupBy(jrows, (r) => localDay(r.ts));

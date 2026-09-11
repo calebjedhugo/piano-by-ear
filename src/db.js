@@ -83,6 +83,9 @@ export class Db {
         backfilled INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS passages_phrase ON passages(phrase_id);
+      -- HISTORICAL. The judge window was removed on 2026-09-11 (the drill
+      -- plays nothing it is not asking for, and a window needs a sound to
+      -- open it). Kept so the sessions that used it can still be read.
       CREATE TABLE IF NOT EXISTS judgments (
         id INTEGER PRIMARY KEY,
         session_id INTEGER NOT NULL REFERENCES sessions(id),
@@ -120,8 +123,6 @@ export class Db {
       recentIsolated: this.db.prepare(`
         SELECT anchor, target, CASE WHEN velocity > 0 THEN played ELSE NULL END played, stage FROM attempts
         WHERE graded = 1 AND kind IN ('interval', 'discrimination', 'remediation', 'echo') ORDER BY id DESC LIMIT ?`),
-      judgment: this.db.prepare(`
-        INSERT INTO judgments (session_id, question, ts, phrase_id, guessed, hit, passage_clean, learning) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
       updateHeld: this.db.prepare('UPDATE attempts SET held_ms = ?, dur_ok = ? WHERE id = ?'),
       passage: this.db.prepare(`
         INSERT INTO passages (session_id, question, ts, phrase_id, kind, qkind, bpm, notes, attempted, exact, clean,
@@ -197,11 +198,6 @@ export class Db {
   /** The last isolated first attempts, newest first, for the stage (src/stage.js). */
   recentIsolated(limit = 20) {
     return this.stmts.recentIsolated.all(limit);
-  }
-
-  /** After a failed passage: did the player point at a missed note, and was it one? */
-  judgment(j) {
-    this.stmts.judgment.run(j.sessionId, j.question ?? null, Date.now(), j.phraseId ?? null, j.guessed ? 1 : 0, nb(j.hit), nb(j.passageClean), nb(j.learning));
   }
 
   updateHeld(id, heldMs, durOk) {

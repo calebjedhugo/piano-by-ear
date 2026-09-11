@@ -106,15 +106,29 @@ export function shiftToKey(phrase, from, to, near, lo, hi) {
 }
 
 /**
- * The block's prime: do-mi-sol-do' (minor: do-me-sol-do'), the tonic
- * nearest `near`, as [midi, beatOffset, beatDur]. Two beats in all.
+ * The block's prime: do-mi-sol-do' (minor: do-me-sol-do'), as
+ * [midi, beatOffset, beatDur], one note per beat.
+ *
+ * DO IS THE NOTE UNDER YOUR HAND whenever it can be -- and chooseKey takes
+ * the anchor's pitch class as the tonic, so it nearly always is. The prime
+ * is a call the player plays back like any other, and every call in this
+ * drill starts where the player is already sitting (the 2026-09-11 lesson:
+ * a call that starts somewhere else is failed on its first note). Only when
+ * the tonic is some other pitch class does it fall back to the nearest one.
  */
 export function primeNotes(k, near, lo, hi) {
-  let tonic = k.tonic + 12 * Math.round((near - 7 - k.tonic) / 12);
-  while (tonic + 12 > hi) tonic -= 12;
-  while (tonic < lo) tonic += 12;
+  const pc = (m) => ((m % 12) + 12) % 12;
+  let tonic = near;
+  if (pc(near) !== pc(k.tonic)) {
+    tonic = k.tonic + 12 * Math.round((near - 7 - k.tonic) / 12);
+    while (tonic + 12 > hi) tonic -= 12;
+    while (tonic < lo) tonic += 12;
+  }
   const third = k.mode === 'minor' ? 3 : 4;
-  const all = [[tonic, 0, 0.5], [tonic + third, 0.5, 0.5], [tonic + 7, 1, 0.5], [tonic + 12, 1.5, 1.5]];
+  // ONE NOTE PER BEAT. It used to run in half beats, which was fine when it
+  // was only heard; it is now played back, and four notes at 150 ms apart is
+  // a different task from the one being taught.
+  const all = [[tonic, 0, 1], [tonic + third, 1, 1], [tonic + 7, 2, 1], [tonic + 12, 3, 2]];
   const notes = all.filter(([m]) => m >= lo && m <= hi);
   return { notes, dropped: all.length - notes.length };
 }

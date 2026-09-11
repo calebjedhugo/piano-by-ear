@@ -35,7 +35,9 @@ function answerFor(anchor, target) {
     default: return 40 + rnd(50);
   }
 }
+let stopped = false; // a press scheduled before the run ended must not start a new session
 const press = (midi, atAudio) => {
+  if (stopped) return;
   drill.onNoteOn({ note: midi, velocity: 90, at: drill.audioToPerf(atAudio), port: 'Keystation Pro 88' });
   setTimeout(() => drill.onNoteOff({ note: midi, at: drill.audioToPerf(audio.now) }), 0.85 * drill.beat * 1000);
 };
@@ -50,9 +52,6 @@ while (drill.state === 'QUESTION' && drill.questions <= Number(maxQ)) {
   await sleep(20);
   const q = drill.q;
   if (!q || drill.answered || played === drill.questions) continue;
-  if (q.listen) continue;
-  if (q.judge && Math.random() < 0.6) { played = drill.questions; const at = drill.callT0 + 0.5 * drill.beat; setTimeout(() => press(q.judge.missed[0] ?? 60, at), Math.max(0, (at - audio.now) * 1000)); continue; }
-  if (q.judge) { played = drill.questions; continue; }
   if (q.collect) { played = drill.questions; const t = audio.now + 0.2; press(60, t); setTimeout(() => press(64, audio.now), drill.beat * 1000); setTimeout(() => press(62, audio.now), 2 * drill.beat * 1000); continue; }
   played = drill.questions;
   // answer each group one beat behind the call
@@ -74,7 +73,11 @@ while (drill.state === 'QUESTION' && drill.questions <= Number(maxQ)) {
   seen += 1;
 }
 await sleep(500);
+stopped = true;
 drill.stop({ silent: true });
 console.log(`--- ${seen} questions answered, stage ${drill.stage.current}`);
 await audio.close();
 db.close();
+// The audio render thread keeps the loop alive after close(); nothing is
+// pending, so leave rather than hang (a chained run would never start).
+process.exit(0);
