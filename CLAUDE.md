@@ -103,12 +103,28 @@ opens every input port.
   PITCH AND TIME ARE SEPARATE: `pitchClean` drives streak, retry, length,
   poly promotion, variants; `timeClean`/`timing` are logged beside it
   ("timing 3/4 in time, 1 hold off") and stored (`passages.clean` = both,
-  `passages.pitch_clean` = pitch). THE JUDGE WINDOW IS GONE (2026-09-11):
-  error estimation before feedback is well supported, but the window can
-  only be opened by a sound the player is not asked to play, and it broke
-  the one rule. Its cue was also read as an error buzzer after passages he
-  had nailed. `judgments` stays in the schema as history and nothing writes
-  it. The retry IS the feedback. QUIET_BEATS: a retry or variant answer ends
+  `passages.pitch_clean` = pitch).
+  THE JUDGMENT WINDOW (`openWindow`/`closeWindow`, kinds `window` then
+  `correction`, table `windows`). After EVERY passage-kind question -- clean
+  or not, so arrival is never the verdict -- THE PULSE DROPS for
+  max(WINDOW_SEC 2s, WINDOW_BEATS 2 beats). The metronome is the one thing
+  that never moves, so stopping it is the loudest signal available and the
+  only one that costs no note (tick() skips `audio.click` while `q.window`;
+  the grid keeps counting underneath so nothing restarts). Presses in the
+  silence are collected in handleAnswer and read at the close, DEDUPED (he is
+  naming notes, not playing): HIT (a note that really got past him), ECHO
+  (the wrong note he actually PLAYED -- on reflection he still believes it
+  was right, a representation problem; goes to `recordConfusion` at weight 1
+  where a passage miss gets 0.5), CATCH (already self-corrected, already
+  measured, scores nothing), STRAY (nothing wrong there; after a clean
+  passage, a false alarm). No press = "it was clean", right or a miss gone
+  unnoticed. Then `correction`: the live misses minus the ones he named,
+  served at the passage's tempo (`q.tempo`) to play back, cascade included.
+  Order in makeQuestion: round, WINDOW, CORRECTION, retry. Neither moves the
+  streak, cleanNotes, passagesInARow or the ladder; a correction is scored at
+  passage scope and queues no remediation. The CUED judge window it replaces
+  is dead (`judgments`, historical) -- a cue is a note you are not asked to
+  play, which is how this drill got its one rule. QUIET_BEATS: a retry or variant answer ends
   after TWO beats of silence (recall, not echo), everything else one. VARIANTS: a nailed passage returns in the
   NEXT block (variantQueue[].block < blockN), in the block's new key, else
   +-2/3 semitones (same hand shape), else the other mode (`modeSwap`, last:

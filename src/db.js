@@ -89,9 +89,36 @@ export class Db {
         backfilled INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS passages_phrase ON passages(phrase_id);
-      -- HISTORICAL. The judge window was removed on 2026-09-11 (the drill
-      -- plays nothing it is not asking for, and a window needs a sound to
-      -- open it). Kept so the sessions that used it can still be read.
+      -- THE JUDGMENT WINDOW. After every passage the pulse drops for a couple
+      -- of seconds and whatever the player does in that silence is his answer
+      -- to "which note did you miss?" -- one row per window.
+      --   missed   notes he never reached, not counting ones he caught in
+      --            flight (those are already measured: attempts.self_corrected)
+      --   caught   how many of the passage's misses he had caught in flight
+      --   pressed  notes played in the silence
+      --   hits     presses naming a note that really did get past him
+      --   echoes   presses naming THE WRONG NOTE HE ACTUALLY PLAYED: given
+      --            time and silence he still believes it was right, which is
+      --            a representation problem, not a fumble
+      --   strays   presses naming neither (after a clean passage: a false alarm)
+      CREATE TABLE IF NOT EXISTS windows (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES sessions(id),
+        question INTEGER,
+        ts INTEGER NOT NULL,
+        phrase_id TEXT,
+        passage_clean INTEGER,
+        missed INTEGER NOT NULL DEFAULT 0,
+        caught INTEGER NOT NULL DEFAULT 0,
+        pressed INTEGER NOT NULL DEFAULT 0,
+        hits INTEGER NOT NULL DEFAULT 0,
+        echoes INTEGER NOT NULL DEFAULT 0,
+        strays INTEGER NOT NULL DEFAULT 0
+      );
+      -- HISTORICAL. The CUED judge window, removed on 2026-09-11 when the
+      -- drill stopped playing anything it was not asking for. Its successor
+      -- opens with silence instead of a sound and lives in the windows table
+      -- the two are not comparable, so they are not the same table.
       CREATE TABLE IF NOT EXISTS judgments (
         id INTEGER PRIMARY KEY,
         session_id INTEGER NOT NULL REFERENCES sessions(id),
@@ -131,6 +158,9 @@ export class Db {
         WHERE graded = 1 AND kind IN ('interval', 'discrimination', 'remediation', 'echo') ORDER BY id DESC LIMIT ?`),
       updateHeld: this.db.prepare('UPDATE attempts SET held_ms = ?, dur_ok = ? WHERE id = ?'),
       selfCorrected: this.db.prepare('UPDATE attempts SET self_corrected = 1 WHERE id = ?'),
+      window: this.db.prepare(`
+        INSERT INTO windows (session_id, question, ts, phrase_id, passage_clean, missed, caught, pressed, hits, echoes, strays)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
       passage: this.db.prepare(`
         INSERT INTO passages (session_id, question, ts, phrase_id, kind, qkind, bpm, notes, attempted, exact, clean,
                               intervals, direction, near, exact_interval, first_error, recovered, backfilled, pitch_clean,
@@ -206,6 +236,12 @@ export class Db {
   /** The last isolated first attempts, newest first, for the stage (src/stage.js). */
   recentIsolated(limit = 20) {
     return this.stmts.recentIsolated.all(limit);
+  }
+
+  /** One judgment window: what he offered in the silence, and what was true. */
+  window(w) {
+    this.stmts.window.run(w.sessionId, w.question ?? null, Date.now(), w.phraseId ?? null, nb(w.passageClean),
+      w.missed, w.caught, w.pressed, w.hits, w.echoes, w.strays);
   }
 
   /** The player went back and caught his own note before the next one was due. */

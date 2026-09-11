@@ -309,6 +309,47 @@ function section2() {
       ['day', 'failed passages', 'missed notes', 'caught', 'caught rate', 'passages with a catch'], scOut);
   }
 
+  // THE JUDGMENT WINDOW -- the other half of error detection. The catch above
+  // is ONLINE monitoring: noticing in time to act, mid-phrase, under the
+  // pulse. This is REFLECTION: two seconds of silence with no pulse at all.
+  // They come apart, and the direction that matters is a player who barrels
+  // on in tempo (no catch) but knows perfectly well afterwards which note was
+  // wrong. A catch proves he noticed; the absence of one proves nothing, so
+  // only the window can tell "did not notice" from "noticed and kept going".
+  // Read them as a ladder: caught in flight > named on reflection > unnoticed.
+  if (hasTable('windows')) {
+    const wRows = db.prepare('SELECT ts, passage_clean, missed, caught, pressed, hits, echoes, strays FROM windows WHERE ts >= ?').all(cutoff);
+    if (wRows.length > 0) {
+      const failed = groupBy(wRows.filter((r) => r.passage_clean !== 1), (r) => localDay(r.ts));
+      const clean = groupBy(wRows.filter((r) => r.passage_clean === 1), (r) => localDay(r.ts));
+      const wDays = [...new Set([...failed.keys(), ...clean.keys()])].sort();
+
+      printTable('Judgment window after a FAILED passage (the pulse drops; what did he offer?)',
+        ['day', 'n', 'named a real miss', 'echoed his own wrong note', 'offered nothing (unnoticed)', 'caught in flight'],
+        wDays.map((day) => {
+          const list = failed.get(day) || [];
+          if (list.length === 0) return [day, 0, '-', '-', '-', '-'];
+          return [day, list.length,
+            pctN(list.map((r) => (r.hits > 0 ? 1 : 0))),
+            pctN(list.map((r) => (r.echoes > 0 ? 1 : 0))),
+            pctN(list.map((r) => (r.pressed === 0 ? 1 : 0))),
+            list.reduce((a, r) => a + r.caught, 0)];
+        }));
+
+      printTable('Judgment window after a CLEAN passage (it follows those too, so arrival is never the verdict)',
+        ['day', 'n', 'false alarm', 'correct rejection'],
+        wDays.map((day) => {
+          const list = clean.get(day) || [];
+          if (list.length === 0) return [day, 0, '-', '-'];
+          return [day, list.length,
+            pctN(list.map((r) => (r.pressed > 0 ? 1 : 0))),
+            pctN(list.map((r) => (r.pressed === 0 ? 1 : 0)))];
+        }));
+      console.log('(an ECHO is him naming the wrong note he actually played: on reflection he still hears it as right --');
+      console.log(' a representation problem, not a fumble, and the one cell worth acting on)');
+    }
+  }
+
   // Variants: does a passage nailed and then re-shaped (new key/transposition/mode) transfer?
   const variantRows = db.prepare(`
     SELECT ts, phrase_id, notes, exact, ${col('passages', 'pitch_clean')}

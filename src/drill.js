@@ -65,6 +65,17 @@
 //              are the target.
 //   passage:   a real phrase in the block key, in its own meter with its
 //              pickup ('mono' one voice; 'duo', 'chorale', 'poly' more).
+//   window:    after EVERY passage the pulse DROPS for two seconds (or two
+//              beats, whichever is longer). Whatever you play in that silence
+//              is your answer to "which note did you miss?"; playing nothing
+//              says "that was clean". It follows the passages you nailed too,
+//              so its arrival is never the verdict. The metronome stopping is
+//              the only signal in this program that costs no note.
+//   correction: the notes you never reached, served as a call at the
+//              passage's own tempo, for you to play back -- minus any you
+//              named in the window and any you caught in flight. Cascade
+//              notes included: a note played in the right interval from a
+//              pitch you had already lost is still a place you never got to.
 //   retry:     a failed passage comes straight back, SAME key and register
 //              (constant practice until correct: Lai et al. 2000), up to
 //              RETRY_MAX_TRIES while the rungs beneath exact pitch improve;
@@ -177,6 +188,20 @@ const GESTURE_RATE = 0.34;
 // direction would be (a 1.3 weight on a 24-entry pool moved nothing).
 const DIATONIC_LEAN = 1.3; // a diatonic target whose mirror is chromatic (or off the keyboard)
 const CHROMATIC_SIDE = 0.15; // a chromatic target whose mirror is diatonic and feasible; otherwise 1
+// THE JUDGMENT WINDOW. After EVERY passage -- clean or not, so its arrival
+// says nothing about the verdict -- THE PULSE DROPS. The metronome is the one
+// thing in this drill that never moves, so its stopping is the loudest signal
+// available and the only one that costs no note. Whatever you play in that
+// silence is your answer to "which note did you miss?"; playing nothing says
+// "that was clean". Then the click returns and the notes you never reached
+// are served as an ordinary call for you to play back -- minus any you named
+// in the silence, and any you caught in flight, because nothing is served
+// that you have already shown you have. Error estimation before the answer is
+// what turns feedback into hypothesis testing (Guadagnoli & Kohl 2001); the
+// first version of this asked with a chime and was heard as an error buzzer,
+// which is how the drill came by its one rule.
+const WINDOW_SEC = 2; // ...or two dropped beats, whichever is LONGER
+const WINDOW_BEATS = 2;
 // A beat of silence ends an answer, except where the player is recalling
 // rather than echoing: a retry or a variant waits two.
 const QUIET_BEATS = { retry: 2, variant: 2 };
@@ -300,6 +325,7 @@ export class Drill {
   /** The tempo for a question: what its music wants, never what you earned. */
   questionTempo(q) {
     if (this.bpmOverride) return this.bpmOverride;
+    if (q.tempo) return q.tempo; // a window or its correction keeps the passage's pulse
     if (q.phrase) return passageTempo(q.phrase, this.floorSec);
     // A round on the tempo dimension is the one place a question is quicker
     // than its music wants, and it is a game, not a controller: the tempo
@@ -385,6 +411,10 @@ export class Drill {
     this.harmonicRemediationQueue = [];
     // The corrective loop and the variants carry as ids + placement, re-placed
     // from the bank (a phrase object through JSON would be a detached copy).
+    // A window belongs to the passage that just happened; neither it nor its
+    // correction survives the end of a session.
+    this.window = null; // { missed, clean, question, phraseId, sec, bpm, pressed }
+    this.correction = null; // { notes, bpm }
     this.retry = resumed?.retry ? this.replace(resumed.retry) : null; // { id, kind, tries, score, placed }
     this.variantQueue = (resumed?.variantQueue ?? []).map((v) => this.replace(v)).filter(Boolean);
     // A resumed sitting re-opens its block rather than carrying one: the
@@ -602,6 +632,43 @@ export class Drill {
     };
   }
 
+  /**
+   * THE JUDGMENT WINDOW: no notes, no click, just the pulse stopping. What
+   * the player does in the silence is collected (handleAnswer) and read when
+   * it closes (closeWindow).
+   */
+  windowQuestion(w) {
+    return {
+      kind: 'window',
+      window: w,
+      tempo: w.bpm,
+      notes: [],
+      meter: 4,
+      label: `judgment window: ${w.sec.toFixed(1)}s, no pulse (play the note you think you missed, or nothing)`,
+    };
+  }
+
+  /**
+   * THE CORRECTION: the notes you never reached, served as an ordinary call
+   * at the passage's own tempo, for you to play back. Cascade notes included
+   * -- a note you played in the right interval from a pitch you had already
+   * lost is still a place you never got to, and "this is where you should
+   * have been" is the lesson. Scored at passage scope: you were just handed
+   * the pitch, so it is context, not a probe, and it queues no remediation
+   * (the passage that spawned it already did).
+   */
+  correctionQuestion(c) {
+    const notes = c.notes.map((midi, i) => ({ midi, b: i, dur: i === c.notes.length - 1 ? 2 : 1, voice: 0 }));
+    return {
+      kind: 'correction',
+      correction: true,
+      tempo: c.bpm,
+      notes,
+      meter: 4,
+      label: `correction: ${c.notes.map(name).join(' ')} -- ${c.notes.length === 1 ? 'the note' : 'the notes'} you never reached`,
+    };
+  }
+
   passageQuestion(kind, picked) {
     const { phrase, notes, octave, key } = picked;
     // Placed in a key, the pivot is no longer the note under the hand: it is
@@ -751,6 +818,17 @@ export class Drill {
     // The round has the floor while it runs (see roundStep).
     if (this.round) return this.roundQuestion(a, prev);
 
+    // The window, then its correction, then the retry: estimate, hear, redo.
+    if (this.window) {
+      const w = this.window;
+      this.window = null;
+      return this.windowQuestion(w);
+    }
+    if (this.correction) {
+      const c = this.correction;
+      this.correction = null;
+      return this.correctionQuestion(c);
+    }
     if (this.retry) {
       // Straight back, before anything else, in the SAME key and register:
       // the correction has to be adjacent to the miss to be one, and constant
@@ -941,7 +1019,7 @@ export class Drill {
     });
     this.callScheduled = 0;
     const lastCall = this.callNotes[this.callNotes.length - 1];
-    this.callEndAt = lastCall ? lastCall[1] + Math.max(lastCall[2], this.beat) : t0 + this.beat;
+    this.callEndAt = lastCall ? lastCall[1] + Math.max(lastCall[2], this.beat) : t0 + (q.window ? q.window.sec : this.beat);
     this.buildGroups(notes);
     this.earliestStart = (lastCall ? this.callNotes[0][1] : t0) + this.beat; // one beat behind the call
     if (q.collect) this.earliestStart = t0; // your turn to make something up: any time
@@ -1058,7 +1136,11 @@ export class Drill {
     while (this.scheduledUntil < horizon) {
       const beatIndex = Math.round((this.scheduledUntil - this.nextBarAt) / this.beat);
       const beatTime = this.nextBarAt + beatIndex * this.beat;
-      if (beatTime >= now && beatTime < horizon) {
+      // THE PULSE DROPS FOR THE WINDOW. The grid keeps counting underneath
+      // (scheduledUntil still advances) so nothing has to be restarted; the
+      // clicks simply are not played, and the next question sets its own
+      // downbeat anyway.
+      if (beatTime >= now && beatTime < horizon && !this.q.window) {
         const inBar = ((beatIndex % this.meter) + this.meter) % this.meter;
         this.audio.click(beatTime, { accent: inBar === 0 });
       }
@@ -1074,7 +1156,12 @@ export class Drill {
     }
     if (!this.answered) {
       const q = this.q;
-      if (q.collect) {
+      if (q.window && now >= this.callT0 + q.window.sec) {
+        this.closeWindow(q.window);
+        this.completeQuestion();
+      } else if (q.window) {
+        // still open: the silence is the question
+      } else if (q.collect) {
         this.collectTick(now);
       } else if (q.round && now >= this.nextQuestionAt + this.toleranceMs / 1000) {
         // The caller does not wait: whatever is left of this answer is missed
@@ -1217,6 +1304,10 @@ export class Drill {
   handleAnswer(note, velocity, atAudio) {
     if (this.answered) return; // between questions: free play
     const q = this.q;
+    if (q.window) {
+      if (atAudio >= this.callT0) q.window.pressed.push(note); // before it opened: a stray key
+      return;
+    }
     if (q.collect) { this.collected.push({ midi: note, at: atAudio }); return; }
     if (!this.responseStarted) {
       if (atAudio < this.earliestStart - this.beat / 2) return; // still the call: free
@@ -1343,7 +1434,7 @@ export class Drill {
     // like a passage for engine evidence: heard in context, they inform the
     // engine at passage scope but never
     // moves the interval tier ladder, which only clean isolated probes own.
-    const passage = Boolean(q.phrase) || Boolean(q.gesture) || Boolean(q.prime) || Boolean(q.exposure);
+    const passage = Boolean(q.phrase) || Boolean(q.gesture) || Boolean(q.prime) || Boolean(q.exposure) || Boolean(q.correction);
     const round = Boolean(q.round);
     const rtNorm = inTime ? Math.min(Math.abs(onsetMs), this.beat * 1000) / this.beat : null;
     const from = exp.melodicFrom ?? exp.harmonicFrom ?? this.anchor;
@@ -1372,7 +1463,7 @@ export class Drill {
         if (passage) this.engine.ask(iv, this.idx(exp.melodicFrom), prev === null ? null : this.idx(prev), { scope: 'passage' });
         if (!credit) {
           this.engine.reportMiss(this.idx(exp.melodicFrom), played === null ? this.idx(exp.melodicFrom) : this.idx(note), { confuse: !round });
-          if (passage && Math.abs(iv) >= 3 && this.remediated < REMEDIATE_MAX_PER_PASSAGE &&
+          if (passage && !q.correction && Math.abs(iv) >= 3 && this.remediated < REMEDIATE_MAX_PER_PASSAGE &&
               this.engine.predictedAcc(iv, this.idx(exp.melodicFrom)) < 0.8) {
             this.remediationQueue.push(simpleOf(iv));
             this.remediated += 1;
@@ -1418,7 +1509,8 @@ export class Drill {
       this.timing.notes += 1;
       if (inTime) this.timing.inTime += 1;
     }
-    if (credit && exp.graded) this.cleanNotes += 1;
+    if (q.correction) { /* handed to you: neither earns nor spends the passage credit */ }
+    else if (credit && exp.graded) this.cleanNotes += 1;
     else if (!credit) this.cleanNotes = 0;
     if (!credit) this.pitchClean = false;
     if (!inTime) this.timeClean = false;
@@ -1498,13 +1590,18 @@ export class Drill {
     for (const [, h] of this.held) this.gradeHold(h, now, true); // still held: never "too long"
     this.held.clear();
     const q = this.q;
-    if (q.collect) {
+    if (q.collect || q.window) {
       if (!this.nextQ) this.nextQ = this.makeQuestion();
       return;
     }
     const clean = this.pitchClean && this.timeClean;
-    this.streak = this.pitchClean ? this.streak + 1 : 0;
-    this.passagesInARow = q.phrase ? this.passagesInARow + 1 : 0;
+    // A correction is notes you were just handed: playing them back is not a
+    // clean answer, and it must not count toward earning the next passage.
+    // A window has no notes at all, and neither of them breaks a run of
+    // passages -- they are part of the passage that spawned them.
+    if (!q.correction) this.streak = this.pitchClean ? this.streak + 1 : 0;
+    if (q.phrase) this.passagesInARow += 1;
+    else if (!q.correction && !q.window) this.passagesInARow = 0;
     if (q.round) this.roundStep(this.round?.dim === 'tempo' ? clean : this.pitchClean); // time only counts when time is the game
     else this.noteRoundStreak(q, clean, this.behind ?? 99);
     if (q.phrase) {
@@ -1551,11 +1648,102 @@ export class Drill {
           this.variantQueue.push({ id: q.phrase.id, kind: q.phrase.kind, placed: q.placed, key: q.placed.key ?? null, block: this.blockN });
         }
       }
+      // THE PULSE DROPS. After every passage, clean or not, so its arrival
+      // never gives the verdict away -- that is the whole reason it follows
+      // the ones you nailed.
+      this.openWindow(q);
     } else if (q.kind === 'gesture' || q.dyad) {
       const timing = this.timing.notes && !this.timeClean ? ` (timing ${this.timing.inTime}/${this.timing.notes})` : '';
       if (timing) this.log(`  ${this.pitchClean ? 'right' : 'wrong'} notes${timing}`);
     }
     this.nextQ = this.makeQuestion();
+  }
+
+  /**
+   * Open the judgment window on the passage that just finished. Every note
+   * the player never reached goes on the list, cascade notes included; the
+   * ones he CAUGHT in flight are listed but flagged, because they are already
+   * measured (attempts.self_corrected) and naming a note you have just played
+   * proves nothing.
+   */
+  openWindow(q) {
+    const missed = [];
+    for (const g of this.groups) {
+      for (const e of g.notes) {
+        if (e.free || e.silent || !e.graded || e.played === e.midi) continue;
+        missed.push({ midi: e.midi, played: e.played, from: e.melodicFrom, b: g.b, caught: Boolean(e.selfCorrected) });
+      }
+    }
+    missed.sort((x, y) => x.b - y.b);
+    this.window = {
+      missed,
+      clean: this.pitchClean,
+      question: this.questions,
+      phraseId: q.phrase.id,
+      sec: Math.max(WINDOW_SEC, WINDOW_BEATS * this.beat),
+      bpm: this.bpm,
+      pressed: [],
+    };
+  }
+
+  /**
+   * Read the silence. Each note offered is one of four things:
+   *   a HIT     -- it really did get past him
+   *   an ECHO   -- it is the wrong note he actually PLAYED: given time and
+   *                silence he still believes it was right, which is a
+   *                representation problem and not a fumble, and it goes to
+   *                the confusion tracker at full weight (a passage miss gets
+   *                half) because he has now asserted it twice
+   *   a CATCH   -- a note he had already gone back for: already measured
+   *   a STRAY   -- nothing was wrong there; after a clean passage, a false alarm
+   * Offering nothing says "that was clean", which is right or is a miss that
+   * went unnoticed. Then the notes he did not name are queued to be served.
+   */
+  closeWindow(w) {
+    const live = w.missed.filter((m) => !m.caught);
+    // He is NAMING notes, not playing music: the same pitch offered twice is
+    // one offer, and must not score twice in any cell.
+    const offered = [...new Set(w.pressed)];
+    const named = new Set();
+    let hits = 0; let echoes = 0; let strays = 0;
+    for (const note of offered) {
+      if (w.missed.some((m) => m.caught && m.midi === note)) {
+        this.log(`  judged ${name(note)}: you caught that one yourself`);
+        continue;
+      }
+      const hit = live.find((m) => m.midi === note);
+      if (hit) {
+        hits += 1;
+        named.add(note);
+        this.log(`  judged ${name(note)}: yes, that one got past you`);
+        continue;
+      }
+      // An echo names the wrong note without excusing it: he still has to
+      // hear the right one, so it stays on the list to be served.
+      const echo = live.find((m) => m.played === note);
+      if (echo) {
+        echoes += 1;
+        this.log(`  judged ${name(note)}: no -- that is what you played; you still hear it as right (wanted ${name(echo.midi)})`);
+        if (echo.from !== null && echo.from !== undefined) this.engine.recordConfusion(echo.midi - echo.from, note - echo.from, 1);
+        continue;
+      }
+      strays += 1;
+      this.log(`  judged ${name(note)}: no, nothing was wrong there${w.clean ? ' -- it was clean (false alarm)' : ''}`);
+    }
+    if (offered.length === 0) {
+      this.log(w.clean
+        ? '  nothing offered: it was clean (correct)'
+        : `  nothing offered: ${live.length} note${live.length === 1 ? '' : 's'} got past you unnoticed`);
+    }
+    this.db.window({
+      sessionId: this.sessionId, question: w.question, phraseId: w.phraseId, passageClean: w.clean,
+      missed: live.length, caught: w.missed.length - live.length, pressed: offered.length, hits, echoes, strays,
+    });
+    // Served next: what he never reached, minus what he just named and what
+    // he caught in flight. Nothing is played that he has already shown.
+    const serve = [];
+    for (const m of live) if (!named.has(m.midi) && !serve.includes(m.midi)) serve.push(m.midi);
+    this.correction = serve.length ? { notes: serve, bpm: w.bpm } : null;
   }
 
   /**

@@ -37,10 +37,16 @@ only ever touch the keys.
    caller stops waiting. You hear where you stand in what you are given.
 5. Three clean answers in a row earn a **real passage**: a Bach chorale
    phrase, a bit of a Mozart sonata, or a hymn tune, in its own meter in the
-   current key. Miss it and the phrase comes straight back, same key, same
-   register, up to three tries while you are getting closer. Nail it and it
-   comes back a few questions later in the next key, or the other mode, or a
-   step away.
+   current key. Then **the pulse drops** for a couple of seconds — the one
+   thing in the drill that never moves, stopping. Play the note you think you
+   missed, or nothing if you think it was clean. This happens after every
+   passage, including the ones you nailed, so the silence is never the
+   verdict. When the click returns, the notes you never reached are played to
+   you and you play them back — except any you just named, and any you caught
+   at the time. Then, if you missed it, the phrase comes straight back, same
+   key, same register, up to three tries while you are getting closer. Nail
+   it and it comes back a few questions later in the next key, or the other
+   mode, or a step away.
 6. Play the intervals back clean and on the pulse for a while and the caller
    stops waiting: **the round**. The next call comes while you are still
    answering the last, and the intervals, the tempo, or the lead get harder
