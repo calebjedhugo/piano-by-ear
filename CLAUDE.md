@@ -115,7 +115,9 @@ opens every input port.
   timeout is longer, no passages, gestures, wide asks, dyads/chords or
   rounds. Question flag `optionalAnchor` (interval kinds) is what lets a
   wrong first note count as a wrong target; the echo ask-back has no free
-  note at all (it is the child's own figure). Block count: KEYED_KINDS only. ECHO GAME: `collect` question (cue, then
+  note at all (its first note is framed from the playback's last note and
+  graded on the stage's rung).
+  Block count: KEYED_KINDS only. ECHO GAME: `collect` question (cue, then
   the player's 2-4 notes until a beat of silence) -> listen playback -> the
   same figure asked back, graded on the stage's rung.
   COMPOUND ASKS: `engine.lastWide` marks a target an octave wider than the
@@ -144,7 +146,11 @@ opens every input port.
   plain slot is a `chord` from CHORD_SHAPES once harmonic tiers >= 3 (dom7
   at >= 5); each chord tone is framed for the harmonic engine as it is
   graded (`q.chord`), never pre-asked. KEYED PASSAGES grade the pivot too
-  (it is not the note under the hand): buildGroups frames it from the anchor.
+  (it is not the note under the hand): buildGroups frames it from the
+  anchor, the octave is the one whose pivot is nearest the anchor, wider
+  than an octave folds to the simple interval, and the label says `first
+  note +N from X`. A round's lead is never shorter than the previous
+  answer's lag + 1, and a call is never scheduled at a time already past.
 - `src/engine.js` AdaptiveEngine (ear-training port), instantiated twice:
   melodic (kv `engine`) and harmonic (kv `engine:harmonic`). TIER_WIDTHS is
   SIMPLE INTERVALS ONLY (12 tiers; `simpleOf()` folds compounds; a loaded

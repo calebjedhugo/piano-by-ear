@@ -149,8 +149,8 @@ const GESTURE_RATE = 0.34;
 // Plain targets land diatonic in the block key: the ladder still picks the
 // width, the SIGN is chosen so the target is in the key whenever either
 // direction would be (a 1.3 weight on a 24-entry pool moved nothing).
-const DIATONIC_LEAN = 1.3; // when both or neither direction is diatonic
-const CHROMATIC_SIDE = 0.15; // the non-diatonic direction, when the other one is in key
+const DIATONIC_LEAN = 1.3; // a diatonic target whose mirror is chromatic (or off the keyboard)
+const CHROMATIC_SIDE = 0.15; // a chromatic target whose mirror is diatonic and feasible; otherwise 1
 // The judge window after a passage, in beats: silence you may fill with the
 // note you think you missed (no press = "I think it was clean"). It follows
 // every failed passage and JUDGE_CLEAN_RATE of the clean ones, so its arrival
@@ -433,6 +433,9 @@ export class Drill {
     if (!phrase) return null;
     const placed = bank.place(phrase, x.placed.shift, this.anchor, x.placed.key ?? null);
     if (!this.fits(placed)) return null;
+    // Placed on the anchor (nothing fit the key), its free pivot must still be
+    // the note under the hand; on another note it would be ungraded yet fatal.
+    if (!placed.key && placed.notes[phrase.pivot][0] !== this.anchor) return null;
     return { ...x, placed };
   }
 
@@ -552,7 +555,7 @@ export class Drill {
     // the anchor). Placed on the anchor, it stays free.
     const placed = notes.map(([midi, off, dur, voice], i) => ({ midi, b: phrase.pickup + off, dur, voice, free: !key && i === phrase.pivot }));
     const pivotMidi = notes[phrase.pivot][0];
-    const start = key ? `, in ${keyName(key)}` : octave === 0 ? '' : `, starts ${name(pivotMidi)} (octave ${octave > 0 ? 'above' : 'below'} anchor)`;
+    const start = key ? `, in ${keyName(key)}, first note ${signed(pivotMidi - this.anchor)} from ${name(this.anchor)}` : octave === 0 ? '' : `, starts ${name(pivotMidi)} (octave ${octave > 0 ? 'above' : 'below'} anchor)`;
     const poly = phrase.kind !== 'mono';
     return {
       kind,
@@ -752,7 +755,7 @@ export class Drill {
       }
       // Fixed bass: the anchor stays the bottom note while dyads are new.
       const target = this.harmonic.nextTargetIndex(a, null, { bounds: { lo: a + 1, hi: this.idx(this.hi) } }) + this.lo;
-      return this.dyadQuestion('dyad', target);
+      return this.dyadQuestion(this.harmonic.servedQueue ? 'dyad discrimination' : 'dyad', target);
     }
     const w = this.win;
     const key = this.block.key;
@@ -804,7 +807,9 @@ export class Drill {
     const q = this.intervalQuestion('round', target);
     q.round = true;
     q.level = r.level;
-    q.lead = r.dim === 'lead' ? ROUND.leads[Math.min(r.level, ROUND.leads.length - 1)] : ROUND.leads[0];
+    // The lead never cuts a player who answers as promptly as the trigger
+    // admits: at least one beat more than the previous answer's lag.
+    q.lead = Math.max(r.dim === 'lead' ? ROUND.leads[Math.min(r.level, ROUND.leads.length - 1)] : ROUND.leads[0], (this.behind ?? 1) + 1);
     q.label = `round ${r.calls}${r.cool ? ' (cool-down)' : ''}, ${r.dim} level ${r.level}: ${name(this.anchor)} -> ? (${signed(target - this.anchor)})`;
     return q;
   }
@@ -925,6 +930,9 @@ export class Drill {
       const pv = this.q.notes[this.q.phrase.pivot]?.voice ?? 0;
       lastInVoice.set(pv, [this.anchor, this.prevAnchor]);
     }
+    // The echo ask-back's first note is found again from the playback's last
+    // note (the anchor): graded, on the stage's rung, like every other.
+    if (this.q?.echoOf) lastInVoice.set(0, [this.anchor, this.prevAnchor]);
     for (let gi = 0; gi < groups.length; gi += 1) {
       const g = groups[gi];
       const bass = Math.min(...g.notes.map((e) => e.midi));
@@ -1045,6 +1053,10 @@ export class Drill {
       }
       if (now >= this.nextQuestionAt - SCHEDULE_AHEAD_S) {
         if (this.awaitingFinalize) this.finalizeQuestion();
+        // A round abandons an unfinished answer just past its lead: the next
+        // call then goes on the next grid beat, never at a time already gone
+        // (the pulse is constant, so one beat later is still clean).
+        while (this.nextQuestionAt < now) this.nextQuestionAt += this.beat;
         this.nextBarAt = this.nextQuestionAt;
         this.beginQuestion();
       }
@@ -1244,7 +1256,8 @@ export class Drill {
     }
     if (exp.graded) {
       if (exp.melodicFrom !== null && exp.melodicFrom !== exp.midi) {
-        const iv = q.wide ? simpleOf(exp.midi - exp.melodicFrom) : exp.midi - exp.melodicFrom;
+        const raw = exp.midi - exp.melodicFrom;
+        const iv = q.wide || Math.abs(raw) > 12 ? simpleOf(raw) : raw; // the ladder knows simple intervals only
         const prev = exp.melodicPrev;
         if (passage) this.engine.ask(iv, this.idx(exp.melodicFrom), prev === null ? null : this.idx(prev), { scope: 'passage' });
         if (!credit) {

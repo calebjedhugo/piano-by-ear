@@ -117,9 +117,11 @@ export class PhraseBank {
         let shift;
         if (key) {
           if (octave > 0 || !phrase.tonalKey) continue; // the key decides the octave
-          // The octave nearest the anchor, drawn halfway back toward the
-          // middle of the keyboard so a walk that wandered low is not pinned there.
-          shift = shiftToKey(phrase, phrase.tonalKey, key, placementPoint(anchor, lo, hi), lo, hi);
+          // The octave whose pivot is nearest the anchor (the anchor-to-pivot
+          // interval is graded, so keep it inside an octave); only when that
+          // octave does not fit, the one nearest a point drawn back toward
+          // the middle of the keyboard.
+          shift = shiftToKey(phrase, phrase.tonalKey, key, anchor, lo, hi) ?? shiftToKey(phrase, phrase.tonalKey, key, placementPoint(anchor, lo, hi), lo, hi);
         } else shift = placement(phrase, anchor, lo, hi, octave);
         if (shift === null) continue;
         let max = 0;
@@ -172,7 +174,7 @@ export class PhraseBank {
   pickInKey(id, key, anchor, lo, hi) {
     const phrase = this.byId.get(id);
     if (!phrase || !phrase.tonalKey) return null;
-    const shift = shiftToKey(phrase, phrase.tonalKey, key, placementPoint(anchor, lo, hi), lo, hi);
+    const shift = shiftToKey(phrase, phrase.tonalKey, key, anchor, lo, hi) ?? shiftToKey(phrase, phrase.tonalKey, key, placementPoint(anchor, lo, hi), lo, hi);
     return shift === null ? null : this.place(phrase, shift, anchor, key);
   }
 
