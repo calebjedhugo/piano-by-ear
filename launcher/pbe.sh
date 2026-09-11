@@ -11,18 +11,26 @@
 #   pbe.sh users             one profile name per line
 #   pbe.sh current           the current user's name
 #   pbe.sh mode              drill | free (what a running process is; drill if none)
+#   pbe.sh sound [app|hardware]  print, or set, which box makes the sound
 #   pbe.sh start [user] [free]   start the drill, or free play (stops a running one first)
 #   pbe.sh stop              stop whatever is running
+#
+# "sound hardware" is for a keyboard with its own sound engine (a digital
+# piano rather than a mute controller): the instrument voices its own keys and
+# plays the call on its own channel, and only the clicks stay in the app. It
+# is read at startup, so a change needs a restart.
 set -u
 PROJ="${0:A:h:h}"
 DATA="$HOME/.piano-by-ear"
 PROFILES="$DATA/profiles"
 LOG="$DATA/run.log"
 CURRENT="$DATA/current-user"
+SOUND="$DATA/sound"
 GUEST="Guest"
 mkdir -p "$PROFILES"
 
 current() { [ -s "$CURRENT" ] && cat "$CURRENT" || echo "default"; }
+sound() { [ -s "$SOUND" ] && cat "$SOUND" || echo "app"; }
 # The launcher app runs us with a bare PATH; find node the way a login shell would.
 find_node() {
   command -v node 2>/dev/null && return
@@ -40,6 +48,14 @@ case "${1:-status}" in
   status)  running && echo "running $(current) $(mode)" || echo "stopped $(current)" ;;
   current) current ;;
   mode)    mode ;;
+  sound)
+    if [ $# -ge 2 ]; then
+      case "$2" in
+        app|hardware) echo "$2" > "$SOUND"; echo "$2" ;;
+        *) echo "usage: pbe.sh sound [app|hardware]" >&2; exit 2 ;;
+      esac
+    else sound; fi
+    ;;
   users)   for f in "$PROFILES"/*.db(N); do [ "${f:t:r}" = "$GUEST" ] || echo "${f:t:r}"; done; echo "$GUEST" ;;
   start)
     user="${2:-$(current)}"
@@ -62,5 +78,5 @@ case "${1:-status}" in
   stop)
     if running; then pkill -f 'src/(main|free)\.js'; sleep 1; echo "stopped"; fi
     ;;
-  *) echo "usage: pbe.sh status|users|current|mode|start [user] [free]|stop" >&2; exit 2 ;;
+  *) echo "usage: pbe.sh status|users|current|mode|sound [app|hardware]|start [user] [free]|stop" >&2; exit 2 ;;
 esac

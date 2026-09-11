@@ -57,12 +57,15 @@ export class PhraseBank {
    * @param {import('./engine.js').AdaptiveEngine} [opts.harmonic] harmonic engine (chords)
    * @param {string} [opts.kind]        'mono' (default) | 'duo' | 'chorale' | 'poly'
    * @param {number} opts.maxNotes
-   * @param {number} opts.beatSec        seconds per felt beat
-   * @param {number} opts.minNoteSec     fastest note allowed at this tempo
    * @param {Set<string>} [opts.exclude] phrase ids to skip this session
    * @returns {{phrase, notes: number[][], octave: number}|null}
+   *
+   * Nothing here filters on tempo: a phrase's tempo is derived FROM the phrase
+   * once it is chosen (src/tempo.js), so no excerpt is out of reach for being
+   * too quick. The old speed filter hid 38% of the corpus at a fast session
+   * tempo, which is exactly backwards.
    */
-  pick(anchor, lo, hi, { engine, harmonic = null, kind = 'mono', maxNotes, beatSec, minNoteSec, exclude }) {
+  pick(anchor, lo, hi, { engine, harmonic = null, kind = 'mono', maxNotes, exclude }) {
     const now = Date.now();
     const memo = (eng) => {
       const m = new Map();
@@ -83,11 +86,11 @@ export class PhraseBank {
       for (const phrase of this.phrases) {
         if (phrase.kind !== kind) continue;
         if (phrase.notes.length > maxNotes) continue;
-        if (phrase.minDur * beatSec < minNoteSec) continue;
         if (phrase.melodic.length + phrase.harmonic.length === 0) continue;
         if (exclude && exclude.has(phrase.id)) continue;
         const st = this.stats[phrase.id];
         if (st && st.clean && now - st.last < REVIEW_FULL_MS) continue;
+        if (st && st.restUntil > now) continue;
         const shift = placement(phrase, anchor, lo, hi, octave);
         if (shift === null) continue;
         let max = 0;
@@ -153,7 +156,17 @@ export class PhraseBank {
 
   record(id, clean) {
     const prev = this.stats[id];
-    this.stats[id] = { last: Date.now(), clean, n: (prev?.n || 0) + 1, fails: (prev?.fails || 0) + (clean ? 0 : 1) };
+    this.stats[id] = { ...prev, last: Date.now(), clean, n: (prev?.n || 0) + 1, fails: (prev?.fails || 0) + (clean ? 0 : 1) };
+    this.store.save(this.stats);
+  }
+
+  /**
+   * Too hard just yet: keep the phrase out of pick() for `ms`. A failed phrase
+   * otherwise comes back SOONER (FAILED_BOOST); this is the opposite, for one
+   * the corrective loop gave up on.
+   */
+  rest(id, ms) {
+    this.stats[id] = { ...(this.stats[id] ?? {}), restUntil: Date.now() + ms };
     this.store.save(this.stats);
   }
 }

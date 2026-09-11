@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { Audio } from './audio.js';
 import { Db } from './db.js';
 import { Midi } from './midi.js';
+import { MidiOut, hardwareSound } from './midiout.js';
 import { RangeTracker } from './range.js';
 import { AdaptiveEngine } from './engine.js';
 import { Drill } from './drill.js';
@@ -35,7 +36,10 @@ if (args.bpm && !(bpmOverride > 0)) {
 }
 
 const db = new Db(args.db);
-const audio = new Audio();
+const backfilled = db.backfillPassages();
+if (backfilled) log(`passages: rung summaries built for ${backfilled} earlier passages`);
+const hardware = hardwareSound();
+const audio = new Audio({ hardware });
 const range = new RangeTracker(db.kv('ranges'));
 const phrases = new PhraseBank({ store: db.kv('phraseStats'), composer: args.composer });
 const poly = new PhraseBank({ store: db.kv('polyStats'), composer: args.composer, path: POLY_PATH });
@@ -70,6 +74,17 @@ const midi = new Midi({
 });
 midi.debug = args['debug-midi'];
 
+const out = hardware
+  ? new MidiOut({
+      match: args.port,
+      onPort: (name, connected) => log(connected ? `MIDI out: ${name} (the call plays on your keyboard)` : `MIDI out disconnected: ${name}`),
+    })
+  : null;
+if (out) {
+  audio.attach(out);
+  out.start();
+}
+
 log(`piano-by-ear  ${phrases.size} melodic + ${poly.size} polyphonic passages  db: ${args.db}`);
 audio.load().then(({ detail }) => log(`voice: ${detail}`), (err) => log(`voice: synth (samples failed to load: ${err.message})`));
 midi.start();
@@ -82,6 +97,7 @@ function shutdown() {
   closing = true;
   drill.stop({ silent: true });
   midi.stop();
+  out?.stop();
   audio.close().catch(() => {}).finally(() => {
     db.close();
     process.exit(0);

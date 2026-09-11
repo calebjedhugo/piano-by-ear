@@ -8,6 +8,7 @@
 import { parseArgs } from 'node:util';
 import { Audio } from './audio.js';
 import { Midi } from './midi.js';
+import { hardwareSound } from './midiout.js';
 
 const { values: args } = parseArgs({
   options: {
@@ -17,7 +18,9 @@ const { values: args } = parseArgs({
 });
 
 const log = (msg) => console.log(`[${new Date().toLocaleTimeString()}] ${msg}`);
-const audio = new Audio();
+// On its own sound the instrument is the whole of free play: it voices its own
+// keys and its own pedal, and this process only keeps the port open.
+const audio = new Audio({ hardware: hardwareSound() });
 
 // Sustain pedal (CC 64): while it is down, a released key keeps ringing; when
 // it comes up, everything released meanwhile is damped unless the key is

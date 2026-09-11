@@ -2,8 +2,9 @@
 // history; there are no settings.
 //
 //   IDLE      no metronome. The first note played (velocity >= 20) becomes
-//             the anchor and starts a session. Tempo for the session is
-//             chosen from your in-time history (see chooseTempo).
+//             the anchor and starts a session. TEMPO IS PER QUESTION and
+//             belongs to the excerpt, never to how well you played (see
+//             src/tempo.js); history only sets a floor under the fastest note.
 //   QUESTION  metronome throughout. A question is a CALL (notes the app
 //             plays) and your RESPONSE: the same notes, same rhythm. THE
 //             RESPONSE STARTS WHEN YOU START PLAYING. You may follow the
@@ -20,9 +21,12 @@
 //                          is the anchor, in its own meter with its pickup.
 //                          'mono' is one voice; 'duo' soprano and bass;
 //                          'chorale' all four voices; 'poly' both hands.
-//             WHICH KIND: a discrimination run or a remediation (an interval
-//             you missed inside a passage) always comes first; a passage you
-//             failed earlier is retried a couple of questions later;
+//             WHICH KIND: a passage you just failed comes STRAIGHT BACK (the
+//             call is the correction: you hear that you missed and what it
+//             really sounds like), up to three tries while the rungs beneath
+//             exact pitch keep improving; nailing it is the reward, stalling
+//             rests it (retryVerdict). Then a discrimination run or a
+//             remediation (an interval you missed inside a passage);
 //             otherwise three clean questions in a row (correct AND in time)
 //             earn a passage, and clean passages keep them coming, with an
 //             interval question after every three passages. POLYPHONY LEVEL
@@ -49,6 +53,9 @@
 // tone when the session ends.
 
 import { TIER_WIDTHS, WARMUP_QUESTIONS } from './engine.js';
+import { floorFromHistory, passageTempo, toleranceMsFor } from './tempo.js';
+import { summarizeRungs, describeRungs, rungScore } from './rungs.js';
+import { TonalField, keyName } from './tonalfield.js';
 
 const TIMEOUT_MS = 10000;
 const MIN_VELOCITY = 20; // key brushes are echoed but never graded
@@ -60,7 +67,10 @@ const CALL_GAP_MIN_S = 0.03;
 const CALL_GAP_FRAC = 0.12;
 const STREAK_FOR_PASSAGE = 3;
 const CLEAN_NOTES_FOR_PASSAGE = 6; // clean graded notes (any kind) also earn a passage
-const RETRY_AFTER_QUESTIONS = 2;
+// The corrective loop (see retryVerdict): a failed passage comes straight back,
+// this many attempts in all, and rests this long once it proves too hard.
+const RETRY_MAX_TRIES = 3;
+const TOO_HARD_REST_MS = 2 * 24 * 60 * 60 * 1000;
 const REMEDIATE_MAX_PER_PASSAGE = 2;
 const MAX_PASSAGES_IN_A_ROW = 3; // interval questions are what move the tier ladder
 const DEBOUNCE_S = 0.06;
@@ -73,7 +83,6 @@ const DUR_SHORT_FRAC = 0.5;
 const DUR_LONG_FRAC = 1.5;
 const DUR_LONG_PAD_S = 0.15;
 const FLUENT_NORM_MS = 120; // mastery: onset error <= 12% of a beat (ms at 60 bpm)
-const MIN_NOTE_SEC = 0.15; // fastest passage note allowed at the session tempo
 const CALL_MAX_S = 2; // the longest a call note sounds; a hold is never graded against more
 // Passage length follows passage results, not the tier ladder: grow a note
 // after LEN.grow clean passages in a row, shrink after LEN.shrink failures in
@@ -84,7 +93,20 @@ const LEN = {
   grow: 2,
   shrink: 3,
 };
-export const TEMPO = { default: 80, min: 50, max: 132, step: 4, window: 40, minRows: 20, minCorrect: 10, up: 0.8, down: 0.5 };
+// How many recent graded passage notes the tempo ceiling looks at (src/tempo.js).
+const FLOOR_WINDOW = 400;
+// The pulse the anchor rings on before the first question sets its own tempo.
+const LEAD_IN_BPM = 72;
+// Interval-question tempo: a calm centre that eases a little as the key firms
+// up (a settled tonal area can breathe) and drags when it dissolves. Kept
+// narrow -- interval questions are about hearing, not speed.
+const INTERVAL_TEMPO = { base: 72, span: 12 };
+// A gesture -- two or three notes in a row instead of a bare target -- happens
+// this often among plain interval questions, but only once a key has emerged
+// to make the extra notes mean something. Caleb: "play two or three notes in
+// a row once in a while... make the whole thing a musical experience."
+const GESTURE_RATE = 0.34;
+const GESTURE_MIN_STRENGTH = 0.4;
 // Polyphony levels and how they are earned (see polyLevel()).
 export const POLY_KINDS = ['mono', 'duo', 'chorale', 'poly'];
 const POLY = {
@@ -121,12 +143,12 @@ export class Drill {
     this.poly = poly;
     this.log = log;
     this.bpmOverride = bpmOverride;
-    this.baseBpmStore = db.kv('baseBpm');
     this.polyStore = db.kv('poly');
     this.lenStore = db.kv('passageLen');
     this.len = this.lenStore.load() || {};
     this.state = 'IDLE';
     this.clockOffset = performance.now() / 1000 - audio.now;
+    this.field = new TonalField(); // replaced per session; here so it always exists
   }
 
   // --- clocks --------------------------------------------------------------
@@ -167,20 +189,32 @@ export class Drill {
 
   // --- tempo ---------------------------------------------------------------
 
-  /** One tempo per session, from the in-time rate of recent correct first attempts. */
-  chooseTempo() {
+  /**
+   * The shortest note worth asking for, in seconds: one number per session,
+   * from whether recent fast notes were actually played cleanly. It can only
+   * ever slow a question down (see src/tempo.js); tempo itself belongs to the
+   * excerpt and is set in beginQuestion().
+   */
+  sessionFloor() {
+    const rows = [];
+    for (const r of this.db.recentPassageNotes(FLOOR_WINDOW)) {
+      const phrase = this.phrases.byId.get(r.phrase_id) ?? this.poly?.byId.get(r.phrase_id);
+      if (!phrase) continue; // a phrase the corpus no longer has
+      rows.push({ fastestSec: (phrase.minDur * r.beat_ms) / 1000, clean: Boolean(r.correct && r.in_time) });
+    }
+    return floorFromHistory(rows);
+  }
+
+  /** The tempo for a question: what its music wants, never what you earned. */
+  questionTempo(q) {
     if (this.bpmOverride) return this.bpmOverride;
-    const clamp = (b) => Math.max(TEMPO.min, Math.min(TEMPO.max, Math.round(b)));
-    const prev = clamp(this.baseBpmStore.load()?.bpm ?? TEMPO.default);
-    const rows = this.db.recentGraded(TEMPO.window);
-    if (rows.length < TEMPO.minRows) return prev;
-    const correct = rows.filter((r) => r.correct);
-    if (correct.length < TEMPO.minCorrect) return prev;
-    const inTime = correct.filter((r) => r.in_time).length / correct.length;
-    let bpm = prev;
-    if (inTime >= TEMPO.up) bpm += TEMPO.step;
-    else if (inTime < TEMPO.down) bpm -= TEMPO.step;
-    return clamp(bpm);
+    if (q.phrase) return passageTempo(q.phrase, this.floorSec);
+    // Interval and gesture questions breathe with the tonal centre: a firm key
+    // eases forward, a dissolving one hangs back. Still calm and still about
+    // hearing, not speed -- INTERVAL_TEMPO.base (72) is the centre and this
+    // only leans a few bpm either way with the key's strength.
+    const s = this.field.key().strength;
+    return Math.round(INTERVAL_TEMPO.base + INTERVAL_TEMPO.span * (s - 0.5));
   }
 
   // --- polyphony level -----------------------------------------------------
@@ -234,10 +268,12 @@ export class Drill {
     this.harmonic.startSession();
     this.polyState = this.polyLevel();
     this.polyStore.save(this.polyState);
-    this.bpm = this.chooseTempo();
-    if (!this.bpmOverride) this.baseBpmStore.save({ bpm: this.bpm });
+    this.floorSec = this.sessionFloor();
+    // The lead-in only carries the anchor to the first downbeat; every
+    // question sets its own tempo in beginQuestion().
+    this.bpm = this.bpmOverride ?? LEAD_IN_BPM;
     this.beat = 60 / this.bpm;
-    this.toleranceMs = Math.max(45, Math.min(110, 7500 / this.bpm));
+    this.toleranceMs = toleranceMsFor(this.bpm);
     this.sessionId = this.db.newSession({ bpm: this.bpm, anchor });
     this.questions = 0;
     this.plainQuestions = 0;
@@ -246,7 +282,11 @@ export class Drill {
     this.cleanNotes = 0;
     this.remediationQueue = [];
     this.harmonicRemediationQueue = [];
-    this.retryQueue = [];
+    this.retry = null; // the passage in the corrective loop: { id, kind, tries, score }
+    // A fresh tonal centre each session (src/tonalfield.js): fed every note the
+    // player hears, read back to colour interval questions. It holds no key of
+    // its own; the centre is whatever the recent notes imply.
+    this.field = new TonalField();
     this.askedThisSession = new Set();
     this.passagesInARow = 0;
     this.anchor = anchor;
@@ -256,7 +296,7 @@ export class Drill {
     this.syncClock(1);
     this.state = 'QUESTION';
     const level = this.polyState.level;
-    this.log(`session started: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, ${this.bpm} bpm (±${this.toleranceMs.toFixed(0)}ms), tiers ${this.engine.state.tiersUnlocked}${level > 0 ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, polyphony level ${level} (${LEVEL_NAMES[level]})`);
+    this.log(`session started: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms), tiers ${this.engine.state.tiersUnlocked}${level > 0 ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, polyphony level ${level} (${LEVEL_NAMES[level]})`);
 
     // The anchor rings for a beat, then the grid starts on an accented downbeat.
     this.nextBarAt = this.audio.now + this.beat;
@@ -298,6 +338,46 @@ export class Drill {
       notes: [{ midi: this.anchor, b: -1, dur: 1, voice: 0, free: true, silent: true }, { midi: target, b: 0, dur: 1, voice: 0 }],
       meter: 4,
       label: `${kind === 'interval' ? '' : `${kind}: `}${name(this.anchor)} -> ? (${signed(target - this.anchor)})`,
+    };
+  }
+
+  /**
+   * A GESTURE: the drilled anchor->target interval wrapped in a two- or
+   * three-note musical figure in the emergent key, so an interval question is
+   * sometimes a small phrase to play rather than a bare probe. The anchor
+   * sounds (it is the figure's first note, free), the target is the graded
+   * leap, and a diatonic step off the target -- toward the centre of the range
+   * -- continues the line. When the target is chromatic in the current key,
+   * that borrowed colour is exactly the point. Evidence goes to the engines at
+   * passage scope, so gestures never move the interval tier ladder; the clean
+   * isolated interval probes still own that.
+   */
+  gestureQuestion(target) {
+    const k = this.field.key();
+    const scale = k.mode === 'minor' ? [0, 2, 3, 5, 7, 8, 10] : [0, 2, 4, 5, 7, 9, 11];
+    const inKey = (m) => scale.includes((((m - k.tonic) % 12) + 12) % 12);
+    // A diatonic step off the target: the nearest scale tone 1-2 semitones
+    // away, chosen toward the middle of the range so the line does not wander
+    // to an edge. Falls back to a whole tone if the key gives nothing close.
+    const mid = (this.lo + this.hi) / 2;
+    const dir = target > mid ? -1 : 1;
+    let step = null;
+    for (const d of [dir, -dir]) {
+      for (const semis of [1, 2]) {
+        const cand = target + d * semis;
+        if (cand >= this.lo && cand <= this.hi && inKey(cand)) { step = cand; break; }
+      }
+      if (step !== null) break;
+    }
+    const notes = [{ midi: this.anchor, b: 0, dur: 1, voice: 0, free: true }, { midi: target, b: 1, dur: 1, voice: 0 }];
+    if (step !== null) notes.push({ midi: step, b: 2, dur: 2, voice: 0 });
+    const tail = step === null ? '' : ` ${signed(step - target)}`;
+    return {
+      kind: 'gesture',
+      gesture: true,
+      notes,
+      meter: 4,
+      label: `gesture: ${name(this.anchor)} -> ${name(target)} (${signed(target - this.anchor)})${tail}${k.strength > 0 ? ` in ${keyName(k)}${this.field.diatonic(target, k) ? '' : ', borrowed'}` : ''}`,
     };
   }
 
@@ -381,8 +461,6 @@ export class Drill {
         harmonic: kind === 'mono' ? null : this.harmonic,
         kind,
         maxNotes: this.passageLength(kind),
-        beatSec: this.beat,
-        minNoteSec: MIN_NOTE_SEC,
         exclude: this.askedThisSession,
       });
       if (picked) return picked;
@@ -395,6 +473,16 @@ export class Drill {
     const level = this.polyState.level;
     const prev = this.prevAnchor === null ? null : this.idx(this.prevAnchor);
     const a = this.idx(this.anchor);
+    if (this.retry) {
+      // Straight back, before anything else: the correction has to be adjacent
+      // to the miss to be one. The phrase is re-placed on whatever note you
+      // actually ended on, so it may come back in another key.
+      const bank = this.retry.kind === 'mono' ? this.phrases : this.poly;
+      const picked = bank ? bank.pickById(this.retry.id, this.anchor, this.lo, this.hi) : null;
+      if (picked) return this.passageQuestion('retry', picked);
+      this.log(`  (retry dropped: the phrase does not fit from ${name(this.anchor)})`);
+      this.retry = null;
+    }
     if (engine.discriminationQueue.length > 0) {
       const target = engine.nextTargetIndex(a, prev) + this.lo;
       return this.intervalQuestion(engine.servedQueue ? 'discrimination' : 'interval', target);
@@ -420,13 +508,6 @@ export class Drill {
       }
     }
     if (this.phrases) {
-      const retry = this.retryQueue[0];
-      if (retry && this.questions - retry.askedAt >= RETRY_AFTER_QUESTIONS) {
-        this.retryQueue.shift();
-        const bank = retry.kind === 'mono' ? this.phrases : this.poly;
-        const picked = bank ? bank.pickById(retry.id, this.anchor, this.lo, this.hi) : null;
-        if (picked) return this.passageQuestion('retry', picked);
-      }
       if ((this.streak >= STREAK_FOR_PASSAGE || this.cleanNotes >= CLEAN_NOTES_FOR_PASSAGE) && this.passagesInARow < MAX_PASSAGES_IN_A_ROW) {
         const picked = this.pickPassage();
         if (picked) return this.passageQuestion('passage', picked);
@@ -438,6 +519,12 @@ export class Drill {
       return this.dyadQuestion('dyad', target);
     }
     const target = engine.nextTargetIndex(a, prev) + this.lo;
+    // Once a key has emerged, a plain interval question is sometimes a gesture
+    // instead -- the same drilled interval, made musical. Never during the
+    // measurement-critical kinds above (they returned already).
+    if (this.field.key().strength >= GESTURE_MIN_STRENGTH && Math.random() < GESTURE_RATE) {
+      return this.gestureQuestion(target);
+    }
     return this.intervalQuestion('interval', target);
   }
 
@@ -450,6 +537,16 @@ export class Drill {
     this.engine.beginQuestion();
     this.harmonic.beginQuestion();
     this.meter = q.meter;
+    // TEMPO IS PER QUESTION, like the meter beside it: this excerpt's own,
+    // decided before anything is scheduled against it. The grid restarts here
+    // anyway (nextBarAt is beat 0 of this question), so the new beat governs
+    // from the downbeat on; scheduledUntil follows it, and nothing further
+    // ahead than this has been scheduled -- the click at nextBarAt is still
+    // one tick away when the handover happens.
+    this.bpm = this.questionTempo(q);
+    this.beat = 60 / this.bpm;
+    this.toleranceMs = toleranceMsFor(this.bpm);
+    this.scheduledUntil = this.nextBarAt;
     const t0 = this.nextBarAt;
     // Voices in unison at the same onset are one key: keep one note (the
     // free anchor if it is among them).
@@ -470,6 +567,9 @@ export class Drill {
       }
       return [n.midi, at, Math.max(0.05, dur)];
     });
+    // Feed the tonal centre what the player hears. Each sounded call note goes
+    // in; targets become the next anchor, so the centre tracks the whole walk.
+    for (const [midi] of this.callNotes) this.field.observe(midi);
     this.callScheduled = 0;
     const lastCall = this.callNotes[this.callNotes.length - 1];
     this.callEndAt = lastCall[1] + Math.max(lastCall[2], this.beat);
@@ -484,7 +584,12 @@ export class Drill {
     this.held = new Map(); // midi -> { rowId, onAt, durSec } for notes awaiting release
     this.awaitingFinalize = false;
     if (q.phrase) this.askedThisSession.add(q.phrase.id);
-    this.log(`Q${this.questions}: ${q.label}`);
+    // Show the emergent centre on a bare interval question (a gesture's label
+    // already carries it) once there is one, so the key forming across the
+    // walk is visible in the log.
+    const kk = this.field.key();
+    const ctx = q.kind === 'interval' && kk.strength >= GESTURE_MIN_STRENGTH ? `  [${keyName(kk)}]` : '';
+    this.log(`Q${this.questions}: ${q.label} @ ${this.bpm} bpm (±${this.toleranceMs.toFixed(0)}ms)${ctx}`);
   }
 
   /**
@@ -739,7 +844,10 @@ export class Drill {
     const onsetMs = atAudio === null ? null : (atAudio - g.at) * 1000;
     const tol = Math.min(this.toleranceMs, 0.4 * g.gapMs);
     const inTime = correct && onsetMs !== null && Math.abs(onsetMs) <= tol;
-    const passage = Boolean(this.q.phrase);
+    // A gesture is scored like a passage for engine evidence: its intervals are
+    // heard in context, so they inform the engine at passage scope but never
+    // move the interval tier ladder, which only clean isolated probes own.
+    const passage = Boolean(this.q.phrase) || Boolean(this.q.gesture);
     const rtNorm = inTime ? Math.min(Math.abs(onsetMs), this.beat * 1000) / this.beat : null;
     const from = exp.melodicFrom ?? exp.harmonicFrom ?? this.anchor;
     if (exp.graded) {
@@ -858,10 +966,51 @@ export class Drill {
       bank.record(q.phrase.id, this.questionClean);
       this.recordPolyOutcome(q.phrase.kind, this.questionClean);
       if (q.kind !== 'retry') this.updatePassageLength(q.phrase.kind, this.questionClean);
-      if (!this.questionClean && q.kind !== 'retry') this.retryQueue.push({ id: q.phrase.id, kind: q.phrase.kind, askedAt: this.questions });
-      this.log(`  passage ${this.questionClean ? 'clean' : 'done with errors'} (streak ${this.streak})`);
+      // The rungs beneath exact pitch, kept per passage so an encounter can be
+      // compared with the last one (src/rungs.js). `played` is only ever set on
+      // a note that was struck; a note the player never reached stays null.
+      const rungs = summarizeRungs(
+        this.groups.flatMap((g) => g.notes.map((e) => ({ expected: e.midi, played: e.played ?? null, free: e.free || e.silent, b: g.b, voice: e.voice }))),
+      );
+      this.db.passage({
+        sessionId: this.sessionId, question: this.questions, phraseId: q.phrase.id, kind: q.phrase.kind, qkind: q.kind,
+        bpm: this.bpm, clean: this.questionClean, ...rungs,
+      });
+      const verdict = this.retryVerdict(q, rungs, bank);
+      const tail = this.questionClean ? (verdict ? ` -- ${verdict}` : '') : ` -- ${describeRungs(rungs)}; ${verdict}`;
+      this.log(`  passage ${this.questionClean ? 'clean' : 'done with errors'} (streak ${this.streak})${tail}`);
     }
     this.nextQ = this.makeQuestion();
+  }
+
+  /**
+   * THE CORRECTIVE LOOP. A failed passage comes straight back: hearing the
+   * call again right after missing it says both that you missed and what it
+   * actually sounds like, and the retry is the chance to use that. It keeps
+   * coming back while the rungs say you are getting closer (rungScore), up to
+   * RETRY_MAX_TRIES attempts in all; nailing it is the reward -- you move on.
+   * No closer, or out of tries, means it is too hard just yet: the phrase
+   * rests (PhraseBank.rest) instead of being hammered. Returns the log verdict.
+   */
+  retryVerdict(q, rungs, bank) {
+    const score = rungScore(rungs);
+    const loop = q.kind === 'retry' ? this.retry ?? { tries: 1, score: -1 } : null;
+    if (this.questionClean) {
+      this.retry = null;
+      return loop ? `nailed on try ${loop.tries + 1}` : '';
+    }
+    if (!loop) {
+      this.retry = { id: q.phrase.id, kind: q.phrase.kind, tries: 1, score };
+      return 'again';
+    }
+    const tries = loop.tries + 1;
+    if (tries < RETRY_MAX_TRIES && score > loop.score + 1e-9) {
+      this.retry = { ...loop, tries, score };
+      return `try ${tries}, closer, again`;
+    }
+    this.retry = null;
+    bank.rest(q.phrase.id, TOO_HARD_REST_MS);
+    return tries >= RETRY_MAX_TRIES ? `try ${tries} of ${RETRY_MAX_TRIES}, resting it` : `try ${tries}, no closer, resting it`;
   }
 }
 

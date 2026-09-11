@@ -1,7 +1,9 @@
 -- Piano by Ear launcher. Click when stopped: offer to disable lid sleep
 -- (admin dialog; Cancel leaves it alone), then start the drill as the current
--- user. Click when running: Free play or Drill (switch mode), Switch user,
--- Restart, End drill. Only launch and End drill touch the sleep setting.
+-- user. Click when running: Free play or Drill (switch mode), the sound
+-- toggle (app pianos <-> the keyboard's own sound engine, which restarts in
+-- place), Switch user, Restart, End drill. Only launch and End drill touch
+-- the sleep setting.
 -- It always boots into the drill; free play is only reached from the menu.
 -- @@PBE@@ is replaced with the path to launcher/pbe.sh by build.sh.
 property pbe : "@@PBE@@"
@@ -22,6 +24,23 @@ end currentUser
 on currentMode()
 	return sh(quoted form of pbe & " mode")
 end currentMode
+
+on currentSound()
+	return sh(quoted form of pbe & " sound")
+end currentSound
+
+-- Hand the sound to the instrument, or take it back. Read at startup, so the
+-- running process is restarted in place to pick it up.
+on toggleSound(user, mode)
+	if currentSound() is "hardware" then
+		sh(quoted form of pbe & " sound app")
+		display notification "The app's pianos again." with title "Piano by Ear"
+	else
+		sh(quoted form of pbe & " sound hardware")
+		display notification "Your keyboard's own sound. Only the clicks come from the app." with title "Piano by Ear"
+	end if
+	startAs(user, mode)
+end toggleSound
 
 on startDrill(user)
 	startAs(user, "drill")
@@ -96,12 +115,19 @@ on run
 	else
 		set user to currentUser()
 		set mode to currentMode()
-		if mode is "free" then
-			set menuItems to {"Drill", "Switch user", "Restart", "End drill"}
-			set what to "Free play, as " & user & "."
+		if currentSound() is "hardware" then
+			set soundItem to "Use the app's pianos"
+			set soundNow to "Keyboard's own sound."
 		else
-			set menuItems to {"Free play", "Switch user", "Restart", "End drill"}
-			set what to "Drill running as " & user & "."
+			set soundItem to "Use the keyboard's own sound"
+			set soundNow to "App pianos."
+		end if
+		if mode is "free" then
+			set menuItems to {"Drill", soundItem, "Switch user", "Restart", "End drill"}
+			set what to "Free play, as " & user & ". " & soundNow
+		else
+			set menuItems to {"Free play", soundItem, "Switch user", "Restart", "End drill"}
+			set what to "Drill running as " & user & ". " & soundNow
 		end if
 		set act to choose from list menuItems with title "Piano by Ear" with prompt what OK button name "OK" cancel button name "Cancel"
 		if act is false then return
@@ -110,6 +136,8 @@ on run
 			startAs(user, "free")
 		else if act is "Drill" then
 			startAs(user, "drill")
+		else if act is soundItem then
+			toggleSound(user, mode)
 		else if act is "Switch user" then
 			switchUser()
 		else if act is "Restart" then

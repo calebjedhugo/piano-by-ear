@@ -31,8 +31,20 @@ export function midiToHz(note) {
 }
 
 export class Audio {
-  constructor({ ctx } = {}) {
+  /**
+   * @param {object} [opts]
+   * @param {AudioContext} [opts.ctx]
+   * @param {boolean} [opts.hardware] the instrument makes its own sound: the
+   *   two pianos below give way to it (src/midiout.js), their samples are
+   *   never loaded, and the clicks and chimes go out to it as well, so a
+   *   player wearing headphones on the piano hears the whole drill. Every one
+   *   of those falls back to the voice below if the output port is missing,
+   *   so a pulled cable leaves the drill audible rather than mute.
+   */
+  constructor({ ctx, hardware = false } = {}) {
     this.ctx = ctx ?? new AudioContext();
+    this.hardware = hardware;
+    this.out = null; // the MidiOut, once one is attached
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.8;
     this.master.connect(this.ctx.destination);
@@ -57,7 +69,13 @@ export class Audio {
    * description of the voice in use either way; the synth keeps working
    * meanwhile, so this can run while the MIDI port is already open.
    */
+  /** Send the call to the instrument instead of the upright. */
+  attach(out) {
+    this.out = out;
+  }
+
   async load({ lo = 21, hi = 108 } = {}) {
+    if (this.hardware) return { voice: 'hardware', detail: "your keyboard's own sound (call on its own channel, clicks on its woodblock)" };
     const parts = [];
     if (SampledPiano.available('grand')) {
       const grand = new SampledPiano(this.ctx, this.master, 'grand', { pan: STUDENT_PAN });
@@ -89,6 +107,7 @@ export class Audio {
   note(midi, { at = this.now, velocity = 100, duration = 1.2 } = {}) {
     const start = Math.max(at, this.now);
     const dur = Math.max(0.15, Math.min(2.0, duration));
+    if (this.out?.ready && this.out.play(midi, velocity, (start - this.now) * 1000, dur)) return;
     if (this.teacher && this.teacher.play(midi, velocity, start, dur)) return;
     const hz = midiToHz(midi);
     const amp = 0.16 * (velocity / 127) ** 1.5;
@@ -122,6 +141,10 @@ export class Audio {
    * up. Retriggering the same pitch restrikes it.
    */
   startVoice(midi, velocity = 100) {
+    // Gated on the setting, not on the output port: a key press can only have
+    // come from the instrument the player is sitting at, and that instrument
+    // sounded it locally before the event ever reached us.
+    if (this.hardware) return;
     if (this.sampled && this.sampled.startVoice(midi, velocity)) return;
     this.stopVoice(midi, 0.01);
     const before = this.piano.activeOscillators;
@@ -133,6 +156,7 @@ export class Audio {
 
   /** Damper: release a held key's note with a fast fade. */
   stopVoice(midi, release = 0.08) {
+    if (this.hardware) return; // its own damper, not ours
     if (this.sampled && this.sampled.stopVoice(midi)) return;
     const v = this.voices.get(midi);
     if (!v) return;
@@ -175,11 +199,21 @@ export class Audio {
 
   /** Metronome. `accent` = bar downbeat. */
   click(at, { accent = false } = {}) {
+    if (this.out?.ready && this.out.click((Math.max(at, this.now) - this.now) * 1000, accent)) return;
     this.tone(accent ? 1600 : 1000, at, 0.03, accent ? 0.18 : 0.1, 'square');
   }
 
-  /** MIDI controller connected and listening. */
+  /**
+   * MIDI controller connected and listening. On the instrument's own sound the
+   * same two pitches are played rather than sounded here, so a player wearing
+   * headphones on the piano still hears it.
+   */
   ready(at = this.now) {
+    if (this.out?.ready) {
+      this.note(84, { at, velocity: 70, duration: 0.15 }); // C6
+      this.note(91, { at: at + 0.15, velocity: 70, duration: 0.3 }); // G6
+      return;
+    }
     this.tone(1047, at, 0.15, 0.06);
     this.tone(1568, at + 0.15, 0.2, 0.06);
   }
