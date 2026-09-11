@@ -307,6 +307,16 @@ opens every input port.
   then 7, then 21 by clean run -- and pick() skips undue phrases and boosts
   due ones (DUE_BOOST) and failed ones (FAILED_BOOST). `rest()` = the
   corrective loop gave up (TOO_HARD_REST_MS).
+  **ONLY A FIRST ASKING (`qkind = 'passage'`) CALLS `record`.** A RETRY DRIVES
+  THE CORRECTIVE LOOP AND NOTHING ELSE (`retryVerdict`, and `rest()` when it
+  gives up): not the schedule, not `recordPolyOutcome`, not
+  `updatePassageLength`, not the variant queue. It is the phrase you heard
+  seconds ago handed straight back, so getting it right is not evidence you
+  learned anything -- and until 2026-09-11 it was counted as exactly that
+  (a clean retry overwrote "due tomorrow" with "due in three days" and filled
+  a promotion slot; 158 of them in the preceding week). The retention test is
+  tomorrow's first attempt, as it always was. Drill a phrase as often as you
+  like -- double-drilling costs nothing now that none of it counts.
 - `scripts/build-hymns.mjs` singHarmony2's hymn soprano lines
   (`../singHarmony2/public/songs/*.json`) -> corpus/hymns.json, same schema,
   collection 'hymns' (familiar tunes for the family: Berkowska & Dalla

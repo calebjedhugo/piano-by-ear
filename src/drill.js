@@ -1525,14 +1525,29 @@ export class Drill {
         // Practice, not a test: nothing moves but the engines' passage cells.
         this.log(`  variant ${this.pitchClean ? 'clean' : 'with errors'}${this.pitchClean ? '' : ` -- ${describeRungs(rungs)}`}${timing}`);
       } else {
-        bank.record(q.phrase.id, this.pitchClean);
-        this.recordPolyOutcome(q.phrase.kind, this.pitchClean);
-        if (q.kind === 'passage') this.updatePassageLength(q.phrase.kind, this.pitchClean);
+        // A RETRY DRIVES THE CORRECTIVE LOOP AND NOTHING ELSE. It is the
+        // phrase you just heard, handed back to you seconds later, so getting
+        // it right is not evidence that you learned anything -- and it used
+        // to be counted as exactly that: a clean retry overwrote the failure's
+        // "due tomorrow" with "due in three days" and filled a slot in the
+        // promotion window (158 clean retries in the week to 2026-09-11).
+        // The retention test is, and always was, tomorrow's first attempt.
+        // So: only a first asking moves the spaced-repetition schedule, the
+        // promotion window, the length controller and the variant queue.
+        // Drill a phrase as often as you like; none of it counts as learning.
+        const first = q.kind === 'passage';
+        if (first) {
+          bank.record(q.phrase.id, this.pitchClean);
+          this.recordPolyOutcome(q.phrase.kind, this.pitchClean);
+          this.updatePassageLength(q.phrase.kind, this.pitchClean);
+        }
         const verdict = this.retryVerdict(q, rungs, bank);
         const tail = this.pitchClean ? (verdict ? ` -- ${verdict}` : '') : ` -- ${describeRungs(rungs)}; ${verdict}`;
         this.log(`  passage ${this.pitchClean ? 'clean' : 'done with errors'} (streak ${this.streak})${tail}${timing}`);
-        if (this.pitchClean) {
-          // Nailed: it comes back in the next block, varied (key, a step, or the mode).
+        if (first && this.pitchClean) {
+          // Nailed COLD: it comes back in the next block, varied (key, a step,
+          // or the mode). Nailed on a retry is not nailed; that phrase is due
+          // again tomorrow, which its failed first asking already arranged.
           this.variantQueue.push({ id: q.phrase.id, kind: q.phrase.kind, placed: q.placed, key: q.placed.key ?? null, block: this.blockN });
         }
       }

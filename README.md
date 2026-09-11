@@ -76,7 +76,10 @@ Everything adapts:
   train a separate in-melody model, so a step you can sing inside a chorale
   never masquerades as a step you can name cold. A phrase you failed is due
   again the next day; one you played clean after three days, then a week,
-  then three.
+  then three. Only the **first** asking counts toward that — getting a phrase
+  right on the retry, seconds after hearing it again, is not evidence you
+  learned it, so it moves nothing. Which means the drill can hand you the
+  same phrase as often as it likes without flattering your record.
 - **Which kind of passage** follows your polyphony level, from single lines
   to four-part chords and two-hand passages.
 - **How long a passage** is follows your passages, not your intervals: it
