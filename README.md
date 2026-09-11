@@ -6,58 +6,78 @@ only ever touch the keys.
 
 1. Plug in a MIDI keyboard and run `npm start`. A two-note rising cue says it
    is listening.
-2. Play any note. That note is the **anchor** and the session begins at a
-   tempo chosen from your history (80 bpm the first time).
+2. Play any note. That note is the **anchor** and the session begins. The
+   drill answers with the **key**: do-mi-sol-do on your note, about two
+   seconds, then silence. Every eight questions the note you happen to be
+   on becomes the next tonic and the key changes.
 3. The metronome starts as a **constant pulse** and never moves. You hear the
    call: for an interval, just the target note (the anchor is the note you
    just played, so it is not repeated); for a passage, the whole phrase in
-   its own meter. Then you play it back as a **canon** — start on any click
-   at least one beat after the call, following one beat behind or waiting as
-   many clicks as you like. Your first note begins the response; the rest is
-   expected at the phrase's own rhythm relative to it. The anchor you
-   already know is always yours to echo or skip: for an interval, answer
-   with the target alone.
-4. Every note is graded on pitch, on its onset against the pulse (the
-   first note included: if the phrase starts an eighth off the beat, you
-   play it an eighth off the beat), and on how long you hold it. There is
-   no feedback while you play. It is a conversation: the reply is the next
-   question. An interval you missed comes back as a remediation drill; a
-   passage with errors comes back two questions later.
+   its own meter, transposed into the block's key. Then you play it back as
+   a **canon** — start on any click at least one beat after the call,
+   following one beat behind or waiting as many clicks as you like. Your
+   first note begins the response; the rest is expected at the phrase's own
+   rhythm relative to it. The anchor you already know is always yours to
+   echo or skip: for an interval, answer with the target alone.
+4. Every note is graded on pitch, on its onset against the pulse, and on how
+   long you hold it, but **pitch and time are separate verdicts**: a phrase
+   passes on its notes; the timing is reported beside it and never decides
+   what comes next. There is no feedback while you play. It is a
+   conversation: the reply is the next question.
 5. Three clean answers in a row earn a **real passage**: a Bach chorale
-   phrase or a bit of a Mozart sonata, played in its own meter starting on
-   your anchor. Play the whole thing back in time, following the call. The
-   reply is the next question, and it comes on the first click after one
-   beat of silence: no key down, nothing pressed or released. That holds
-   even if you stop before the end: the notes you left out are missed and
-   the next question comes anyway. No call ever contains a beat of silence
-   itself, so silence always means "I am done".
-6. Ten seconds of silence, once an answer was possible, ends the session.
-   Play a note to start another.
+   phrase, a bit of a Mozart sonata, or a hymn tune, in its own meter in the
+   current key. Miss it and there is a pause of a few beats first — play the
+   note you think you missed if you can — then the phrase comes straight
+   back, same key, same register, up to three tries while you are getting
+   closer. Nail it and it comes back a few questions later in the next key,
+   or the other mode, or a step away.
+6. Play the intervals back clean and on the pulse for a while and the caller
+   stops waiting: **the round**. The next call comes while you are still
+   answering the last, and the intervals, the tempo, or the lead get harder
+   two right answers at a time and easier one miss at a time, until the run
+   is over and a last easy call closes it. Then business as usual.
+7. Silence, once an answer was possible, ends the session (ten seconds; longer
+   for beginners). Play a note to start another; within half an hour it picks
+   up the same sitting.
 
 Everything adapts:
 
 - **Which interval** is asked comes from an adaptive engine (ported from
   [ear-training](https://github.com/calebjedhugo/ear-training)) that keeps
-  first-try success near 80%, unlocks intervals in aural-difficulty order,
-  runs discrimination drills on pairs you confuse, and counts an interval
-  mastered only when you hit it accurately **and** on the beat. A second
+  first-try success near 80%, unlocks the twelve simple intervals in
+  aural-difficulty order, sometimes asks a secure one an octave wider (the
+  octave is judged on its own), and counts an interval mastered only when
+  you hit it accurately **and** on the beat. A pair you keep confusing
+  (fourth and fifth, the two sixths) is played once for listening and then
+  slipped in among the ordinary questions until it separates. A second
   engine of the same kind tracks the intervals inside chords (see
   Polyphony below).
+- **What a note is graded on** depends on where you are. A beginner who
+  moves the right way but lands seven keys off is credited for the
+  direction, then for landing within two keys, then for the note itself,
+  each stage earned from the last twenty answers; below the top stage the
+  anchor is sounded before the target, the questions stay near the middle
+  of the keyboard, and every third question is an echo game: you make up
+  two or three notes, the drill plays them back, then asks for them.
 - **When you get a passage** is the clean streak above. An interval you miss
   inside a passage is drilled on its own right after. Notes inside passages
   train a separate in-melody model, so a step you can sing inside a chorale
-  never masquerades as a step you can name cold.
+  never masquerades as a step you can name cold. A phrase you failed is due
+  again the next day; one you played clean after three days, then a week,
+  then three.
 - **Which kind of passage** follows your polyphony level, from single lines
   to four-part chords and two-hand passages.
 - **How long a passage** is follows your passages, not your intervals: it
   starts at five notes, grows by one after two clean passages in a row,
   shrinks by one after three failures in a row, and never exceeds a ceiling
-  set by the unlocked tiers. Its fastest note is limited by the tempo. A
-  hold is never graded against more than the teacher actually sounded (two
-  seconds), so a long final note is not a trap.
-- **Tempo** is one value per session: if at least 80% of your recent correct
-  answers were in time it goes up 4 bpm, below 50% it goes down 4, between 50
-  and 132 (80 to start). Timing tolerance is an eighth of a beat.
+  set by the unlocked tiers.
+- **Tempo** belongs to the music, never to you: each excerpt sets its own
+  from its style and its fastest note, interval questions sit at a calm 72,
+  and nothing you play makes the next question faster (the round excepted,
+  and it resets).
+
+Progress is judged on **next-day first attempts**, not on how a session
+felt: `node scripts/progress.mjs` prints them per day.
 
 ## Install
 
@@ -114,14 +134,19 @@ inside the current range.
 chorales (soprano) and the Mozart piano sonatas (right hand, including the
 spurious K. 498a by Müller); see `corpus/README.md` for attribution
 (CC BY-NC-SA 4.0). Phrases are cut at fermatas, rests and bar lines, keep
-their meter and pickup, and accompaniment figures are filtered out.
+their meter and pickup, and accompaniment figures are filtered out. Another
+580 phrases are hymn tunes (`scripts/build-hymns.mjs`, from the
+singHarmony2 song files): familiar music is where playing by ear starts.
 
 ## Data
 
 `sessions` and `attempts` record every note you play during a question:
-pitch, velocity, onset error against the beat, first attempt or retry, the
-question kind and phrase, and whether it was graded and in time. The engine
-state, per-controller ranges and passage history live in the `kv` table.
+pitch, velocity, onset error against the beat, the question kind and
+phrase, whether it was graded and in time, and what the stage credited it
+as. `passages` keeps one row per passage with the rungs beneath exact pitch
+(direction, size, recovery) and separate pitch and timing verdicts;
+`judgments` records what you said you missed. The engine state,
+per-controller ranges and passage schedule live in the `kv` table.
 
 ## Polyphony
 
@@ -131,7 +156,7 @@ drill has four **levels**, earned from history and never set by hand:
 | level | what is asked | earned by |
 |---|---|---|
 | 0 | melody only | (start) |
-| 1 | **dyads** (anchor and one note together) and **duos** (soprano and bass of a chorale bar) | 12 melodic passages at least 70% clean, with melodic tiers unlocked through the sixth |
+| 1 | **dyads** (anchor as a fixed bass and one note above, together), small **chords** above it, and **duos** (soprano and bass of a chorale bar) | melodic tiers unlocked through the sixth and six intervals mastered |
 | 2 | **chorales**: all four voices of a Bach chorale bar as chords | 12 duos at least 70% clean, harmonic tiers through the fourth |
 | 3 | **both hands** of a Mozart sonata bar | 12 chorales at least 70% clean |
 

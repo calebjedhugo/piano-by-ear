@@ -51,67 +51,104 @@ opens every input port.
   stutter). `parseSfz` handles both sfz layouts (opcodes across lines,
   group/global inheritance, loops). Call notes are articulated in `beginQuestion`.
 - `src/drill.js`  state machine + teacher. Read its header comment first.
-  Question = `{kind, call, graded, durs, meter, gradeFrom}`. THE RESPONSE IS
-  A CANON: the click grid is a constant pulse (nextBarAt only advances by
-  whole bars, never moves to the player). The next question starts on the
-  first click >= one beat after the last key press/release with no key down
-  (tick(), QUIET_BEATS_BEFORE_NEXT); an UNFINISHED response ends the same
-  way once the pending group's time has passed (`abandonResponse`: the rest
-  is missed, never a stall); calls must never contain a beat of
-  silence (interval anchor rings until the target; phrases with a rest >= 1
-  beat are dropped in PhraseBank). `startResponse()` fires on the
-  player's first note, snaps it to a whole number of beats behind the call
-  (>=1), and sets `expected[k].at = callNotes[k].time + N*beat`, preserving
-  the phrase's exact sub-beat rhythm. The first note's onset is graded too,
-  so an off-beat phrase played on the beat is a timing defect.
-  TEMPO IS PER QUESTION and belongs to the excerpt (`src/tempo.js`), set in
-  `beginQuestion()` beside the meter; the grid restarts there anyway, so the
-  new beat governs from the downbeat and `scheduledUntil` is reset to it.
-  Kinds: interval | discrimination | remediation | passage | retry.
-  Selection order in `makeQuestion()`: discrimination queue, remediation
-  queue (intervals missed inside passages), retry queue (failed passages,
-  2 questions later), chime streak >= 3 and < 3 passages in a row ->
-  passage, else interval. Tempo: `chooseTempo()` once per session from
-  `attempts.in_time` (+/-4 bpm, 50..132). Tolerance = beat/8 clamped
-  45..110 ms and never more than 40% of the note's gap.
-  Scheduling is on the AudioContext clock via a 25 ms ticker 150 ms ahead;
-  the perf->audio offset is low-passed every tick (clocks drift ~1 ms/min).
-  Silence timeout counts from call end and never runs while `answered` (the
-  wait between questions is not silence).
-  `nextQ` is decided at answer time, never inside the tick.
-  PASSAGE LENGTH is a controller (kv `passageLen`, per kind: +1 after 2
-  clean first-askings in a row, -1 after 3 failures, bounded by LEN.min and
-  the tier ceiling), NOT the tier ladder; retries don't count. TEMPO IS NOT A
-  CONTROLLER and must never become one: nothing you play may make the next
-  question faster. Hold grading:
-  short vs the sounded length (capped CALL_MAX_S), long vs the written one.
+  THE RESPONSE IS A CANON: the click grid is a constant pulse (nextBarAt
+  only advances by whole bars, never moves to the player). The next question
+  starts on the first click >= one beat after the last key press/release
+  with no key down (tick(), QUIET_BEATS_BEFORE_NEXT); an UNFINISHED response
+  ends the same way once the pending group's time has passed
+  (`abandonResponse`); calls never contain a beat of silence. `startResponse()`
+  fires on the player's first note, snaps it to a whole number of beats
+  behind the call (>=1); on interval questions a wrong first note is a wrong
+  TARGET (anchor skipped), on passages the old pivot rule holds.
+  TEMPO IS PER QUESTION (`src/tempo.js`), set in `beginQuestion()`; interval
+  questions are a flat INTERVAL_BPM 72 (the round's tempo dimension is the
+  one exception and resets after). Tolerance = beat/8 clamped 45..110 ms
+  and never more than 40% of the note's gap.
+  KEY BLOCKS (`src/keyblock.js`): every BLOCK_QUESTIONS (8) the note the
+  player is on becomes a new tonic (mode rotates), a `prime` listen question
+  plays do-mi-sol-do', and the block holds: passages are transposed INTO
+  the key (`PhraseBank.pick({key})`, pivot no longer on the anchor),
+  gestures step diatonically in it, plain targets lean diatonic
+  (DIATONIC_LEAN). No cadence, no drone, no emergent key (tonalfield.js is
+  gone: it renamed the key almost every question).
+  KINDS: prime | listen | interval | gesture | discrimination | remediation |
+  dyad | chord | passage | retry | judge | variant | round | echo. Selection
+  order in `makeQuestion()`: round, judge window, retry (SAME placement as
+  the miss: `retry.placed`), block prime, pair listen, remediation queues
+  (folded to simple intervals), due variant, passage (streak >= 3 or 6
+  clean notes, < 3 in a row; top stage only), echo game (echo stage always,
+  contour every 3rd), dyad/chord slot, then a plain target (wide ask,
+  discrimination from the pair focus, gesture GESTURE_RATE, or interval).
+  PITCH AND TIME ARE SEPARATE: `pitchClean` drives streak, retry, length,
+  poly promotion, variants; `timeClean`/`timing` are logged beside it
+  ("timing 3/4 in time, 1 hold off") and stored (`passages.clean` = both,
+  `passages.pitch_clean` = pitch). JUDGE WINDOW: a failed passage at the
+  exact stage is followed by JUDGE_BEATS of silence in which one key press =
+  "the note I missed" (`judgments` table), then the retry. VARIANTS: a
+  nailed passage returns VARIANT_DELAY questions later in the block's new
+  key, else the other mode (`modeSwap`), else +-2/3 semitones; passage-scope
+  evidence only, never the length controller or the retry loop.
+  THE ROUND: ROUND.trigger clean, in-time plain answers started <= 2 beats
+  behind (passages neither count nor reset) open a run: kind `round`, the
+  next call at a fixed lead (`nextQuestionAt` set in beginQuestion, an
+  unfinished answer is abandoned when it comes), a 2-down/1-up staircase on
+  one dimension per run (interval = extra tiers, tempo = +6 bpm/level, lead
+  = 4/3/2 beats), ends after ROUND.calls or ROUND.misses with one
+  cool-down call at level 0, cues `round`/`roundOver`, evidence scope
+  'round' (cells only, never the tier ladder), cooldown before the next.
+  STAGE (`src/stage.js`): `this.stage.credit()` decides what an isolated
+  note counts as (direction / within 2 / exact); the engine and streak see
+  the credit, `attempts.correct` stays exact, `attempts.credit`/`stage`
+  record the judgment. Below exact: the anchor is SOUNDED (on the downbeat,
+  target a beat later -- never at b -1, that note would already be in the
+  past), the stage's pool replaces the ladder, questions stay inside
+  `stage.window()` (anchor brought back), timeout is longer, no passages,
+  gestures, wide asks or rounds. ECHO GAME: `collect` question (cue, then
+  the player's 2-4 notes until a beat of silence) -> listen playback -> the
+  same figure asked back, graded on the stage's rung.
+  COMPOUND ASKS: `engine.lastWide` marks a target an octave wider than the
+  asked simple interval (label "+8ve"); pitch class right but octave wrong
+  = `height_err`, credited to the interval, debited to `engine.state.height`.
+  BURSTS ARE ONE SITTING: kv `carry` (endedAt, block key, warm-up count,
+  retry, variants, remediation, asked ids) is restored by a session started
+  within CARRY_MS (30 min) and the key re-primed.
+  PASSAGE LENGTH is a controller (kv `passageLen`, +1 after 2 clean
+  first-askings, -1 after 3 failures, bounded by LEN.min and the tier
+  ceiling). TEMPO IS NOT A CONTROLLER and must never become one.
   GRADING IS BY ONSET GROUP (`buildGroups`): notes with the same offset form
   a group; a key press matches any pending note of the current group by
   pitch, a wrong note consumes the nearest pending graded note, and a press
-  matching the NEXT group (inside its window) abandons the rest of this one
-  (one miss per abandoned note). Each expected note carries `melodicFrom`
-  (previous note in its voice -> melodic engine) and `harmonicFrom` (the
-  group's bass -> harmonic engine). Question notes are
-  `{midi, b, dur, voice, free, silent}`; `free` = the note on the anchor,
-  `silent` = in the question (grading context, may be echoed) but never
-  sounded in the call. Interval questions: silent anchor at b -1, target
-  on the downbeat, so the call is the target alone.
-  POLYPHONY LEVEL (`polyLevel()`, kv `poly` {level, history}) is earned
-  from the last 12 passages of the level's kind (promote >= 70%, demote
-  < 30%) plus tier gates; NEVER a flag. Level >= 1 adds dyad questions
-  (`dyadQuestion`, both notes together, every 3rd plain question) from the
-  harmonic engine and duo passages; 2 adds chorales; 3 adds two-hand poly.
+  matching the NEXT group (inside its window) abandons the rest of this one.
+  Each expected note carries `melodicFrom` and `harmonicFrom`. Question
+  notes are `{midi, b, dur, voice, free, silent}`.
+  POLYPHONY LEVEL (`polyLevel()`, kv `poly`): level 0 -> 1 is earned from
+  interval confidence (POLY.melodicTiersForDyads tiers AND
+  POLY.masteredForDyads mastered), not passages; higher levels from the
+  last 12 passages of the level's kind (>= 70% / < 30%) plus tier gates.
+  Dyads keep the anchor as a FIXED BASS; every 9th plain slot is a `chord`
+  from CHORD_SHAPES once harmonic tiers >= 3 (dom7 at >= 5).
 - `src/engine.js` AdaptiveEngine (ear-training port), instantiated twice:
-  melodic (kv `engine`) and harmonic (kv `engine:harmonic`, intervals above
-  a chord's bass). Two evidence scopes:
-  interval questions update parent stats/cells/confusions/tier controller;
-  passage notes (`ask(..., {scope:'passage'})`) update only a
-  `+7|src:passage` cell. Confusions decay each session, only drill widths in
-  unlocked tiers, never cascade (one run at a time), and clear on a clean
-  success. `inwardVariant()` keeps discrimination/remediation from walking
-  the anchor to an edge. `adopt()` carries the in-flight framing across a
-  mid-session range rebuild. rt is NORMALIZED onset error (ms at 60 bpm),
-  `fluentMs` 120. `scoreInterval()` is the read-only scorer for phrases.
+  melodic (kv `engine`) and harmonic (kv `engine:harmonic`). TIER_WIDTHS is
+  SIMPLE INTERVALS ONLY (12 tiers; `simpleOf()` folds compounds; a loaded
+  state with more tiers is clamped). Evidence scopes: interval questions
+  update parent stats/cells/confusions/tier controller; passage notes and
+  gestures (`scope:'passage'`) update a `+7|src:passage` cell AND record
+  near-miss confusions; the round (`scope:'round'`) updates `src:round`
+  cells only. CONFUSIONS decay by the DAY (`confusionsDecayedAt`), not per
+  session; a pair (same direction, widths within 2) at CONFUSION_THRESHOLD
+  becomes `state.focus` {a, b, left, listen}: `takeListen()` hands the
+  drill one listen-only pass, then about FOCUS_SHARE of the next
+  FOCUS_TRIALS plain asks are one of the pair in its own direction
+  (`servedQueue` = true -> kind 'discrimination'). No queue, no A-B-A-B run.
+  `nextTargetIndex(a, prev, {allowWide, pool, bounds, extraTiers, lean,
+  scope})`: pool = a stage's signed list instead of the ladder; bounds = an
+  index window; extraTiers = the round's escalation; lean = per-target
+  weight (diatonic); allowWide = may return the simple interval an octave
+  wider (`lastWide`, `reportHeight()` -> `state.height`), only for secure
+  intervals <= WIDE_MAX_SIMPLE. `masteredCount()` gates dyads.
+  `inwardVariant()` keeps remediation from walking the anchor to an edge.
+  rt is NORMALIZED onset error (ms at 60 bpm), `fluentMs` 120.
+  `scoreInterval()` is the read-only scorer for phrases.
 - `src/tempo.js`  TEMPO IS A PROPERTY OF THE MUSIC, NEVER A REWARD. Replaced
   a ratchet that added 4 bpm whenever 80% of recent notes were in time, which
   optimised hand speed rather than hearing AND silently hid 38% of the corpus
@@ -121,25 +158,31 @@ opens every input port.
   (`BANDS`, chorales 68/84, Mozart 88/108), times a texture discount that only
   ever slows (`TEXTURE`: mono 1 -> poly 0.82), capped so the excerpt's fastest
   note still lasts `AUDIATION_FLOOR_S` (190ms). Interval questions are not
-  excerpts and get a flat `INTERVAL_BPM` 72. `floorFromHistory()` is the ONLY
+  excerpts and get a flat INTERVAL_BPM 72 (drill.js). Collections: chorales
+  68/84, Mozart 88/108, hymns 76/96. `floorFromHistory()` is the ONLY
   history input and can only slow things down: it bins recent graded passage
   notes by their excerpt's fastest note and raises the floor only where a bin
   is actually being failed, so a player who was never GIVEN fast notes is
   never locked into slow ones. Over the corpus this lands 53..88 bpm, with
   40 bpm on 0.2% (the 32nd-note phrases).
-- `src/tonalfield.js` THE EMERGENT TONAL CENTRE. Holds NO key of its own
-  (Caleb: no contrived I-IV-V-I); watches every sounded call note in a
-  recency-weighted pitch-class histogram and, on `key()`, names the best-fit
-  key by Krumhansl-Schmuckler correlation with `strength` in [0,1] folding
-  correlation with evidence. A chromatic or thin stretch reads weak -- the
-  atonal spell arriving on its own, not on a schedule. `degree()`/`diatonic()`
-  classify a note in the current key (null = borrowed). Good on clear input
-  (C-major melody -> C major 0.9; chromatic 0.36); a weak CLASSIFIER of
-  isolated corpus fragments against their source key (~33%) because it reports
-  the LOCAL centre of the notes it saw, which is the honest emergent signal,
-  not musicological analysis. Fed in `beginQuestion` from `this.callNotes`.
-  Used by: `questionTempo` (interval/gesture tempo leans +/-6 bpm with
-  strength), the gesture selection, and the `[Key mode]` tag on interval logs.
+- `src/keyblock.js` KEY BLOCKS. `parseKey`, `phraseKey(phrase)` (the piece
+  key if every note fits or at most one pitch class of >= 4 notes is
+  foreign; else the nearest key on the circle of fifths that holds every
+  note; null = chromatic, gets no prime), `shiftToKey` (mode reconciled via
+  the relative key, octave nearest a point drawn halfway from the anchor to
+  the keyboard middle), `primeNotes` (do-mi-sol-do' over two beats),
+  `modeSwap` (3/6/7 moved), `chooseKey` (tonic = the anchor's pitch class,
+  mode rotates), `diatonicStep`. Evidence: Cuddy & Badertscher 1987 (three
+  notes set a key), Dowling 1986 / Bartlett & Dowling 1980 (a drifting or
+  near key is worse than none), Springer 2021 (drones do nothing).
+- `src/stage.js`  THE STAGE a player is graded on, from the last 20 isolated
+  answers: echo < contour (direction) < sizing (within 2) < exact. A fresh
+  profile starts at exact and drops one rung per reassessment once 8
+  answers are in (hysteresis HYSTERESIS below each bar). Per stage: POOLS
+  (steps first, fifth/octave as the first leaps), TIMEOUT_MS, a
+  keyboard `window()` of an octave and a half, `soundsAnchor()` (below
+  exact, or while tiers <= 3). `stageMoved()` in drill.js cues stageUp/Down
+  and persists kv `stage`.
 - `src/rungs.js`  THE RUNGS BENEATH EXACT PITCH: direction (contour), near
   (within a semitone: sizing), recovered (a later exact note after the first
   wrong one), exact. A passage still passes or fails on exact pitch ONLY --
@@ -161,14 +204,28 @@ opens every input port.
   leap as ONE sizing error plus no recovery, not N errors. These rows are what
   the corrective-replay retry loop and the difficulty decisions will read
   (`db.passageHistory(phraseId)`); nothing acts on them yet.
-- `src/phrases.js` PhraseBank, one instance per corpus file (phrases.json
-  melodic, poly.json polyphonic: kinds duo/chorale/poly, notes carry a
-  voice, `pivot` = the note placed on the anchor). Precomputes melodic
-  intervals per voice and harmonic intervals above each chord's bass;
-  `pick({kind, engine, harmonic})` filters by kind, max notes, fastest note
-  at tempo, no rest >= 1 beat, 3-day rest after a clean pass, exact-anchor
-  placement (octave only if nothing fits), weights by both engines'
-  scoreInterval + failed boost + centerPull.
+- `src/phrases.js` PhraseBank, one instance per bank: melodic = phrases.json
+  + hymns.json (`path` accepts a list), polyphonic = poly.json. `analyse()`
+  precomputes melodic/harmonic intervals and `tonalKey` (keyblock.js).
+  `pick({kind, engine, harmonic, maxNotes, exclude, key})`: with `key`,
+  phrases are placed IN the key (`shiftToKey`; keyless phrases skipped),
+  else on the anchor as before; `pickInKey(id, key)` for variants.
+  SCHEDULE: `record(id, clean)` sets `dueAt` -- failed: 1 day; clean: 3 days,
+  then 7, then 21 by clean run -- and pick() skips undue phrases and boosts
+  due ones (DUE_BOOST) and failed ones (FAILED_BOOST). `rest()` = the
+  corrective loop gave up (TOO_HARD_REST_MS).
+- `scripts/build-hymns.mjs` singHarmony2's hymn soprano lines
+  (`../singHarmony2/public/songs/*.json`) -> corpus/hymns.json, same schema,
+  collection 'hymns' (familiar tunes for the family: Berkowska & Dalla
+  Bella 2013, known songs before abstract intervals).
+- `scripts/progress.mjs [--db] [--days]` the report that matters: NEXT-DAY
+  FIRST ATTEMPTS per day (isolated accuracy and the known pairs, passage
+  pitch-clean and rung score, savings on re-encounter, retry loop and
+  judgments, timing apart from pitch, stage, session shape). In-session
+  gains are performance; judge progress here.
+- `scripts/sim.mjs <db> <player> <n> [bpm] [nophrases]` headless scripted
+  player (perfect | sloppy | kid | liz | random) against a scratch DB; the
+  way every path above was verified. Never a live profile.
 - `scripts/build-corpus.mjs` **kern -> phrases.json. Integer ticks
   (TPQ 1680). Melody = rightmost kern spine and all its sub-spines, highest
   attacked pitch unless a higher note is still held. Meter per barline;
@@ -201,19 +258,25 @@ opens every input port.
   name, else 48..72; widening snaps to a standard layout while guessed.
 - `src/db.js`     node:sqlite, WAL, busy_timeout. Guarded migrations add
   columns. `kv(key)` returns a guarded {load, save}. Tables `sessions`,
-  `attempts` (one row per graded key press or miss), `passages` (one row per
-  passage question, see rungs.js). `backfillPassages()` builds `passages`
+  `attempts` (one row per graded key press or miss; `credit`/`stage` = the
+  stage's judgment, `height_err` = right pitch class wrong octave),
+  `passages` (one row per passage question, see rungs.js; `clean` = pitch
+  AND time, `pitch_clean` = pitch, backfilled from exact = notes),
+  `judgments` (the judge window: guessed, hit). kv: `engine`,
+  `engine:harmonic`, `poly`, `passageLen`, `phraseStats`, `polyStats`,
+  `ranges`, `carry`, `stage`. `backfillPassages()` builds `passages`
   from `attempts` once when the table is empty (main.js calls it at startup)
   so history exists from day one; attempts carry no voice, so backfilled
   polyphonic rows have contour zeroed.
 
 ## Testing without the keyboard
 
-See `/private/tmp/.../scratchpad/sim4.mjs` pattern: build Drill with
-`bpmOverride`, `audio.master.gain.value = 0`, call
-`drill.onNoteOn({note, velocity, at: (audioTime + drill.clockOffset) * 1000,
-port: 'Keystation Pro 88'})`, wait for `drill.questions` to increment and
-`!drill.answered` before reading `drill.expected[i].at/.midi/.acceptFrom`.
+`node scripts/sim.mjs <copy-of-a-profile.db> perfect 40 200` (or sloppy /
+kid / liz / random; `nophrases` as a fifth arg to reach the round). It
+drives `Drill` directly with `audio.master.gain.value = 0` and answers each
+onset group one beat behind the call. Copy a profile first; never the live
+one. The end-of-run "statement has been finalized" is the harness closing
+the DB under late timers, not the drill.
 
 ## Gotchas
 
@@ -221,3 +284,9 @@ port: 'Keystation Pro 88'})`, wait for `drill.questions` to increment and
   allow-scripts. The prebuilt binary loads fine on macOS arm64.
 - Rebuilding the corpus renumbers nothing (hash ids) but changes which
   phrases exist; `phraseStats` entries for vanished ids are harmless.
+- A sounded anchor must never sit at b -1: the question begins at most
+  150 ms before its downbeat, so a note before it is already late.
+- The research behind the design (2026-09-10 review with a literature-primed
+  session) is summarised in the memory note
+  `project_piano_by_ear_research_review`; the module headers cite the
+  specific findings each mechanism rests on.

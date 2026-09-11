@@ -26,6 +26,7 @@
 export const BANDS = {
   'bach-371-chorales': { pref: 68, max: 84 },
   'mozart-piano-sonatas': { pref: 88, max: 108 },
+  hymns: { pref: 76, max: 96 },
 };
 export const DEFAULT_BAND = { pref: 76, max: 100 };
 

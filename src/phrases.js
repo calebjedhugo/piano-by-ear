@@ -9,14 +9,23 @@
 // A phrase is wanted in proportion to how much its intervals are wanted:
 // melodic intervals within each voice are scored by the melodic engine,
 // vertical intervals above each chord's bass by the harmonic engine (when
-// given). A phrase you failed comes back sooner; one you played clean rests.
+// given). WHEN A PHRASE COMES BACK is a schedule, not a mood: a failed one
+// is re-tested the next day (the corrective loop already gave it its
+// immediate tries; a same-session re-test is performance, not learning), a
+// clean one after 3 days, then a week, then three weeks (Cepeda 2008; Kang
+// 2014) -- and a phrase due for review is wanted a little more.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { REVIEW_FULL_MS } from './engine.js';
+import { phraseKey, shiftToKey } from './keyblock.js';
 
 export const MONO_PATH = fileURLToPath(new URL('../corpus/phrases.json', import.meta.url));
+export const HYMNS_PATH = fileURLToPath(new URL('../corpus/hymns.json', import.meta.url));
 export const POLY_PATH = fileURLToPath(new URL('../corpus/poly.json', import.meta.url));
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DUE_AFTER_FAIL_MS = 1 * DAY_MS;
+const DUE_AFTER_CLEAN_MS = [3 * DAY_MS, 7 * DAY_MS, 21 * DAY_MS]; // by clean passes in a row
 const FAILED_BOOST = 1.6;
+const DUE_BOOST = 1.3;
 // Each melodic interval not open for passages (engine.openInPassage: locked
 // leaps and semitones) and each harmonic interval outside the harmonic
 // engine's tiers multiplies a phrase's weight by this, on top of its low
@@ -34,10 +43,10 @@ export class PhraseBank {
    * @param {object} opts
    * @param {{load: () => object|null, save: (v: object) => void}} opts.store  stats persistence
    * @param {string} [opts.composer]  optional case-insensitive filter (debugging)
-   * @param {string} [opts.path]      corpus file (default: the melodic corpus)
+   * @param {string|string[]} [opts.path]  corpus file(s) (default: the melodic corpus)
    */
   constructor({ store, composer, path = MONO_PATH }) {
-    const all = JSON.parse(readFileSync(path, 'utf8'));
+    const all = [].concat(...[].concat(path).map((f) => JSON.parse(readFileSync(f, 'utf8'))));
     this.phrases = (composer ? all.filter((p) => p.composer.toLowerCase().includes(composer.toLowerCase())) : all)
       .map((p) => analyse(p))
       .filter((p) => p.maxRest < MAX_REST_BEATS);
@@ -58,14 +67,17 @@ export class PhraseBank {
    * @param {string} [opts.kind]        'mono' (default) | 'duo' | 'chorale' | 'poly'
    * @param {number} opts.maxNotes
    * @param {Set<string>} [opts.exclude] phrase ids to skip this session
-   * @returns {{phrase, notes: number[][], octave: number}|null}
+   * @param {{tonic:number, mode:string}} [opts.key]  place phrases IN this key
+   *   (src/keyblock.js) rather than on the anchor; phrases with no clear key
+   *   of their own are skipped then
+   * @returns {{phrase, notes: number[][], octave: number, key, shift}|null}
    *
    * Nothing here filters on tempo: a phrase's tempo is derived FROM the phrase
    * once it is chosen (src/tempo.js), so no excerpt is out of reach for being
    * too quick. The old speed filter hid 38% of the corpus at a fast session
    * tempo, which is exactly backwards.
    */
-  pick(anchor, lo, hi, { engine, harmonic = null, kind = 'mono', maxNotes, exclude }) {
+  pick(anchor, lo, hi, { engine, harmonic = null, kind = 'mono', maxNotes, exclude, key = null }) {
     const now = Date.now();
     const memo = (eng) => {
       const m = new Map();
@@ -89,9 +101,15 @@ export class PhraseBank {
         if (phrase.melodic.length + phrase.harmonic.length === 0) continue;
         if (exclude && exclude.has(phrase.id)) continue;
         const st = this.stats[phrase.id];
-        if (st && st.clean && now - st.last < REVIEW_FULL_MS) continue;
+        if (st && st.dueAt > now) continue;
         if (st && st.restUntil > now) continue;
-        const shift = placement(phrase, anchor, lo, hi, octave);
+        let shift;
+        if (key) {
+          if (octave > 0 || !phrase.tonalKey) continue; // the key decides the octave
+          // The octave nearest the anchor, drawn halfway back toward the
+          // middle of the keyboard so a walk that wandered low is not pinned there.
+          shift = shiftToKey(phrase, phrase.tonalKey, key, (anchor + (lo + hi) / 2) / 2, lo, hi);
+        } else shift = placement(phrase, anchor, lo, hi, octave);
         if (shift === null) continue;
         let max = 0;
         let sum = 0;
@@ -117,6 +135,7 @@ export class PhraseBank {
         w *= LOCKED_PENALTY ** locked;
         if (!engine.unlockedWidth(1)) w *= CHROMATIC_PENALTY ** phrase.chromatic;
         if (st && !st.clean) w *= FAILED_BOOST;
+        else if (st && st.dueAt) w *= DUE_BOOST; // due for review
         const lastNote = phrase.notes[phrase.pivot][0] + phrase.lastRel + shift;
         w *= engine.centerPull(anchor - lo, lastNote - lo);
         candidates.push({ phrase, shift });
@@ -135,7 +154,15 @@ export class PhraseBank {
         break;
       }
     }
-    return this.place(chosen.phrase, chosen.shift, anchor);
+    return this.place(chosen.phrase, chosen.shift, anchor, key);
+  }
+
+  /** A specific phrase placed in `key` (a variant), or null if it has no key or cannot fit. */
+  pickInKey(id, key, anchor, lo, hi) {
+    const phrase = this.byId.get(id);
+    if (!phrase || !phrase.tonalKey) return null;
+    const shift = shiftToKey(phrase, phrase.tonalKey, key, (anchor + (lo + hi) / 2) / 2, lo, hi);
+    return shift === null ? null : this.place(phrase, shift, anchor, key);
   }
 
   /** Transpose a specific phrase (retry) onto `anchor`, or null if it can't fit. */
@@ -149,14 +176,18 @@ export class PhraseBank {
     return null;
   }
 
-  place(phrase, shift, anchor) {
+  place(phrase, shift, anchor, key = null) {
     const notes = phrase.notes.map(([m, off, dur, voice = 0]) => [m + shift, off, dur, voice]);
-    return { phrase, notes, octave: notes[phrase.pivot][0] - anchor };
+    return { phrase, notes, octave: key ? 0 : notes[phrase.pivot][0] - anchor, key, shift };
   }
 
+  /** The outcome of a first asking or a retry (not a variant): sets when the phrase is due again. */
   record(id, clean) {
     const prev = this.stats[id];
-    this.stats[id] = { ...prev, last: Date.now(), clean, n: (prev?.n || 0) + 1, fails: (prev?.fails || 0) + (clean ? 0 : 1) };
+    const now = Date.now();
+    const cleanRun = clean ? (prev?.cleanRun || 0) + 1 : 0;
+    const dueAt = now + (clean ? DUE_AFTER_CLEAN_MS[Math.min(cleanRun - 1, DUE_AFTER_CLEAN_MS.length - 1)] : DUE_AFTER_FAIL_MS);
+    this.stats[id] = { ...prev, last: now, clean, cleanRun, dueAt, n: (prev?.n || 0) + 1, fails: (prev?.fails || 0) + (clean ? 0 : 1) };
     this.store.save(this.stats);
   }
 
@@ -220,6 +251,7 @@ function analyse(p) {
     ...p,
     kind,
     pivot,
+    tonalKey: phraseKey(p),
     min: Math.min(...midis),
     max: Math.max(...midis),
     melodic,

@@ -218,6 +218,21 @@ export class Audio {
     this.tone(1568, at + 0.15, 0.2, 0.06);
   }
 
+  /**
+   * Cues for a state change the player must hear (there is no screen):
+   * 'round' = the round is on (two quick rising notes), 'roundOver' = back
+   * to call and response (the same two falling), 'stage' = the rung you are
+   * graded on moved (three quick notes up, or down). All through note(), so
+   * the instrument's own sound carries them too.
+   */
+  cue(kind, at = this.now) {
+    const v = 64;
+    if (kind === 'round') { this.note(79, { at, velocity: v, duration: 0.12 }); this.note(86, { at: at + 0.12, velocity: v, duration: 0.3 }); }
+    else if (kind === 'roundOver') { this.note(86, { at, velocity: v, duration: 0.12 }); this.note(79, { at: at + 0.12, velocity: v, duration: 0.3 }); }
+    else if (kind === 'stageUp') for (const [i, m] of [72, 76, 79].entries()) this.note(m, { at: at + i * 0.1, velocity: v, duration: 0.15 });
+    else if (kind === 'stageDown') for (const [i, m] of [79, 76, 72].entries()) this.note(m, { at: at + i * 0.1, velocity: v, duration: 0.15 });
+  }
+
   /** Two descending tones: session over. */
   sessionOver(at = this.now) {
     this.note(64, { at, velocity: 60, duration: 0.5 });

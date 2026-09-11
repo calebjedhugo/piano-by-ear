@@ -19,11 +19,26 @@
 
 const SCHEMA_VERSION = 2;
 
-export const TIER_WIDTHS = [
-  12, 7, 5, 4, 3, 9, 2, 8, 1, 10, 11, 6,
-  19, 17, 16, 15, 21, 14, 20, 13, 22, 23, 18,
-];
+// Simple intervals only. A compound interval is not a skill of its own: it is
+// a simple interval plus an OCTAVE PLACEMENT, and the two are scored apart
+// (no study of compound-interval training exists; octave equivalence is weak
+// and height-dominated in untrained ears, so height error is its own thing).
+// nextTargetIndex sometimes asks the simple interval an octave wider
+// (wideRate), the interval skill is credited on pitch CLASS, and the octave
+// goes to `state.height`.
+export const TIER_WIDTHS = [12, 7, 5, 4, 3, 9, 2, 8, 1, 10, 11, 6];
 const ASKABLE = new Set(TIER_WIDTHS);
+// Fold a signed interval wider than an octave onto its simple interval.
+export function simpleOf(interval) {
+  const sign = interval < 0 ? -1 : 1;
+  let w = Math.abs(interval);
+  while (w > 12) w -= 12;
+  return sign * w;
+}
+const WIDE_BASE_RATE = 0.12; // how often a secure simple interval is asked an octave wider
+const WIDE_GOOD_RATE = 0.25; // once octave placement itself is reliable
+const WIDE_MIN_TIERS = 4;
+const WIDE_MAX_SIMPLE = 9; // up to a sixth plus an octave; a minor seventh plus an octave is nobody's melody
 
 const MIN_TIERS = 2;
 const ACC_ALPHA = 0.3;
@@ -35,7 +50,18 @@ const TIER_CHANGE_COOLDOWN = 8;
 const MASTERED_ACC = 0.9;
 export const REVIEW_FULL_MS = 3 * 24 * 60 * 60 * 1000;
 const CONFUSION_THRESHOLD = 2;
-const DISCRIMINATION_RUN = 4;
+// Confusion evidence halves once a DAY, not once a session: sessions are often
+// one-minute bursts, and halving at each of them meant the evidence never
+// reached the threshold (16 discrimination questions in 1500 notes).
+const CONFUSION_HALF_LIFE_MS = 20 * 60 * 60 * 1000;
+// A confused pair is drilled as two-label categorisation INTERLEAVED among
+// ordinary questions (Goldstone 1994 acquired distinctiveness; Wong, Chen &
+// Lim 2021 interleaving beats blocking), not as an A-B-A-B run: about half of
+// the next FOCUS_TRIALS plain questions are one of the pair, in a constant
+// register, and the focus opens with one listen-only pass of both
+// (practice + exposure, Little, Cheng & Wright 2019).
+const FOCUS_TRIALS = 10;
+const FOCUS_SHARE = 0.5;
 export const WARMUP_QUESTIONS = 5;
 const CELL_SHRINK_K = 4;
 const LOCKED_SCORE = 0.25; // phrase score for an interval outside the unlocked tiers
@@ -61,6 +87,9 @@ function freshState() {
     intervals: {},
     cells: {},
     confusions: {},
+    confusionsDecayedAt: 0,
+    focus: null, // { a, b, left, listen } the confused pair being categorised
+    height: { n: 0, acc: 0.5 }, // octave placement on compound asks
   };
 }
 
@@ -80,7 +109,12 @@ export class AdaptiveEngine {
     const loaded = store.load();
     this.state = loaded && loaded.version === SCHEMA_VERSION ? loaded : freshState();
     if (!this.state.cells) this.state.cells = {};
-    this.discriminationQueue = [];
+    if (!this.state.height) this.state.height = { n: 0, acc: 0.5 };
+    if (!('focus' in this.state)) this.state.focus = null;
+    if (!this.state.confusionsDecayedAt) this.state.confusionsDecayedAt = 0;
+    // The ladder used to run on into compound intervals; those tiers fold away.
+    if (this.state.tiersUnlocked > TIER_WIDTHS.length) this.state.tiersUnlocked = TIER_WIDTHS.length;
+    this.lastWide = false;
     this.questionInSession = 0;
     this.prevAnchorIndex = null;
     this.lastAsked = null;
@@ -93,19 +127,37 @@ export class AdaptiveEngine {
     this.store.save(this.state);
   }
 
-  startSession() {
-    this.questionInSession = 0;
-    this.discriminationQueue = [];
+  /** `questionInSession` may be carried in from a burst a few minutes ago (the warm-up is per sitting, not per burst). */
+  startSession({ questionInSession = 0 } = {}) {
+    this.questionInSession = questionInSession;
     this.prevAnchorIndex = null;
     this.lastAsked = null;
     this.lastAskedCells = [];
     this.pending = null;
-    // Confusion evidence decays between sessions so old near-misses don't
-    // pile up into an endless cascade of discrimination runs.
-    for (const k of Object.keys(this.state.confusions)) {
-      const v = Math.floor(this.state.confusions[k] / 2);
-      if (v > 0) this.state.confusions[k] = v; else delete this.state.confusions[k];
+    // Confusion evidence decays by the day, so old near-misses don't pile up
+    // into endless categorisation while today's can still add up.
+    const now = Date.now();
+    if (now - this.state.confusionsDecayedAt >= CONFUSION_HALF_LIFE_MS) {
+      for (const k of Object.keys(this.state.confusions)) {
+        const v = Math.floor(this.state.confusions[k] / 2);
+        if (v > 0) this.state.confusions[k] = v; else delete this.state.confusions[k];
+      }
+      this.state.confusionsDecayedAt = now;
     }
+  }
+
+  /** The confused pair in focus, if any: { a, b, left, listen }. */
+  get focus() {
+    return this.state.focus;
+  }
+
+  /** True once, when a focus has just opened: the drill plays both intervals for listening. */
+  takeListen() {
+    const f = this.state.focus;
+    if (!f || !f.listen) return null;
+    f.listen = false;
+    this.save();
+    return { a: f.a, b: f.b };
   }
 
   /** Called once per question of either kind (drives the warm-up ramp). */
@@ -116,7 +168,6 @@ export class AdaptiveEngine {
   /** Carry session state into a rebuilt engine (range widened mid-session). */
   adopt(other, indexShift) {
     this.questionInSession = other.questionInSession;
-    this.discriminationQueue = other.discriminationQueue.slice();
     this.prevAnchorIndex = other.prevAnchorIndex === null ? null : other.prevAnchorIndex + indexShift;
     // The framing of the in-flight question (cells are absolute-pitch
     // strings, the interval is index-independent) so a question framed on
@@ -133,8 +184,8 @@ export class AdaptiveEngine {
     return signed;
   }
 
-  poolFor(anchorIndex) {
-    for (let tiers = this.state.tiersUnlocked; tiers <= TIER_WIDTHS.length; tiers += 1) {
+  poolFor(anchorIndex, extraTiers = 0) {
+    for (let tiers = Math.min(TIER_WIDTHS.length, this.state.tiersUnlocked + extraTiers); tiers <= TIER_WIDTHS.length; tiers += 1) {
       const pool = this.unlockedIntervals(tiers).filter((i) => this.feasible(anchorIndex, i));
       if (pool.length > 0) return pool;
     }
@@ -176,7 +227,7 @@ export class AdaptiveEngine {
    */
   cellKeysFor(interval, anchorIndex, prevIndex, scope = 'interval') {
     const iKey = AdaptiveEngine.key(interval);
-    if (scope === 'passage') return [`${iKey}|src:passage`];
+    if (scope === 'passage' || scope === 'round') return [`${iKey}|src:${scope}`];
     const target = anchorIndex + interval;
     const keys = [`${iKey}|${colorOf(anchorIndex + this.pcOffset)}${colorOf(target + this.pcOffset)}`];
     if (prevIndex !== null && prevIndex !== undefined) {
@@ -259,6 +310,7 @@ export class AdaptiveEngine {
    * warm-up or center terms. Intervals wider than the tier list score low.
    */
   scoreInterval(interval, now) {
+    if (Math.abs(interval) > 12) return 0.85 * this.scoreInterval(simpleOf(interval), now);
     if (!ASKABLE.has(Math.abs(interval))) return 0.15;
     // Beyond the unlocked tiers: not "unseen, explore" but "not yet", so
     // passages stay a step ahead of the drills rather than several.
@@ -289,25 +341,45 @@ export class AdaptiveEngine {
    * take priority; infeasible entries wait for a later anchor instead of
    * being lost.
    */
-  nextTargetIndex(anchorIndex, prevIndex = this.prevAnchorIndex) {
+  /**
+   * @param {object} [opts]
+   * @param {boolean} [opts.allowWide]  may ask a secure interval an octave wider
+   * @param {number[]} [opts.pool]      signed intervals to choose from instead of the ladder (a stage's pool)
+   * @param {{lo:number, hi:number}} [opts.bounds]  index window the target must stay inside
+   * @param {number} [opts.extraTiers] tiers beyond the unlocked ones (a round's escalation)
+   * @param {(targetIndex:number) => number} [opts.lean]  weight multiplier per candidate target (diatonic lean)
+   * @param {string} [opts.scope]      evidence scope for the ask ('interval' | 'round')
+   */
+  nextTargetIndex(anchorIndex, prevIndex = this.prevAnchorIndex, { allowWide = false, pool: poolOverride = null, bounds = null, extraTiers = 0, lean = null, scope = 'interval' } = {}) {
     this.servedQueue = false;
-    const q = this.discriminationQueue;
-    for (let tries = 0; tries < q.length; tries += 1) {
-      const interval = q.shift();
-      // Same discrimination skill up or down; take the direction that keeps
-      // the anchor near the middle of the keyboard.
-      const iv = this.inwardVariant(interval, anchorIndex);
+    this.lastWide = false;
+    const inBounds = (t) => !bounds || (t >= bounds.lo && t <= bounds.hi);
+    const f = this.state.focus;
+    if (!poolOverride && f && f.left > 0 && Math.random() < FOCUS_SHARE) {
+      // One of the confused pair, in its own direction so the register stays
+      // put (register and direction shift perceived size); flipped only when
+      // the keyboard runs out.
+      const pick = Math.random() < 0.5 ? f.a : f.b;
+      const ok = (iv) => this.feasible(anchorIndex, iv) && inBounds(anchorIndex + iv);
+      const iv = ok(pick) ? pick : ok(-pick) ? -pick : null;
       if (iv !== null) {
+        f.left -= 1;
+        if (f.left <= 0) this.state.focus = null;
+        this.save();
         this.servedQueue = true;
-        return this.ask(iv, anchorIndex, prevIndex);
+        return this.ask(iv, anchorIndex, prevIndex, { scope });
       }
-      q.push(interval);
     }
 
     const now = Date.now();
-    const pool = this.poolFor(anchorIndex);
+    let pool;
+    if (poolOverride) pool = poolOverride.filter((i) => this.feasible(anchorIndex, i) && inBounds(anchorIndex + i));
+    else {
+      pool = this.poolFor(anchorIndex, extraTiers).filter((i) => inBounds(anchorIndex + i));
+      if (pool.length === 0) pool = this.poolFor(anchorIndex, extraTiers);
+    }
     if (pool.length === 0) return anchorIndex;
-    const weights = pool.map((i) => this.weight(i, anchorIndex, now, prevIndex));
+    const weights = pool.map((i) => this.weight(i, anchorIndex, now, prevIndex) * (lean ? lean(anchorIndex + i) : 1));
     const total = weights.reduce((a, b) => a + b, 0);
     let roll = Math.random() * total;
     let interval = pool[pool.length - 1];
@@ -318,7 +390,37 @@ export class AdaptiveEngine {
         break;
       }
     }
-    return this.ask(interval, anchorIndex, prevIndex);
+    // A secure simple interval is sometimes asked an octave wider: the skill
+    // stays the simple interval; the octave is judged apart (reportHeight).
+    if (allowWide && this.state.tiersUnlocked >= WIDE_MIN_TIERS && Math.abs(interval) <= WIDE_MAX_SIMPLE) {
+      const wide = interval + (interval < 0 ? -12 : 12);
+      const s = this.peekStats(interval);
+      const rate = this.state.height.acc >= 0.8 && this.state.height.n >= 6 ? WIDE_GOOD_RATE : WIDE_BASE_RATE;
+      if (s.n >= 3 && s.acc >= 0.8 && this.feasible(anchorIndex, wide) && inBounds(anchorIndex + wide) && Math.random() < rate) {
+        this.lastWide = true;
+        this.ask(interval, anchorIndex, prevIndex, { scope });
+        return anchorIndex + wide;
+      }
+    }
+    return this.ask(interval, anchorIndex, prevIndex, { scope });
+  }
+
+  /** How many intervals are mastered right now (the dyad gate). */
+  masteredCount() {
+    let n = 0;
+    for (const [k, s] of Object.entries(this.state.intervals)) {
+      const iv = Number(k);
+      if (this.isMastered(s, this.predictedAccFrom(iv, this.cellKeysFor(iv, Math.floor(this.range / 2), null)))) n += 1;
+    }
+    return n;
+  }
+
+  /** Octave placement on a compound ask: right or wrong, apart from the interval. */
+  reportHeight(ok) {
+    const h = this.state.height;
+    h.acc = h.acc * (1 - ACC_ALPHA) + (ok ? ACC_ALPHA : 0);
+    h.n += 1;
+    this.save();
   }
 
   updateCells(cells, success) {
@@ -357,13 +459,17 @@ export class AdaptiveEngine {
 
   recordConfusion(asked, tapped) {
     if (tapped === asked || tapped === 0) return;
-    if (!this.unlockedWidth(asked) || !this.unlockedWidth(tapped)) return; // only drill what's in play
+    // Only pairs whose widths are in play, adjacent in size (the confusions
+    // that actually happen: fourth/fifth, minor/major sixth) or the same
+    // width the other way; a wild miss is not a category boundary.
+    if (!this.openInPassage(asked) || !this.openInPassage(tapped)) return;
+    if (Math.sign(asked) !== Math.sign(tapped) || Math.abs(Math.abs(asked) - Math.abs(tapped)) > 2) return;
     const key = `${AdaptiveEngine.key(asked)}|${AdaptiveEngine.key(tapped)}`;
     const count = (this.state.confusions[key] || 0) + 1;
     if (count >= CONFUSION_THRESHOLD) {
       delete this.state.confusions[key];
-      if (this.discriminationQueue.length === 0) { // one run at a time, never a cascade
-        for (let i = 0; i < DISCRIMINATION_RUN; i += 1) this.discriminationQueue.push(i % 2 === 0 ? asked : tapped);
+      if (!this.state.focus) { // one pair at a time, never a cascade
+        this.state.focus = { a: asked, b: tapped, left: FOCUS_TRIALS, listen: true };
       }
     } else {
       this.state.confusions[key] = count;
@@ -392,8 +498,11 @@ export class AdaptiveEngine {
     const tiersBefore = this.state.tiersUnlocked;
     let newlyMastered = false;
 
-    if (scope === 'passage') {
+    if (scope === 'passage' || scope === 'round') {
       this.updateCells(cells, !missed);
+      // A near miss inside a phrase is the same category boundary as one in
+      // isolation, and it is where most of them happen.
+      if (missed && scope === 'passage') this.recordConfusion(asked, this.pending.tapped);
     } else {
       const s = this.intervalStats(asked);
       const wasMastered = this.isMastered(s, this.predictedAccFrom(asked, cells));

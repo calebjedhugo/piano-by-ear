@@ -15,7 +15,7 @@ import { MidiOut, hardwareSound } from './midiout.js';
 import { RangeTracker } from './range.js';
 import { AdaptiveEngine } from './engine.js';
 import { Drill } from './drill.js';
-import { PhraseBank, POLY_PATH } from './phrases.js';
+import { PhraseBank, MONO_PATH, HYMNS_PATH, POLY_PATH } from './phrases.js';
 
 const { values: args } = parseArgs({
   options: {
@@ -41,7 +41,7 @@ if (backfilled) log(`passages: rung summaries built for ${backfilled} earlier pa
 const hardware = hardwareSound();
 const audio = new Audio({ hardware });
 const range = new RangeTracker(db.kv('ranges'));
-const phrases = new PhraseBank({ store: db.kv('phraseStats'), composer: args.composer });
+const phrases = new PhraseBank({ store: db.kv('phraseStats'), composer: args.composer, path: [MONO_PATH, HYMNS_PATH] });
 const poly = new PhraseBank({ store: db.kv('polyStats'), composer: args.composer, path: POLY_PATH });
 
 const drill = new Drill({

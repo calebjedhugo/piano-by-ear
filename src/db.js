@@ -14,8 +14,16 @@ const ATTEMPT_COLUMNS = {
   beat_ms: 'REAL',
   held_ms: 'REAL',
   dur_ok: 'INTEGER',
+  credit: 'INTEGER', // the stage's judgment of the note (src/stage.js); null = same as correct
+  stage: 'TEXT',
+  height_err: 'INTEGER', // compound ask: pitch class right, octave wrong
 };
 const SESSION_COLUMNS = { passages: 'INTEGER NOT NULL DEFAULT 0' };
+// pitch_clean: every graded note exactly right, whatever the timing and holds.
+// `clean` keeps its old meaning (pitch AND time) for continuity; the
+// controllers read pitch_clean (pitch and rhythm are separable skills:
+// Pfordresher 2003; Brown & Penhune 2018).
+const PASSAGE_COLUMNS = { pitch_clean: 'INTEGER' };
 
 export class Db {
   constructor(path) {
@@ -68,9 +76,20 @@ export class Db {
         backfilled INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS passages_phrase ON passages(phrase_id);
+      CREATE TABLE IF NOT EXISTS judgments (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES sessions(id),
+        question INTEGER,
+        ts INTEGER NOT NULL,
+        phrase_id TEXT,
+        guessed INTEGER NOT NULL,
+        hit INTEGER
+      );
     `);
     this.migrate('attempts', ATTEMPT_COLUMNS);
     this.migrate('sessions', SESSION_COLUMNS);
+    this.migrate('passages', PASSAGE_COLUMNS);
+    this.db.exec('UPDATE passages SET pitch_clean = (exact = notes) WHERE pitch_clean IS NULL');
     this.stmts = {
       getKv: this.db.prepare('SELECT value FROM kv WHERE key = ?'),
       setKv: this.db.prepare(
@@ -85,13 +104,18 @@ export class Db {
         ORDER BY id DESC LIMIT ?`),
       attempt: this.db.prepare(`
         INSERT INTO attempts (session_id, ts, anchor, target, played, velocity, correct, first_attempt, onset_ms,
-                              question, kind, phrase_id, position, graded, in_time, beat_ms)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
+                              question, kind, phrase_id, position, graded, in_time, beat_ms, credit, stage, height_err)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
+      recentIsolated: this.db.prepare(`
+        SELECT anchor, target, CASE WHEN velocity > 0 THEN played ELSE NULL END played, stage FROM attempts
+        WHERE graded = 1 AND kind IN ('interval', 'discrimination', 'remediation') ORDER BY id DESC LIMIT ?`),
+      judgment: this.db.prepare(`
+        INSERT INTO judgments (session_id, question, ts, phrase_id, guessed, hit) VALUES (?, ?, ?, ?, ?, ?)`),
       updateHeld: this.db.prepare('UPDATE attempts SET held_ms = ?, dur_ok = ? WHERE id = ?'),
       passage: this.db.prepare(`
         INSERT INTO passages (session_id, question, ts, phrase_id, kind, qkind, bpm, notes, attempted, exact, clean,
-                              intervals, direction, near, exact_interval, first_error, recovered, backfilled)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+                              intervals, direction, near, exact_interval, first_error, recovered, backfilled, pitch_clean)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
       passageHistory: this.db.prepare('SELECT * FROM passages WHERE phrase_id = ? ORDER BY ts DESC LIMIT ?'),
       passageCount: this.db.prepare('SELECT COUNT(*) n FROM passages'),
       passageAttempts: this.db.prepare(`
@@ -156,7 +180,20 @@ export class Db {
       a.correct ? 1 : 0, a.firstAttempt ? 1 : 0, a.onsetMs ?? null,
       a.question ?? null, a.kind ?? null, a.phraseId ?? null, a.position ?? null,
       a.graded ? 1 : 0, a.inTime === undefined || a.inTime === null ? null : a.inTime ? 1 : 0, a.beatMs ?? null,
+      a.credit === undefined || a.credit === null ? null : a.credit ? 1 : 0, a.stage ?? null,
+      a.heightErr === undefined || a.heightErr === null ? null : a.heightErr ? 1 : 0,
     ).id;
+  }
+
+  /** The last isolated first attempts, newest first, for the stage (src/stage.js). */
+  recentIsolated(limit = 20) {
+    return this.stmts.recentIsolated.all(limit);
+  }
+
+  /** After a failed passage: did the player point at a missed note, and was it one? */
+  judgment(j) {
+    this.stmts.judgment.run(j.sessionId, j.question ?? null, Date.now(), j.phraseId ?? null, j.guessed ? 1 : 0,
+      j.hit === null || j.hit === undefined ? null : j.hit ? 1 : 0);
   }
 
   updateHeld(id, heldMs, durOk) {
@@ -169,6 +206,7 @@ export class Db {
       p.sessionId, p.question ?? null, p.ts ?? Date.now(), p.phraseId, p.kind ?? null, p.qkind ?? null, p.bpm ?? null,
       p.notes, p.attempted, p.exact, p.clean ? 1 : 0, p.intervals, p.direction, p.near, p.exactInterval,
       p.firstError ?? null, p.recovered === null || p.recovered === undefined ? null : p.recovered ? 1 : 0, p.backfilled ? 1 : 0,
+      p.pitchClean === undefined ? (p.exact === p.notes ? 1 : 0) : p.pitchClean ? 1 : 0,
     );
   }
 
