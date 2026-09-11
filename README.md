@@ -7,9 +7,12 @@ only ever touch the keys.
 1. Plug in a MIDI keyboard and run `npm start`. Two clicks say it is
    listening.
 2. Play any note. That note is the **anchor** and the session begins. The
-   drill answers with the **key**: do-mi-sol-do from your note — and that
-   is a call like any other, so you play it back. Every eight questions the
-   note you happen to be on becomes the next tonic and the key changes.
+   drill answers with the **key** — a triad, a seventh, the pentatonic, the
+   first five degrees, in a scrambled order from your note. The pitches tell
+   you the key; the order tells you nothing, so every interval after the
+   first has to be caught cold. It is a call like any other, so you play it
+   back. Every eight questions the note you happen to be on becomes the next
+   tonic and the key changes.
 3. The metronome starts as a **constant pulse** and never moves. You hear the
    call: for an interval, just the target note (the anchor is the note you
    just played, so it is not repeated); for a passage, the whole phrase in

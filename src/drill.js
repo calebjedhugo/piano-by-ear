@@ -26,8 +26,11 @@
 // is not held against you, not that it is decoration.
 //
 // THE KEY IS A BLOCK (src/keyblock.js). Every BLOCK_QUESTIONS questions the
-// drill takes the note you are on as a new tonic and asks for do-mi-sol-do'
-// from that note; holding the key is the rest of it: passages
+// drill takes the note you are on as a new tonic and asks for a tonal set
+// from that note IN A RANDOM ORDER -- triad, seventh, pentatonic, first five
+// degrees, ninth, whichever the open tiers allow. The pitches name the key;
+// the scrambling is what makes it a question rather than a preamble. Holding
+// the key is the rest of it: passages
 // are transposed INTO it, gestures step diatonically in it, plain targets
 // lean diatonic. The old emergent centre named a new key nearly every
 // question; a half-established frame is worse than none for a scale-step
@@ -35,9 +38,10 @@
 // half step at the second note, with no key yet to place it in).
 //
 // KINDS OF QUESTION
-//   prime:     do-mi-sol-do' from the note under your hand, asked and played
-//              back like anything else. It opens the block and IS how the
-//              tonal centre is established -- the drill teaches its own key.
+//   prime:     a tonal set from the note under your hand, scrambled, asked
+//              and played back like anything else. It opens the block and IS
+//              how the tonal centre is established -- the drill teaches its
+//              own key, and makes you catch every interval of it cold.
 //   interval:  call = the target on the downbeat (the anchor is the note you
 //              just played; it stays in the question, silent, a beat before).
 //              At the lower stages, and until three tiers are open, the anchor
@@ -533,21 +537,26 @@ export class Drill {
   }
 
   /**
-   * THE BLOCK'S PRIME, and the only thing that establishes the key: do-mi-
-   * sol-do' from the note under your hand, asked and PLAYED BACK like every
-   * other call. Nothing is announced and nothing is explained -- the tonal
-   * centre arrives as three notes you have to find, which is the drill
-   * teaching its own key. The first note is the anchor (keyblock.primeNotes
-   * puts do there), so it is free, as the note under the hand always is.
-   * Evidence goes in at passage scope: an arpeggio is context, not a probe.
+   * THE BLOCK'S PRIME, and the only thing that establishes the key: a tonal
+   * set -- triad, seventh, pentatonic, first five degrees, ninth, whichever
+   * the open tiers allow -- SCRAMBLED, from the note under your hand, asked
+   * and played back like every other call.
+   *
+   * The pitches name the key; the order is what makes it a question. Every
+   * interval after the first has to be caught with no idea what is coming,
+   * which is the skill of walking in on music already in progress. Below the
+   * exact stage it is the triad: a player still credited for direction is
+   * not asked to catch a scrambled ninth.
+   *
+   * The first note is the anchor (keyblock.primeNotes puts the tonic there),
+   * so it is free, as the note under the hand always is. Evidence goes in at
+   * passage scope: the set is context, not a probe.
    */
   primeQuestion() {
     const k = this.block.key;
-    const prime = primeNotes(k, this.anchor, this.lo, this.hi);
-    // Below the exact stage the top do' is dropped: a player still being
-    // credited for direction is asked for do-mi-sol, not for an octave leap.
-    const raw = this.stage.current === 'exact' ? prime.notes : prime.notes.slice(0, 3);
-    const notes = raw.map(([midi, b, dur], i) => ({ midi, b, dur, voice: 0, free: i === 0 && midi === this.anchor }));
+    const tiers = this.stage.current === 'exact' ? this.engine.state.tiersUnlocked : 0;
+    const prime = primeNotes(k, this.anchor, this.lo, this.hi, { tiers });
+    const notes = prime.notes.map(([midi, b, dur], i) => ({ midi, b, dur, voice: 0, free: i === 0 && midi === this.anchor }));
     const off = prime.dropped ? ` (${prime.dropped} note${prime.dropped === 1 ? '' : 's'} off the keyboard)` : '';
     return {
       kind: 'prime',
@@ -555,7 +564,7 @@ export class Drill {
       optionalAnchor: true,
       notes,
       meter: 4,
-      label: `key: ${keyName(k)}, do-mi-sol-do' from ${name(notes.length ? notes[0].midi : this.anchor)}${off}`,
+      label: `key: ${keyName(k)}, ${prime.set} scrambled: ${notes.map((n) => name(n.midi)).join(' ')}${off}`,
     };
   }
 

@@ -78,10 +78,15 @@ opens every input port.
   (that is what removed the judge window on 2026-09-11).
   KEY BLOCKS (`src/keyblock.js`): every BLOCK_QUESTIONS (8) the note the
   player is on becomes a new tonic (mode rotates) and the block opens with a
-  `prime`: do-mi-sol-do' FROM THAT NOTE, asked and played back like any
-  other call (`primeNotes` puts do on the anchor whenever the tonic's pitch
-  class allows, which chooseKey makes near-certain). That arpeggio IS how
-  the tonal centre is established -- nothing announces it. The block then
+  `prime`: a TONAL SET from that note IN A RANDOM ORDER, asked and played
+  back like any other call (`primeNotes` puts the tonic on the anchor
+  whenever the pitch class allows, which chooseKey makes near-certain, and
+  the tonic always leads). Sets: triad / seventh / pentatonic / first five
+  degrees / ninth, gated on tiers unlocked (0/4/6/8/10) and weighted toward
+  the widest earned, triad only below the exact stage. The PITCHES name the
+  key; the SCRAMBLING is what makes it a question -- do-mi-sol-do' told the
+  ear every interval before it heard one, which is not a skill. That set IS
+  how the tonal centre is established -- nothing announces it. The block then
   holds: passages are transposed INTO the key (`PhraseBank.pick({key})`,
   pivot still on the anchor), gestures step diatonically in it, plain
   targets lean diatonic (DIATONIC_LEAN). No cadence, no drone, no emergent
@@ -242,9 +247,10 @@ opens every input port.
   foreign; else the nearest key on the circle of fifths that holds every
   note; null = chromatic, gets no prime), `shiftToKey` (mode reconciled via
   the relative key, octave nearest a point drawn halfway from the anchor to
-  the keyboard middle), `primeNotes` (do-mi-sol-do' over two beats,
-  do ON THE ANCHOR whenever the tonic's pitch class allows -- the prime is a
-  call, and every call starts under the hand),
+  the keyboard middle), `primeNotes` (a scrambled tonal set from
+  PRIME_SETS, one note per beat, tonic ON THE ANCHOR and always first --
+  the prime is a call, every call starts under the hand, and the tonic
+  leading is also the strongest key cue there is),
   `modeSwap` (3/6/7 moved), `chooseKey` (tonic = the anchor's pitch class,
   mode rotates), `diatonicStep`. Evidence: Cuddy & Badertscher 1987 (three
   notes set a key), Dowling 1986 / Bartlett & Dowling 1980 (a drifting or
