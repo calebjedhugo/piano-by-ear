@@ -42,6 +42,7 @@ export const POOLS = {
 };
 const TIMEOUT_MS = { echo: 30000, contour: 25000, sizing: 25000, exact: 10000 };
 const WINDOW_SEMITONES = 19; // an octave and a half of keyboard for the lower stages
+const EXACT_WINDOW_SEMITONES = 40; // even at the top, targets stay within this of the middle (the walk reached C7)
 const ANCHOR_SOUNDED_TIERS = 3; // at exact, the anchor still sounds until this many tiers are open
 
 export class Stage {
@@ -124,9 +125,9 @@ export class Stage {
 
   /** The keyboard window questions stay inside, for the lower stages. */
   window(lo, hi) {
-    if (this.current === 'exact') return { lo, hi };
+    const span = this.current === 'exact' ? EXACT_WINDOW_SEMITONES : WINDOW_SEMITONES;
     const mid = Math.round((lo + hi) / 2);
-    const half = Math.floor(WINDOW_SEMITONES / 2);
-    return { lo: Math.max(lo, mid - half), hi: Math.min(hi, mid + WINDOW_SEMITONES - half) };
+    const half = Math.floor(span / 2);
+    return { lo: Math.max(lo, mid - half), hi: Math.min(hi, mid + span - half) };
   }
 }

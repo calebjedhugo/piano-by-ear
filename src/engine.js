@@ -291,6 +291,9 @@ export class AdaptiveEngine {
     const center = this.range / 2;
     const dist = Math.abs(fromIndex - center);
     const inward = Math.abs(toIndex - center) < dist;
+    // Past an octave and a half out, the pull is steep: on 88 keys the gentle
+    // slope let the walk reach C7 and C2.
+    if (dist > 18) return inward ? 3 : 0.15;
     return inward ? 1 + dist / 24 : Math.max(0.3, 1 - dist / 36);
   }
 
@@ -469,15 +472,25 @@ export class AdaptiveEngine {
     return TIER_WIDTHS.slice(0, this.state.tiersUnlocked).includes(Math.abs(w));
   }
 
-  recordConfusion(asked, tapped) {
+  /**
+   * @param {number} weight  1 for an isolated miss; passage near-misses count
+   *   half, and only for leaps (a wrong step inside a phrase is usually the
+   *   key's degree, not the interval's category)
+   */
+  recordConfusion(asked, tapped, weight = 1) {
     if (tapped === asked || tapped === 0) return;
-    // Only pairs whose widths are in play, adjacent in size (the confusions
-    // that actually happen: fourth/fifth, minor/major sixth) or the same
-    // width the other way; a wild miss is not a category boundary.
+    // Only pairs whose widths are in play and ADJACENT in size (the
+    // confusions that actually happen: minor/major sixth, and fourth/fifth
+    // across the tritone as the one two-semitone pair); a wild miss is not a
+    // category boundary.
     if (!this.openInPassage(asked) || !this.openInPassage(tapped)) return;
-    if (Math.sign(asked) !== Math.sign(tapped) || Math.abs(Math.abs(asked) - Math.abs(tapped)) > 2) return;
+    if (Math.sign(asked) !== Math.sign(tapped)) return;
+    const wa = Math.abs(asked);
+    const wt = Math.abs(tapped);
+    const fourthFifth = (wa === 5 && wt === 7) || (wa === 7 && wt === 5);
+    if (Math.abs(wa - wt) > 1 && !fourthFifth) return;
     const key = `${AdaptiveEngine.key(asked)}|${AdaptiveEngine.key(tapped)}`;
-    const count = (this.state.confusions[key] || 0) + 1;
+    const count = (this.state.confusions[key] || 0) + weight;
     if (count >= CONFUSION_THRESHOLD) {
       delete this.state.confusions[key];
       if (!this.state.focus) { // one pair at a time, never a cascade
@@ -521,7 +534,7 @@ export class AdaptiveEngine {
       this.updateCells(cells, !missed);
       // A near miss inside a phrase is the same category boundary as one in
       // isolation, and it is where most of them happen.
-      if (missed && scope === 'passage') this.recordConfusion(asked, this.pending.tapped);
+      if (missed && scope === 'passage' && Math.abs(asked) >= 3) this.recordConfusion(asked, this.pending.tapped, 0.5);
     } else {
       const s = this.intervalStats(asked);
       const wasMastered = this.isMastered(s, this.predictedAccFrom(asked, cells));

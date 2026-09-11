@@ -158,6 +158,16 @@ const CHROMATIC_SIDE = 0.15; // a chromatic target whose mirror is diatonic and 
 // (Guadagnoli & Kohl 2001), and false alarms are measurable.
 const JUDGE_BEATS = 4;
 const JUDGE_CLEAN_RATE = 0.5;
+// The cue has to teach itself (there is no screen): until the player has
+// pressed in a window, or JUDGE_LEARNING_WINDOWS have gone by, the cue plays
+// twice and the window is JUDGE_LEARNING_BEATS long; those windows are
+// recorded as learning, not as misses unnoticed. Caleb's first real session:
+// 18 windows, 0 presses, "I did not know what the two notes were asking."
+const JUDGE_LEARNING_WINDOWS = 5;
+const JUDGE_LEARNING_BEATS = 8;
+// A beat of silence ends an answer, except where the player is recalling
+// rather than echoing: a retry or a variant waits two.
+const QUIET_BEATS = { retry: 2, variant: 2 };
 // The round: this many clean, in-time plain answers started within two beats
 // open one; a run is this many calls or this many misses; then a cool-down
 // call. At the ~70% a 2-down/1-up staircase converges on, 16 calls expect
@@ -215,6 +225,8 @@ export class Drill {
     this.carryStore = db.kv('carry');
     this.stageStore = db.kv('stage');
     this.roundsStore = db.kv('rounds'); // one record per run: the round's evidence is scoped away from the ladder
+    this.judgeStore = db.kv('judge'); // { seen, pressed }: whether the cue has taught itself yet
+    this.judgeStats = this.judgeStore.load() || { seen: 0, pressed: 0 };
     this.len = this.lenStore.load() || {};
     this.state = 'IDLE';
     this.clockOffset = performance.now() / 1000 - audio.now;
@@ -555,7 +567,7 @@ export class Drill {
     // the anchor). Placed on the anchor, it stays free.
     const placed = notes.map(([midi, off, dur, voice], i) => ({ midi, b: phrase.pickup + off, dur, voice, free: !key && i === phrase.pivot }));
     const pivotMidi = notes[phrase.pivot][0];
-    const start = key ? `, in ${keyName(key)}, first note ${signed(pivotMidi - this.anchor)} from ${name(this.anchor)}` : octave === 0 ? '' : `, starts ${name(pivotMidi)} (octave ${octave > 0 ? 'above' : 'below'} anchor)`;
+    const start = key ? `, in ${keyName(key)}${kind === 'retry' ? '' : `, first note ${signed(pivotMidi - this.anchor)} from ${name(this.anchor)}`}` : octave === 0 ? '' : `, starts ${name(pivotMidi)} (octave ${octave > 0 ? 'above' : 'below'} anchor)`;
     const poly = phrase.kind !== 'mono';
     return {
       kind,
@@ -644,7 +656,10 @@ export class Drill {
     // which changes the melody itself -- only when neither fits.
     if (this.block && phrase.tonalKey && (!v.key || v.key.tonic !== this.block.key.tonic || v.key.mode !== this.block.key.mode)) {
       picked = bank.pickInKey(v.id, this.block.key, this.anchor, this.lo, this.hi);
-      how = `now in ${keyName(this.block.key)}`;
+      // A major phrase in the relative minor block (or the reverse) is the
+      // same pitch set: no transposition at all. Fall through to a real step.
+      if (picked && v.placed && (((picked.shift - v.placed.shift) % 12) + 12) % 12 === 0) picked = null;
+      if (picked) how = `now in ${keyName({ tonic: (((phrase.tonalKey.tonic + picked.shift) % 12) + 12) % 12, mode: phrase.tonalKey.mode })}`;
     }
     if (!picked && v.placed?.notes) {
       const step = [2, -2, 3, -3].find((s) => v.placed.notes.every((n) => n[0] + s >= this.lo && n[0] + s <= this.hi));
@@ -689,7 +704,11 @@ export class Drill {
       // The judge window: which note did you miss (if any)?
       const j = this.judge;
       this.judge = null;
-      return { kind: 'judge', judge: j, notes: [], meter: 4, label: `judge: which note did you miss? (${JUDGE_BEATS} beats)` };
+      const learning = this.judgeStats.pressed === 0 && this.judgeStats.seen < JUDGE_LEARNING_WINDOWS;
+      const beats = learning ? JUDGE_LEARNING_BEATS : JUDGE_BEATS;
+      this.judgeStats.seen += 1;
+      this.judgeStore.save(this.judgeStats);
+      return { kind: 'judge', judge: { ...j, learning }, beats, notes: [], meter: 4, label: `judge: which note did you miss? (${beats} beats${learning ? ', learning the cue' : ''})` };
     }
     if (this.retry) {
       // Straight back, before anything else, in the SAME key and register:
@@ -885,7 +904,7 @@ export class Drill {
     });
     this.callScheduled = 0;
     const lastCall = this.callNotes[this.callNotes.length - 1];
-    this.callEndAt = lastCall ? lastCall[1] + Math.max(lastCall[2], this.beat) : t0 + (q.judge ? JUDGE_BEATS : 1) * this.beat;
+    this.callEndAt = lastCall ? lastCall[1] + Math.max(lastCall[2], this.beat) : t0 + (q.judge ? q.beats : 1) * this.beat;
     this.buildGroups(notes);
     this.earliestStart = (lastCall ? this.callNotes[0][1] : t0) + this.beat; // one beat behind the call
     if (q.collect) this.earliestStart = t0; // your turn to make something up: any time
@@ -903,7 +922,10 @@ export class Drill {
     this.behind = null;
     if (q.phrase && q.kind === 'passage') this.askedThisSession.add(q.phrase.id);
     if (q.collect) this.audio.cue('stageUp', t0); // "you go"
-    if (q.judge) this.audio.cue('judge', t0); // the window is open: a question, quietly
+    if (q.judge) {
+      this.audio.cue('judge', t0); // the window is open: a question, quietly
+      if (q.judge.learning) this.audio.cue('judge', t0 + 0.6); // twice, until it has taught itself
+    }
     if (q.round) this.nextQuestionAt = t0 + q.lead * this.beat; // the caller does not wait
     this.log(`Q${this.questions}: ${q.label} @ ${this.bpm} bpm (±${this.toleranceMs.toFixed(0)}ms)${this.block && q.kind === 'interval' ? `  [${keyName(this.block.key)}]` : ''}`);
   }
@@ -924,11 +946,15 @@ export class Drill {
       g.notes.push({ midi: n.midi, dur: n.dur, voice: n.voice, free: Boolean(n.free), silent: Boolean(n.silent), done: false, played: null, melodicFrom: null, melodicPrev: null, harmonicFrom: null, graded: false });
     }
     const lastInVoice = new Map(); // voice -> [prev, prevPrev] midis
-    // A keyed passage's pivot is heard from the note under the hand: frame it
-    // from the anchor so it is graded as the anchor-to-pivot interval.
+    // A keyed passage is heard from the note under the hand: EVERY voice's
+    // first note is framed from the anchor and graded (a duo's first bass
+    // note was ungraded yet fatal). On a retry the first notes were just
+    // heard: each is framed from itself (interval 0, not a new leap).
     if (this.q?.placed?.key) {
-      const pv = this.q.notes[this.q.phrase.pivot]?.voice ?? 0;
-      lastInVoice.set(pv, [this.anchor, this.prevAnchor]);
+      const retry = this.q.kind === 'retry';
+      for (const n of notes) {
+        if (!lastInVoice.has(n.voice)) lastInVoice.set(n.voice, retry ? [n.midi, null] : [this.anchor, this.prevAnchor]);
+      }
     }
     // The echo ask-back's first note is found again from the playback's last
     // note (the anchor): graded, on the stage's rung, like every other.
@@ -1017,9 +1043,9 @@ export class Drill {
         // Heard; nothing to answer. The next question comes a beat later.
         this.lastPlayedAt = Math.max(this.lastPlayedAt ?? 0, this.callEndAt);
         this.completeQuestion();
-      } else if (q.judge && now >= this.callT0 + JUDGE_BEATS * this.beat) {
-        this.db.judgment({ sessionId: this.sessionId, question: q.judge.question, phraseId: q.judge.phraseId, guessed: false, hit: null, passageClean: q.judge.clean });
-        this.log(`  no judgment offered${q.judge.clean ? ' (it was clean: correct)' : ' (it was not clean: a miss went unnoticed)'}`);
+      } else if (q.judge && now >= this.callT0 + q.beats * this.beat) {
+        this.db.judgment({ sessionId: this.sessionId, question: q.judge.question, phraseId: q.judge.phraseId, guessed: false, hit: null, passageClean: q.judge.clean, learning: q.judge.learning });
+        this.log(`  no judgment offered${q.judge.learning ? ' (learning the cue)' : q.judge.clean ? ' (it was clean: correct)' : ' (it was not clean: a miss went unnoticed)'}`);
         this.completeQuestion();
       } else if (q.collect) {
         this.collectTick(now);
@@ -1032,7 +1058,8 @@ export class Drill {
         // are done, whatever is left: the rest is missed and the reply comes.
         const g = this.groups[this.gi];
         const quietSince = Math.max(this.lastPlayedAt ?? -Infinity, this.lastReleasedAt ?? -Infinity, g.at);
-        if (now >= quietSince + QUIET_BEATS_BEFORE_NEXT * this.beat - this.toleranceMs / 1000) this.abandonResponse();
+        const quiet = QUIET_BEATS[q.kind] ?? QUIET_BEATS_BEFORE_NEXT;
+        if (now >= quietSince + quiet * this.beat - this.toleranceMs / 1000) this.abandonResponse({ waited: quiet });
       }
     }
     if (this.answered) {
@@ -1169,7 +1196,9 @@ export class Drill {
     if (q.judge) {
       if (atAudio < this.callT0) return; // before the window: a stray key
       const hit = q.judge.missed.includes(note);
-      this.db.judgment({ sessionId: this.sessionId, question: q.judge.question, phraseId: q.judge.phraseId, guessed: true, hit, passageClean: q.judge.clean });
+      this.judgeStats.pressed += 1;
+      this.judgeStore.save(this.judgeStats);
+      this.db.judgment({ sessionId: this.sessionId, question: q.judge.question, phraseId: q.judge.phraseId, guessed: true, hit, passageClean: q.judge.clean, learning: q.judge.learning });
       this.log(`  judged ${name(note)}: ${hit ? 'yes, that was one' : q.judge.clean ? 'no, it was clean (false alarm)' : `no (missed: ${q.judge.missed.map(name).join(' ')})`}`);
       this.completeQuestion();
       return;
@@ -1296,7 +1325,7 @@ export class Drill {
       firstAttempt: true, onsetMs, question: this.questions, kind: q.kind,
       phraseId: q.phrase?.id ?? null, position: g.index, graded: exp.graded, inTime, beatMs: this.beat * 1000,
       credit: isolated ? credit : null, stage: isolated ? this.stage.current : null, heightErr: q.wide ? heightErr : null,
-      voice: exp.voice ?? null,
+      voice: exp.voice ?? null, behind: this.behind,
     });
     // Remember this key press so its release can be graded for duration.
     if (exp.graded && correct) {
@@ -1333,7 +1362,7 @@ export class Drill {
   }
 
   /** You stopped before the end: every note still pending is a miss. */
-  abandonResponse({ quiet = false } = {}) {
+  abandonResponse({ quiet = false, waited = QUIET_BEATS_BEFORE_NEXT } = {}) {
     let missed = 0;
     const last = this.lastNoteOn?.midi ?? this.anchor;
     for (let gi = this.gi; gi < this.groups.length; gi += 1) {
@@ -1350,7 +1379,7 @@ export class Drill {
     }
     this.gi = this.groups.length;
     if (missed > 0) this.pitchClean = false;
-    if (!quiet || missed > 0) this.log(`  response ended${quiet ? '' : ' after a beat of silence'}: ${missed} note${missed === 1 ? '' : 's'} missed`);
+    if (!quiet || missed > 0) this.log(`  response ended${quiet ? '' : ` after ${waited === 1 ? 'a beat' : `${waited} beats`} of silence`}: ${missed} note${missed === 1 ? '' : 's'} missed`);
     this.completeQuestion();
   }
 

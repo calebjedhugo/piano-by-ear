@@ -88,7 +88,11 @@ opens every input port.
   by a `judge` cue and JUDGE_BEATS of silence in which one key press = "the
   note I missed" (`judgments` table with passage_clean: hits, misses, false
   alarms, correct rejections; then the retry if there is one). Its arrival
-  must never reveal the verdict. VARIANTS: a nailed passage returns in the
+  must never reveal the verdict. THE CUE TEACHES ITSELF: kv `judge` {seen,
+  pressed}; until the first press or JUDGE_LEARNING_WINDOWS windows, the cue
+  plays twice, the window is JUDGE_LEARNING_BEATS, and the row is
+  `learning` = 1 (not evidence). QUIET_BEATS: a retry or variant answer ends
+  after TWO beats of silence (recall, not echo), everything else one. VARIANTS: a nailed passage returns in the
   NEXT block (variantQueue[].block < blockN), in the block's new key, else
   +-2/3 semitones (same hand shape), else the other mode (`modeSwap`, last:
   it changes the melody); passage-scope evidence only, never the length
@@ -147,9 +151,18 @@ opens every input port.
   at >= 5); each chord tone is framed for the harmonic engine as it is
   graded (`q.chord`), never pre-asked. KEYED PASSAGES grade the pivot too
   (it is not the note under the hand): buildGroups frames it from the
-  anchor, the octave is the one whose pivot is nearest the anchor, wider
-  than an octave folds to the simple interval, and the label says `first
-  note +N from X`. A round's lead is never shorter than the previous
+  anchor -- EVERY voice's first note (a duo's first bass note was ungraded
+  yet fatal); on a RETRY each voice's first note is framed from itself
+  (interval 0: just heard, not a new leap). The octave is the one whose
+  pivot is nearest the anchor, wider than an octave folds to the simple
+  interval, and the label says `first note +N from X` (not on retries).
+  VARIANT in the relative key of the original placement is no transposition
+  (same pitch set): it falls through to the +-2/3 step; the label names the
+  sounding key. ANCHOR WALK: `Stage.window()` is EXACT_WINDOW_SEMITONES (40)
+  around the middle even at the top, and `engine.centerPull` is steep past
+  18 semitones out (x3 / x0.15): the walk reached C7 and C2 on 88 keys.
+  `attempts.behind` stores the response-start lag (beats) on every row of a
+  question: the effort signature, reported by kind in progress.mjs. A round's lead is never shorter than the previous
   answer's lag + 1, and a call is never scheduled at a time already past.
 - `src/engine.js` AdaptiveEngine (ear-training port), instantiated twice:
   melodic (kv `engine`) and harmonic (kv `engine:harmonic`). TIER_WIDTHS is
@@ -167,6 +180,10 @@ opens every input port.
   own direction (`servedQueue` = true -> kind 'discrimination'), and the
   focus closes early once the last FOCUS_DONE_WINDOW pair trials reach
   FOCUS_DONE_ACC. Never served inside a round. No queue, no A-B-A-B run.
+  PAIR RULE: same sign, widths ADJACENT (diff <= 1) or 4th/5th; passage
+  near-misses count half and only for |asked| >= 3 (a wrong step in a phrase
+  is the key's degree, not the interval's category: the first real session's
+  focus was -1 vs -2, harvested from gesture tails, while P4/P5 got none).
   `nextTargetIndex(a, prev, {allowWide, pool, bounds, extraTiers, lean,
   scope})`: pool = a stage's signed list instead of the ladder; bounds = an
   index window; extraTiers = the round's escalation; lean = per-target

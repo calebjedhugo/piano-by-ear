@@ -349,17 +349,24 @@ function section3() {
     console.log('\n(judgments table not present yet)');
     return;
   }
-  const jrows = db.prepare(`SELECT ts, guessed, hit, ${col('judgments', 'passage_clean')} FROM judgments WHERE ts >= ? ORDER BY ts ASC`).all(cutoff);
+  // learning: one of the first judge windows, before the player had ever
+  // pressed in one -- not evidence, so it is excluded from the rates below
+  // and reported as its own count. Missing column = guarded to 0 (not learning).
+  const jrows = db.prepare(`
+    SELECT ts, guessed, hit, ${col('judgments', 'passage_clean')}, ${col('judgments', 'learning')}
+    FROM judgments WHERE ts >= ? ORDER BY ts ASC`).all(cutoff);
 
   if (!hasColumn('judgments', 'passage_clean')) {
     const perJDay = groupBy(jrows, (r) => localDay(r.ts));
     const jdays = [...perJDay.keys()].sort();
     const jRowsOut = jdays.map((day) => {
       const list = perJDay.get(day);
-      const guessedRows = list.filter((r) => r.guessed);
-      return [day, list.length, pctN(list.map((r) => r.guessed)), pctN(guessedRows.map((r) => r.hit))];
+      const evidence = list.filter((r) => !r.learning);
+      const guessedRows = evidence.filter((r) => r.guessed);
+      const learningN = list.filter((r) => r.learning).length;
+      return [day, list.length, pctN(evidence.map((r) => r.guessed)), pctN(guessedRows.map((r) => r.hit)), learningN];
     });
-    printTable('Judgments by day (after failed passages)', ['day', 'offered', 'guessed rate', 'hit rate'], jRowsOut);
+    printTable('Judgments by day (after failed passages)', ['day', 'offered', 'guessed rate', 'hit rate', 'learning windows'], jRowsOut);
     console.log('(passage_clean column not present in this database yet -- all judgments assumed to follow failed passages)');
     return;
   }
@@ -374,16 +381,20 @@ function section3() {
 
   const failedRowsOut = jdays.map((day) => {
     const list = byDayFailed.get(day) || [];
-    const guessedRows = list.filter((r) => r.guessed);
-    return [day, list.length, pctN(list.map((r) => r.guessed)), pctN(guessedRows.map((r) => r.hit))];
+    const evidence = list.filter((r) => !r.learning);
+    const guessedRows = evidence.filter((r) => r.guessed);
+    const learningN = list.filter((r) => r.learning).length;
+    return [day, list.length, pctN(evidence.map((r) => r.guessed)), pctN(guessedRows.map((r) => r.hit)), learningN];
   });
-  printTable('Judgments after failed passages, by day', ['day', 'offered', 'guessed rate', 'hit rate'], failedRowsOut);
+  printTable('Judgments after failed passages, by day', ['day', 'offered', 'guessed rate', 'hit rate', 'learning windows'], failedRowsOut);
 
   const cleanRowsOut = jdays.map((day) => {
     const list = byDayClean.get(day) || [];
-    return [day, list.length, pctN(list.map((r) => r.guessed)), pctN(list.map((r) => (r.guessed ? 0 : 1)))];
+    const evidence = list.filter((r) => !r.learning);
+    const learningN = list.filter((r) => r.learning).length;
+    return [day, list.length, pctN(evidence.map((r) => r.guessed)), pctN(evidence.map((r) => (r.guessed ? 0 : 1))), learningN];
   });
-  printTable('Judgments after clean passages, by day', ['day', 'offered', 'false-alarm rate', 'correct-rejection rate'], cleanRowsOut);
+  printTable('Judgments after clean passages, by day', ['day', 'offered', 'false-alarm rate', 'correct-rejection rate', 'learning windows'], cleanRowsOut);
   console.log('(clean passages sampled at 50%)');
 }
 
@@ -403,6 +414,76 @@ function section4() {
     return [day, num(median(onsets), 0), pctN(timed.map((r) => r.in_time)), defects];
   });
   printTable('Timing by day', ['day', 'median onset ms', 'in-time rate', 'hold defects'], rowsOut);
+}
+
+// ================= 4b. Response-start lag =================
+// attempts.behind is the number of beats between the call and the
+// response's first note, stored on every attempt row of a question (same
+// value for all rows of one question) -- dedupe by (session_id, question).
+function sectionResponseLag() {
+  console.log('\n=== Response-start lag ===');
+  if (!hasColumn('attempts', 'behind')) {
+    console.log('(behind column not present in this database yet)');
+    return;
+  }
+  const KIND_GROUPS = {
+    interval: ['interval', 'discrimination', 'remediation', 'gesture'],
+    passage: ['passage'],
+    retry: ['retry'],
+    variant: ['variant'],
+    round: ['round'],
+  };
+  const allKinds = [...new Set(Object.values(KIND_GROUPS).flat())];
+  const rows = db.prepare(`
+    SELECT session_id, question, ts, kind, behind FROM attempts
+    WHERE behind IS NOT NULL AND kind IN (${allKinds.map(() => '?').join(',')}) AND ts >= ?
+    ORDER BY ts ASC`).all(...allKinds, cutoff);
+
+  const seenQ = new Set();
+  const perQuestion = [];
+  for (const r of rows) {
+    const key = `${r.session_id}|${r.question}`;
+    if (seenQ.has(key)) continue;
+    seenQ.add(key);
+    perQuestion.push(r);
+  }
+
+  const groupNames = Object.keys(KIND_GROUPS);
+  const byDay = groupBy(perQuestion, (r) => localDay(r.ts));
+  const days = [...byDay.keys()].sort();
+  const header = ['day', ...groupNames.flatMap((g) => [`${g} median`, `${g} n`])];
+  const rowsOut = days.map((day) => {
+    const list = byDay.get(day);
+    const cells = [day];
+    for (const g of groupNames) {
+      const sub = list.filter((r) => KIND_GROUPS[g].includes(r.kind)).map((r) => r.behind);
+      cells.push(num(median(sub), 1), sub.length);
+    }
+    return cells;
+  });
+  printTable('Median response-start lag (beats behind the call), by kind, by day', header, rowsOut);
+
+  // Search time: passages only, median onset_ms of the first graded note
+  // per question (position = min position among graded=1 rows).
+  const prows = db.prepare(`
+    SELECT session_id, question, ts, position, onset_ms FROM attempts
+    WHERE kind = 'passage' AND graded = 1 AND onset_ms IS NOT NULL AND ts >= ?
+    ORDER BY ts ASC`).all(cutoff);
+  const firstNote = new Map(); // session_id|question -> {ts, position, onset_ms}
+  for (const r of prows) {
+    const key = `${r.session_id}|${r.question}`;
+    const cur = firstNote.get(key);
+    if (!cur || r.position < cur.position) firstNote.set(key, { ts: r.ts, position: r.position, onset_ms: r.onset_ms });
+  }
+  const searchByDay = new Map();
+  for (const v of firstNote.values()) {
+    const day = localDay(v.ts);
+    if (!searchByDay.has(day)) searchByDay.set(day, []);
+    searchByDay.get(day).push(v.onset_ms);
+  }
+  const searchDays = [...searchByDay.keys()].sort();
+  const searchRows = searchDays.map((day) => [day, num(median(searchByDay.get(day)), 0), searchByDay.get(day).length]);
+  printTable('Passage search time (median onset ms of the first graded note), by day', ['day', 'median ms', 'n'], searchRows);
 }
 
 // ================= 5. Stage =================
@@ -539,6 +620,47 @@ function section9() {
     return [day, ...voices.map((v) => pctN(list.filter((r) => r.voice === v).map(effCorrect)))];
   });
   printTable('Dyad/chord accuracy by voice, by day (voice 0 = bass/free; higher = tones above it)', header, rowsOut);
+
+  // Passage voices: duo/chorale/poly passages (>1 distinct voice within the
+  // question) -- shows the high-voice bias (top voice right, bass never
+  // played) that a single melody-only accuracy figure hides.
+  const passageKinds = ['passage', 'retry', 'variant'];
+  const prows = db.prepare(`
+    SELECT session_id, question, ts, voice, correct, velocity FROM attempts
+    WHERE kind IN (${passageKinds.map(() => '?').join(',')}) AND phrase_id IS NOT NULL AND voice IS NOT NULL
+      AND graded = 1 AND ts >= ? ORDER BY ts ASC`).all(...passageKinds, cutoff);
+
+  const byQuestion = groupBy(prows, (r) => `${r.session_id}|${r.question}`);
+  const polyRows = [];
+  for (const list of byQuestion.values()) {
+    if (new Set(list.map((r) => r.voice)).size > 1) polyRows.push(...list);
+  }
+
+  if (!polyRows.length) {
+    console.log('\n(no duo/chorale/poly passage voice data yet)');
+    return;
+  }
+
+  const perDayPoly = groupBy(polyRows, (r) => localDay(r.ts));
+  const voicesPoly = [...new Set(polyRows.map((r) => r.voice))].sort((a, b) => a - b);
+  const daysPoly = [...perDayPoly.keys()].sort();
+
+  const accHeader = ['day', ...voicesPoly.map((v) => `voice ${v} acc`)];
+  const accRowsOut = daysPoly.map((day) => {
+    const list = perDayPoly.get(day);
+    return [day, ...voicesPoly.map((v) => pctN(list.filter((r) => r.voice === v).map((r) => r.correct)))];
+  });
+  printTable('Passage voices (duo/chorale/poly) accuracy by voice, by day (voice 0 = bass)', accHeader, accRowsOut);
+
+  const neverHeader = ['day', ...voicesPoly.map((v) => `voice ${v} never-played`)];
+  const neverRowsOut = daysPoly.map((day) => {
+    const list = perDayPoly.get(day);
+    return [day, ...voicesPoly.map((v) => {
+      const sub = list.filter((r) => r.voice === v);
+      return pctN(sub.map((r) => (r.velocity === 0 ? 1 : 0)));
+    })];
+  });
+  printTable('Passage voices (duo/chorale/poly) never-played rate by voice, by day', neverHeader, neverRowsOut);
 }
 
 console.log('piano-by-ear progress report');
@@ -548,6 +670,7 @@ section1();
 section2();
 section3();
 section4();
+sectionResponseLag();
 section5();
 section6();
 section7();
