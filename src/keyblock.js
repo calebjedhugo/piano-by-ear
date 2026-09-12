@@ -106,50 +106,36 @@ export function shiftToKey(phrase, from, to, near, lo, hi) {
 }
 
 /**
- * THE PRIME'S TONAL SETS. Each is scale degrees above the tonic, and each
- * one names a key on its own: a triad, a seventh, the pentatonic, the first
- * five degrees, an extended tertian stack. `tiers` is how many interval
- * tiers must be open before a set is in the running, so the material grows
- * with the ear rather than with a setting.
+ * THE PRIME'S TONAL SETS, as scale degrees above the tonic. Each one names a
+ * key on its own, and they are ordered by how hard the SET IS TO WALK -- the
+ * prime is asked one note at a time, in the drill's own call-and-response
+ * form, so what costs the ear is the interval between consecutive notes, not
+ * the chord the notes spell.
+ *
+ * That inverts the obvious order. Stepwise scale degrees come first, because
+ * do-re-mi is three easy questions; the triad comes LATER, because walking it
+ * means catching thirds and a fourth cold. `tiers` is how many interval tiers
+ * must be open before a set is in the running -- the two stepwise sets are
+ * always open, so a beginner is only ever asked for steps and half steps.
  */
-const PRIME_SETS = [
-  { name: 'triad', tiers: 0, major: [0, 4, 7], minor: [0, 3, 7] },
-  { name: 'seventh', tiers: 4, major: [0, 4, 7, 11], minor: [0, 3, 7, 10] },
-  { name: 'pentatonic', tiers: 6, major: [0, 2, 4, 7, 9], minor: [0, 3, 5, 7, 10] },
-  { name: 'first five', tiers: 8, major: [0, 2, 4, 5, 7], minor: [0, 2, 3, 5, 7] },
-  { name: 'ninth', tiers: 10, major: [0, 4, 7, 11, 14], minor: [0, 3, 7, 10, 14] },
+export const PRIME_SETS = [
+  { name: 'first three', tiers: 0, major: [0, 2, 4], minor: [0, 2, 3] },
+  { name: 'first five', tiers: 0, major: [0, 2, 4, 5, 7], minor: [0, 2, 3, 5, 7] },
+  { name: 'pentatonic', tiers: 4, major: [0, 2, 4, 7, 9], minor: [0, 3, 5, 7, 10] },
+  { name: 'triad', tiers: 5, major: [0, 4, 7], minor: [0, 3, 7] },
+  { name: 'seventh', tiers: 7, major: [0, 4, 7, 11], minor: [0, 3, 7, 10] },
+  { name: 'ninth', tiers: 9, major: [0, 4, 7, 11, 14], minor: [0, 3, 7, 10, 14] },
 ];
 
 /**
- * THE BLOCK'S PRIME: one of the sets above, IN A RANDOM ORDER, as
- * [midi, beatOffset, beatDur], one note per beat (the last held two).
- *
- * The old do-mi-sol-do' announced the key and asked nothing of the ear: the
- * player knew every interval before he heard it, which is not a thing anyone
- * needs to be able to do. Scrambled, the set still names the key -- the
- * pitches are what does that, not their order -- while every interval after
- * the first has to be caught cold. That is the real skill: walking in on
- * music already in progress and finding your feet in it.
- *
- * DO IS THE NOTE UNDER YOUR HAND and always comes first: it is both the
- * placement rule every call in this drill obeys (a call that starts
- * somewhere else is failed on its first note -- the 2026-09-11 lesson) and
- * the strongest key cue there is. chooseKey takes the anchor's pitch class
- * as the tonic, so the two nearly always agree; only when they do not does
- * this fall back to the nearest tonic.
+ * Which set opens this block: one the player's ladder has earned, weighted
+ * toward the widest of them so a triad among ninths is interleaving rather
+ * than a holiday, and never dropping the narrow ones.
+ * Returns { name, degrees } -- degrees[0] is always 0, the tonic, which is
+ * the note already under the player's hand.
  */
-export function primeNotes(k, near, lo, hi, { tiers = 0, rand = Math.random } = {}) {
-  const pc = (m) => ((m % 12) + 12) % 12;
-  let tonic = near;
-  if (pc(near) !== pc(k.tonic)) {
-    tonic = k.tonic + 12 * Math.round((near - 7 - k.tonic) / 12);
-    while (tonic + 12 > hi) tonic -= 12;
-    while (tonic < lo) tonic += 12;
-  }
-  const fits = (set) => tonic + Math.max(...set[k.mode]) <= hi && tonic >= lo;
-  const open = PRIME_SETS.filter((set) => set.tiers <= tiers && fits(set));
-  // Weighted toward the widest set the ear has earned, without ever dropping
-  // the narrow ones: a triad among ninths is interleaving, not a holiday.
+export function primeSet(k, { tiers = 0, rand = Math.random } = {}) {
+  const open = PRIME_SETS.filter((set) => set.tiers <= tiers);
   const weight = (set) => PRIME_SETS.indexOf(set) + 1;
   let roll = rand() * open.reduce((a, x) => a + weight(x), 0);
   let set = PRIME_SETS[0];
@@ -158,16 +144,7 @@ export function primeNotes(k, near, lo, hi, { tiers = 0, rand = Math.random } = 
     set = cand;
     if (roll <= 0) break;
   }
-  // The tonic leads; everything above it is shuffled (Fisher-Yates).
-  const rest = set[k.mode].slice(1);
-  for (let i = rest.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(rand() * (i + 1));
-    [rest[i], rest[j]] = [rest[j], rest[i]];
-  }
-  const all = [0, ...rest].map((iv) => tonic + iv);
-  const kept = all.filter((m) => m >= lo && m <= hi);
-  const notes = kept.map((m, i) => [m, i, i === kept.length - 1 ? 2 : 1]);
-  return { notes, dropped: all.length - kept.length, set: set.name };
+  return { name: set.name, degrees: set[k.mode].slice() };
 }
 
 /** Where a keyed phrase is placed: the anchor drawn halfway back toward the middle of the keyboard. */

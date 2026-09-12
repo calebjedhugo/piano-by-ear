@@ -78,15 +78,26 @@ opens every input port.
   (that is what removed the judge window on 2026-09-11).
   KEY BLOCKS (`src/keyblock.js`): every BLOCK_QUESTIONS (8) the note the
   player is on becomes a new tonic (mode rotates) and the block opens with a
-  `prime`: a TONAL SET from that note IN A RANDOM ORDER, asked and played
-  back like any other call (`primeNotes` puts the tonic on the anchor
-  whenever the pitch class allows, which chooseKey makes near-certain, and
-  the tonic always leads). Sets: triad / seventh / pentatonic / first five
-  degrees / ninth, gated on tiers unlocked (0/4/6/8/10) and weighted toward
-  the widest earned, triad only below the exact stage. The PITCHES name the
-  key; the SCRAMBLING is what makes it a question -- do-mi-sol-do' told the
-  ear every interval before it heard one, which is not a skill. That set IS
-  how the tonal centre is established -- nothing announces it. The block then
+  `prime`: a TONAL SET WALKED ONE NOTE AT A TIME, two to four ordinary
+  interval questions (`this.priming`, `primeQuestion`, `nextPrimeTarget`),
+  not one call carrying the whole set -- a five-note call is not something
+  anyone can play back, and nothing else in the drill works that way. The
+  tonic is the note already under the hand and is never asked. Sets
+  (`PRIME_SETS`, keyblock.js) are ordered by how hard they are to WALK, which
+  inverts how hard they are to name: first three / first five (tiers 0, so
+  always open) / pentatonic (4) / triad (5) / seventh (7) / ninth (9),
+  weighted toward the widest earned; below the exact stage only the stepwise
+  pair. EVERY STEP IS AT THE PLAYER'S LEVEL: `nextPrimeTarget` picks from what
+  is left of the set so the interval FROM WHERE THE HAND ACTUALLY IS is in
+  `primeWidths()` = the stage's pool or the unlocked TIER_WIDTHS, plus 1 and 2
+  which are always allowed (walking a scale is how a key is established and is
+  the easiest motion there is). So a beginner only ever gets steps and half
+  steps. Degrees are tried an octave up and down too, to stay inside the
+  stage window and give the line somewhere to turn; the weighting prefers a
+  turn over a run (x1.8) and a singable distance over a leap (x1.3). A wrong
+  answer never strands the walk -- the next target is chosen from where the
+  hand landed. That walk IS how the tonal centre is established -- nothing
+  announces it. The block then
   holds: passages are transposed INTO the key (`PhraseBank.pick({key})`,
   pivot still on the anchor), gestures step diatonically in it, plain
   targets lean diatonic (DIATONIC_LEAN). No cadence, no drone, no emergent

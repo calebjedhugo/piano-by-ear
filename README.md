@@ -6,13 +6,15 @@ only ever touch the keys.
 
 1. Plug in a MIDI keyboard and run `npm start`. Two clicks say it is
    listening.
-2. Play any note. That note is the **anchor** and the session begins. The
-   drill answers with the **key** — a triad, a seventh, the pentatonic, the
-   first five degrees, in a scrambled order from your note. The pitches tell
-   you the key; the order tells you nothing, so every interval after the
-   first has to be caught cold. It is a call like any other, so you play it
-   back. Every eight questions the note you happen to be on becomes the next
-   tonic and the key changes.
+2. Play any note. That note is the **anchor**, it is the tonic, and the
+   session begins. The **key** then arrives the way everything else does —
+   one note at a time. The drill walks you through a tonal set over two to
+   four ordinary questions: hear a note, play it, hear the next. By the end
+   the key is simply there. Every step is at your level, so a beginner walks
+   up the scale a step at a time and never hears anything else, while a
+   player with the ladder open gets a seventh or a ninth and has to catch
+   each interval cold. Every eight questions the note you happen to be on
+   becomes the next tonic and the key changes.
 3. The metronome starts as a **constant pulse** and never moves. You hear the
    call: for an interval, just the target note (the anchor is the note you
    just played, so it is not repeated); for a passage, the whole phrase in

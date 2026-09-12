@@ -38,10 +38,17 @@
 // half step at the second note, with no key yet to place it in).
 //
 // KINDS OF QUESTION
-//   prime:     a tonal set from the note under your hand, scrambled, asked
-//              and played back like anything else. It opens the block and IS
-//              how the tonal centre is established -- the drill teaches its
-//              own key, and makes you catch every interval of it cold.
+//   prime:     the key, arriving ONE NOTE AT A TIME in the drill's own form.
+//              A block opens on the note under your hand -- that note is the
+//              tonic -- and then walks a tonal set through two to four
+//              ordinary call-and-response questions until the key is simply
+//              there. Every step is at your level: the target is picked so
+//              the interval from where your hand actually IS is one the
+//              ladder has opened, plus steps and half steps, which are always
+//              allowed. The sets are ordered by how hard they are to WALK,
+//              which is not how hard they are to name: stepwise degrees come
+//              first and the triad comes later, so a beginner gets do-re-mi
+//              and nothing else.
 //   interval:  call = the target on the downbeat (the anchor is the note you
 //              just played; it stays in the question, silent, a beat before).
 //              At the lower stages, and until three tiers are open, the anchor
@@ -135,7 +142,7 @@
 import { TIER_WIDTHS, WARMUP_QUESTIONS, simpleOf } from './engine.js';
 import { floorFromHistory, passageTempo, toleranceMsFor } from './tempo.js';
 import { summarizeRungs, describeRungs, rungScore } from './rungs.js';
-import { BLOCK_QUESTIONS, NAMES, chooseKey, keyName, primeNotes, diatonicIn, diatonicStep, modeSwap } from './keyblock.js';
+import { BLOCK_QUESTIONS, NAMES, chooseKey, keyName, primeSet, diatonicIn, diatonicStep, modeSwap } from './keyblock.js';
 import { Stage } from './stage.js';
 
 const MIN_VELOCITY = 20; // key brushes are echoed but never graded
@@ -421,6 +428,7 @@ export class Drill {
     // prime is a call, and a call starts on the note under the hand, so the
     // key has to be chosen from wherever the player has just sat down.
     this.block = null; // { key, asked, n }
+    this.priming = null; // { key, tonic, set, left, step, total, lastIv } while the key is being walked
     this.blockN = resumed?.block?.n ?? 0;
     this.askedThisSession = new Set(resumed?.asked ?? []);
     this.passagesInARow = 0;
@@ -576,35 +584,114 @@ export class Drill {
   }
 
   /**
-   * THE BLOCK'S PRIME, and the only thing that establishes the key: a tonal
-   * set -- triad, seventh, pentatonic, first five degrees, ninth, whichever
-   * the open tiers allow -- SCRAMBLED, from the note under your hand, asked
-   * and played back like every other call.
+   * THE PRIME'S ONE-NOTE STEP, and the only thing that establishes the key.
    *
-   * The pitches name the key; the order is what makes it a question. Every
-   * interval after the first has to be caught with no idea what is coming,
-   * which is the skill of walking in on music already in progress. Below the
-   * exact stage it is the triad: a player still credited for direction is
-   * not asked to catch a scrambled ninth.
+   * The key arrives the way everything else in this drill does: one note at a
+   * time, call and response, the note under your hand and then a target. A
+   * block opens on the tonic (chooseKey takes the anchor's pitch class) and
+   * then walks a tonal set through two to four ordinary questions -- do, then
+   * re, then mi -- until the set is covered and the key is simply there. It
+   * used to arrive as the whole set at once, three to five notes in a single
+   * call, which is not a thing anyone can play back and is not how any of the
+   * rest of the drill works.
    *
-   * The first note is the anchor (keyblock.primeNotes puts the tonic there),
-   * so it is free, as the note under the hand always is. Evidence goes in at
-   * passage scope: the set is context, not a probe.
+   * EVERY STEP IS AT THE PLAYER'S LEVEL. The target is chosen from what is
+   * left of the set so that the interval from where the hand actually IS is
+   * one the ladder (or the stage's pool) has opened, plus steps and half
+   * steps, which are always allowed: walking a scale is how a key is
+   * established and it is the easiest motion there is. A beginner therefore
+   * gets do-re-mi and nothing else, because the two stepwise sets are the
+   * only ones open to him.
+   *
+   * Evidence goes in at passage scope: the set is context, not a probe.
    */
   primeQuestion() {
-    const k = this.block.key;
-    const tiers = this.stage.current === 'exact' ? this.engine.state.tiersUnlocked : 0;
-    const prime = primeNotes(k, this.anchor, this.lo, this.hi, { tiers });
-    const notes = prime.notes.map(([midi, b, dur], i) => ({ midi, b, dur, voice: 0, free: i === 0 && midi === this.anchor }));
-    const off = prime.dropped ? ` (${prime.dropped} note${prime.dropped === 1 ? '' : 's'} off the keyboard)` : '';
-    return {
-      kind: 'prime',
-      prime: true,
-      optionalAnchor: true,
-      notes,
-      meter: 4,
-      label: `key: ${keyName(k)}, ${prime.set} scrambled: ${notes.map((n) => name(n.midi)).join(' ')}${off}`,
-    };
+    const p = this.priming;
+    const target = this.nextPrimeTarget();
+    if (target === null) { // nothing reachable: the key is as established as it will get
+      this.priming = null;
+      return this.makeQuestion();
+    }
+    p.left = p.left.filter((d) => d !== target.degree);
+    p.step += 1;
+    p.lastIv = target.iv;
+    if (p.left.length === 0) this.priming = null;
+    const q = this.intervalQuestion('prime', target.midi);
+    q.prime = true;
+    q.label = `key: ${keyName(p.key)}, ${p.set} ${p.step}/${p.total}: ${name(this.anchor)} -> ? (${signed(target.iv)})`;
+    return q;
+  }
+
+  /**
+   * The widths a prime step may use. BELOW THE EXACT STAGE: the step and the
+   * half step, and nothing else -- a beginner gets the intervals he starts
+   * out with, which means the key arrives as a scale he walks up. (The rest
+   * of the block still uses the stage's own pool; this is the warm-up.) At
+   * the top: everything the ladder has opened, plus the two steps, which are
+   * always allowed because walking a scale is how a key is established and is
+   * the easiest motion there is.
+   */
+  primeWidths() {
+    const w = new Set([1, 2]);
+    if (this.stage.current !== 'exact') return w;
+    for (const x of TIER_WIDTHS.slice(0, this.engine.state.tiersUnlocked)) w.add(x);
+    return w;
+  }
+
+  /**
+   * The next note of the walk, chosen from where the hand actually is (which
+   * is where the last answer LANDED, right or wrong -- so a wrong turn never
+   * leaves the next question out of reach). Each remaining degree is tried in
+   * the octave above and below as well, which keeps the line inside the
+   * stage's window and gives the walk somewhere to turn.
+   *
+   * Aesthetics, such as they are: a turn is worth more than a run, and a
+   * singable distance more than a leap. A prime should sound like a small
+   * tune, not like a list.
+   */
+  nextPrimeTarget() {
+    const p = this.priming;
+    const widths = this.primeWidths();
+    const w = this.win;
+    const lo = Math.max(this.lo, w.lo);
+    const hi = Math.min(this.hi, w.hi);
+    const cands = [];
+    for (const degree of p.left) {
+      for (const octave of [0, -12, 12]) {
+        const midi = p.tonic + degree + octave;
+        const iv = midi - this.anchor;
+        if (midi < lo || midi > hi || iv === 0) continue;
+        if (!widths.has(Math.abs(iv))) continue;
+        // Shape, in three terms. A singable distance over a leap -- but the
+        // leap stays possible, because catching a seventh cold is the point
+        // of a seventh. A turn over a run, so the walk is a little tune and
+        // not an arpeggio with the notes shuffled. And the key's own octave
+        // over the far end of the keyboard, which is what stops a five-note
+        // set from climbing two octaves and never coming back.
+        const span = Math.abs(iv);
+        let weight = span <= 2 ? 2 : span <= 5 ? 1.4 : span <= 7 ? 1 : span <= 9 ? 0.5 : 0.3;
+        if (p.lastIv && Math.sign(iv) !== Math.sign(p.lastIv)) weight *= 2.2;
+        weight /= 1 + Math.abs(midi - p.tonic) / 12;
+        cands.push({ degree, midi, iv, weight });
+      }
+    }
+    if (cands.length === 0) {
+      // Stranded: the hand landed somewhere no remaining degree can be
+      // reached from at this level. Rather than abandon the warm-up -- which
+      // is what a beginner, who lands anywhere, would get every single time --
+      // take a diatonic step from where he actually is. Stepwise motion
+      // inside the key is the strongest key cue there is, so the walk still
+      // does its job, and it can never strand again.
+      const step = diatonicStep(this.anchor, p.key, (lo + hi) / 2, lo, hi);
+      if (step === null) return null;
+      return { degree: p.left[0], midi: step, iv: step - this.anchor };
+    }
+    let roll = Math.random() * cands.reduce((a, c) => a + c.weight, 0);
+    for (const c of cands) {
+      roll -= c.weight;
+      if (roll <= 0) return c;
+    }
+    return cands[cands.length - 1];
   }
 
   /**
@@ -799,12 +886,21 @@ export class Drill {
     return q;
   }
 
-  /** A new key block opens on the note you are on. */
+  /**
+   * A new key block opens on the note you are on: that note is the tonic, and
+   * the walk through the key's set starts from it. The tonic itself is never
+   * asked -- it is already under the hand.
+   */
   openBlock() {
     const key = chooseKey(this.anchor, this.block?.key ?? null);
     this.blockN += 1;
     this.block = { key, asked: 0, n: this.blockN };
-    this.log(`key block: ${keyName(key)}`);
+    // Below the exact stage only the stepwise sets are open (tiers 0).
+    const tiers = this.stage.current === 'exact' ? this.engine.state.tiersUnlocked : 0;
+    const set = primeSet(key, { tiers });
+    const left = set.degrees.slice(1); // degree 0 is the note under the hand
+    this.priming = { key, tonic: this.anchor, set: set.name, left, step: 0, total: left.length, lastIv: 0 };
+    this.log(`key block: ${keyName(key)} -- ${set.name}, ${left.length} note${left.length === 1 ? '' : 's'} to find`);
     return this.primeQuestion();
   }
 
@@ -837,7 +933,9 @@ export class Drill {
       this.log('  (retry dropped: the phrase no longer fits the keyboard)');
       this.retry = null;
     }
-    // A key block opens (and re-opens after a burst) with its prime.
+    // A key block opens (and re-opens after a burst) with its prime, and the
+    // prime keeps the floor until its walk is done.
+    if (this.priming) return this.primeQuestion();
     if (!this.block || this.block.asked >= BLOCK_QUESTIONS) return this.openBlock();
     const pair = top ? engine.takeExposure() : null;
     if (pair) {
