@@ -101,7 +101,11 @@
 //              its own (never the tier ladder).
 //   echo:      (lowest stage) the drill goes quiet; you make up two or three
 //              notes; it asks for them straight back. The game is taught by
-//              imitating you first, and your own figure is the call.
+//              imitating you first, and your own figure is the call. INVENTING
+//              IS A LEVEL, not a beginner's shortcut: an empty window gives
+//              up after ECHO_GIVE_UP_SEC and asks something ordinary instead
+//              (it can never end a session), and a player who twice has
+//              nothing to give stops being offered it, bar the odd probe.
 //
 // GRADING: ONE pass, by ONSET GROUP. Notes that sound together form a group;
 // each note you play is matched by pitch to a pending note of the current
@@ -207,6 +211,19 @@ const CHROMATIC_SIDE = 0.15; // a chromatic target whose mirror is diatonic and 
 // what turns feedback into hypothesis testing (Guadagnoli & Kohl 2001); the
 // first version of this asked with a chime and was heard as an error buzzer,
 // which is how the drill came by its one rule.
+// THE ECHO GAME asks the player to MAKE SOMETHING UP, which is a harder
+// thing than playing back what you just heard, not an easier one -- and it is
+// the only question in this drill the player can answer by having nothing.
+// William (9, no experience) was offered it four times in one sitting: twice
+// he found two notes, and BOTH of the other two ended the session, because a
+// collect window that is never filled just runs out the clock. So: an empty
+// window gives up and asks an ordinary question instead (it can no longer end
+// a session), and a player who twice has nothing to give stops being asked,
+// with an occasional probe in case that changes. Inventing is a level, and
+// you have to reach it.
+const ECHO_GIVE_UP_SEC = 12;
+const ECHO_EMPTY_LIMIT = 2;
+const ECHO_PROBE_RATE = 0.1;
 const WINDOW_SEC = 2; // ...or two dropped beats, whichever is LONGER
 const WINDOW_BEATS = 2;
 // A beat of silence ends an answer, except where the player is recalling
@@ -269,6 +286,8 @@ export class Drill {
     this.carryStore = db.kv('carry');
     this.stageStore = db.kv('stage');
     this.roundsStore = db.kv('rounds'); // one record per run: the round's evidence is scoped away from the ladder
+    this.echoStore = db.kv('echo'); // { empty }: consecutive echo windows the player had nothing for
+    this.echoStats = this.echoStore.load() || { empty: 0 };
     this.len = this.lenStore.load() || {};
     this.state = 'IDLE';
     this.clockOffset = performance.now() / 1000 - audio.now;
@@ -974,8 +993,9 @@ export class Drill {
         if (picked) return this.passageQuestion('passage', picked);
       }
     }
-    // The echo game: at the lowest stage every question; at contour, every third.
-    if (this.stage.current === 'echo' || (this.stage.current === 'contour' && this.plainQuestions % 3 === 2)) {
+    // The echo game: at the lowest stage every question; at contour, every
+    // third -- but only for a player who has something to make up.
+    if ((this.stage.current === 'echo' || (this.stage.current === 'contour' && this.plainQuestions % 3 === 2)) && this.echoWelcome()) {
       this.plainQuestions += 1;
       return { kind: 'echo', collect: true, notes: [], meter: 4, label: 'echo: the drill is quiet -- play two or three notes and it will ask for them back' };
     }
@@ -1011,6 +1031,20 @@ export class Drill {
     // drilled interval, continued in the key. Never at the lower stages.
     if (top && Math.random() < GESTURE_RATE) return this.gestureQuestion(target);
     return this.intervalQuestion('interval', target);
+  }
+
+  /** Is this player still being asked to invent? Two empty windows in a row
+   *  says no; a rare probe keeps the door open in case that changes. */
+  echoWelcome() {
+    return this.echoStats.empty < ECHO_EMPTY_LIMIT || Math.random() < ECHO_PROBE_RATE;
+  }
+
+  /** An echo window the player filled, or did not. */
+  noteEcho(gave) {
+    const was = this.echoStats.empty;
+    this.echoStats.empty = gave ? 0 : was + 1;
+    this.echoStore.save(this.echoStats);
+    if (!gave && was + 1 === ECHO_EMPTY_LIMIT) this.log('  (the echo game is not landing: it will mostly stop being offered)');
   }
 
   // --- the round -----------------------------------------------------------
@@ -1259,6 +1293,13 @@ export class Drill {
         this.completeQuestion();
       } else if (q.window) {
         // still open: the silence is the question
+      } else if (q.collect && this.collected.length === 0 && now >= this.callT0 + ECHO_GIVE_UP_SEC) {
+        // Nothing to make up. Move on; this window must never be what ends a
+        // session, which is exactly what it used to be.
+        this.log('  nothing played: moving on');
+        this.noteEcho(false);
+        this.lastPlayedAt = now;
+        this.completeQuestion();
       } else if (q.collect) {
         this.collectTick(now);
       } else if (q.round && now >= this.nextQuestionAt + this.toleranceMs / 1000) {
@@ -1322,6 +1363,7 @@ export class Drill {
     // it is not asking for. Every note is graded, the first included (it is
     // their note, not the anchor under the hand).
     this.log(`  your figure: ${notes.map((n) => name(n.midi)).join(' ')}`);
+    this.noteEcho(true);
     this.nextQ = { kind: 'echo', echoOf: true, notes: notes.map((n) => ({ ...n })), meter: 4, label: `echo: now you: ${notes.map((n) => name(n.midi)).join(' ')}` };
     this.lastPlayedAt = now;
     this.completeQuestion();

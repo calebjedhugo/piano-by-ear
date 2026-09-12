@@ -7,6 +7,8 @@
 // FUMBLE=x   how often a free/pivot note is fumbled (sloppy only).
 // SELFFIX=x  how often a wrong note is followed by the right one, a third of
 //            a beat later: the player who stops and catches his own mistake.
+// ECHOSILENT=1 the player has nothing to make up: he never fills an echo
+//            window. (William. The session used to die on it.)
 // JUDGE=x    how often the player offers a note in the judgment window (half
 //            of those name a real miss, a third name the wrong note he
 //            actually played, the rest are wild).
@@ -71,6 +73,7 @@ while (drill.state === 'QUESTION' && drill.questions <= Number(maxQ)) {
     }
     continue;
   }
+  if (q.collect && process.env.ECHOSILENT) { played = drill.questions; continue; }
   if (q.collect) { played = drill.questions; const t = audio.now + 0.2; press(60, t); setTimeout(() => press(64, audio.now), drill.beat * 1000); setTimeout(() => press(62, audio.now), 2 * drill.beat * 1000); continue; }
   played = drill.questions;
   // answer each group one beat behind the call
