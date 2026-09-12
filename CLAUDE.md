@@ -171,15 +171,16 @@ opens every input port.
   silence) -> that same figure asked straight back as the call, graded on
   the stage's rung. One question, not two: the playback and the ask are the
   same thing, because nothing is played that is not being asked for.
-  **INVENTING IS A LEVEL.** Making something up is harder than playing back
-  what you just heard, not easier, and it is the only question here a player
-  can answer by having nothing -- which used to run the clock out and END THE
-  SESSION (William, 2026-09-11: four windows, two figures, and both of the
-  other two killed the session). Now an empty window gives up after
-  ECHO_GIVE_UP_SEC (12s) and asks something ordinary instead, and
-  `echoWelcome()`/`noteEcho()` (kv `echo` {empty}) stop offering it after
-  ECHO_EMPTY_LIMIT (2) consecutive empties, with an ECHO_PROBE_RATE (0.1)
-  probe so a player who finds his voice later gets it back.
+  It is the ONE question where the drill has played nothing, so silence in it
+  means "still thinking", not "gone away" -- and thinking about what to make
+  up IS the task. It used to run the clock out and END THE SESSION (William,
+  2026-09-11: four windows, two figures, and both of the other two killed the
+  session; the fifteen seconds he took before one of the figures is normal,
+  not a stall). The silence timeout on an empty `collect` now moves on to the
+  next question instead of ending the session; the ordinary question that
+  follows ends it in the usual way if the player really has left. DO NOT put
+  a level gate on this -- William understood the game perfectly well; the
+  only thing wrong was the session dying under him.
   COMPOUND ASKS: `engine.lastWide` marks a target an octave wider than the
   asked simple interval (label "+8ve"); pitch class right but octave wrong
   = `height_err`, credited to the interval, debited to `engine.state.height`.
