@@ -971,6 +971,7 @@ export class Drill {
 
   makeQuestion() {
     const engine = this.engine;
+    const dyads = this.dyadsOpen(); // masteredCount() walks every interval: ask once
     const a = this.idx(this.anchor);
     const prev = this.prevAnchor === null ? null : this.idx(this.prevAnchor);
     const top = this.stage.current === 'exact';
@@ -1006,7 +1007,7 @@ export class Drill {
       const q = this.pairQuestion(pair);
       if (q) return q;
     }
-    const dyadPair = top && this.dyadsOpen() ? this.harmonic.takeExposure() : null;
+    const dyadPair = top && dyads ? this.harmonic.takeExposure() : null;
     if (dyadPair) {
       const q = this.pairQuestion(dyadPair, { harmonic: true });
       if (q) return q;
@@ -1019,7 +1020,7 @@ export class Drill {
         return this.intervalQuestion('remediation', target);
       }
     }
-    while (this.dyadsOpen() && this.harmonicRemediationQueue.length > 0) {
+    while (dyads && this.harmonicRemediationQueue.length > 0) {
       const raw = this.harmonicRemediationQueue.shift();
       const iv = this.harmonic.inwardVariant(raw, a);
       if (iv !== null) {
@@ -1044,7 +1045,7 @@ export class Drill {
       return { kind: 'echo', collect: true, notes: [], meter: 4, label: 'echo: the drill is quiet -- play two or three notes and it will ask for them back' };
     }
     this.plainQuestions += 1;
-    if (this.dyadsOpen() && top && this.plainQuestions % POLY.dyadEvery === 0) {
+    if (dyads && top && this.plainQuestions % POLY.dyadEvery === 0) {
       if (this.harmonic.state.tiersUnlocked >= POLY.harmonicTiersForChords && this.plainQuestions % (POLY.dyadEvery * 3) === 0) {
         const q = this.chordQuestion();
         if (q) return q;
