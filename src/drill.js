@@ -236,14 +236,25 @@ const POLY = {
   melodicTiersForDyads: 6, // melodic tiers unlocked before dyads begin (through the M6)
   masteredForDyads: 6, // ...and this many intervals mastered: dyads wait for interval confidence, not passages
   harmonicTiersForChorale: 4, // harmonic tiers unlocked before four-part chords
-  harmonicTiersForChords: 3, // harmonic tiers before three-note chords join the dyads
+  // Harmonic tiers before three-note chords join the dyads. TWO, not three:
+  // the tier ladder was tuned on the melodic engine, which has 30x the data,
+  // and a rung of it means very little at n=81. More to the point, TWO NOTES
+  // ARE AMBIGUOUS AND THREE ARE NOT -- E-C is a m6 that could be C major, Am7
+  // or F6; E-G-C is C major in first inversion and nothing else. Function
+  // appears at three notes, so gating the sonorities behind a ladder earned
+  // on two-note asks holds back the very thing that gives the interval its
+  // meaning (McLachlan 2013: hearing out chord tones tracks familiarity with
+  // the TYPE). Caleb, 2026-09-12, on why decades of naming bare sixths never
+  // took: "I need to hear and play them in a chord to learn them."
+  harmonicTiersForChords: 2,
   dyadEvery: 3, // at level >= 1, every third plain question is a dyad (or a chord)
   historyMax: 200,
 };
 // A small, repeated set of chord shapes above a fixed bass (McLachlan 2013:
 // hearing out chord tones tracks familiarity with the TYPE).
 const CHORD_SHAPES = [[4, 7], [3, 7], [3, 8], [4, 9], [4, 7, 10]];
-const LEVEL_NAMES = ['melody only', 'dyads and two voices', 'four-part chorales', 'both hands'];
+// Passage TEXTURE only: the dyads left this ladder on 2026-09-12 (dyadsOpen).
+const LEVEL_NAMES = ['melody only', 'two voices', 'four-part chorales', 'both hands'];
 
 export class Drill {
   /**
@@ -381,6 +392,27 @@ export class Drill {
     return st;
   }
 
+  /**
+   * DYADS AND CHORDS RUN ON INTERVAL CONFIDENCE, NEVER ON THE POLYPHONY
+   * LADDER. A dyad is an interval played together and a chord is a sonority;
+   * neither has anything to do with whether two melodic VOICES can be held
+   * apart in a Bach excerpt. Tying them together meant a bad night on duo
+   * passages switched off the only harmonic practice in the drill -- and the
+   * harmonic engine has had 81 trials in the lifetime of the profile against
+   * the melodic engine's 2,395, with the harmonic m6 asked exactly ONCE.
+   * (2026-09-10 already moved PROMOTION onto interval confidence; demotion
+   * was still dragging the dyads down with the passages.) The entry bar is
+   * unchanged -- the same tiers and mastered counts as before -- it simply
+   * cannot be taken away by a passage result any more. The poly ladder keeps
+   * governing passage TEXTURE (`passageKinds`), which is what it is for.
+   * Independent of `this.poly`: a dyad is built from the anchor, so it needs
+   * no polyphonic corpus.
+   */
+  dyadsOpen() {
+    return this.engine.state.tiersUnlocked >= POLY.melodicTiersForDyads
+      && this.engine.masteredCount() >= POLY.masteredForDyads;
+  }
+
   recordPolyOutcome(kind, clean) {
     const st = this.polyState;
     st.history.push({ kind, clean, ts: Date.now() });
@@ -471,7 +503,8 @@ export class Drill {
     this.syncClock(1);
     this.state = 'QUESTION';
     const level = this.polyState.level;
-    this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms), tiers ${this.engine.state.tiersUnlocked}${level > 0 ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, polyphony level ${level} (${LEVEL_NAMES[level]}), stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}`);
+    const dyads = this.dyadsOpen();
+    this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms), tiers ${this.engine.state.tiersUnlocked}${dyads ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, ${dyads ? 'dyads and chords, ' : ''}passages ${LEVEL_NAMES[level]}, stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}`);
 
     // The anchor rings for a beat, then the grid starts on an accented downbeat.
     this.nextBarAt = this.audio.now + this.beat;
@@ -938,7 +971,6 @@ export class Drill {
 
   makeQuestion() {
     const engine = this.engine;
-    const level = this.polyState.level;
     const a = this.idx(this.anchor);
     const prev = this.prevAnchor === null ? null : this.idx(this.prevAnchor);
     const top = this.stage.current === 'exact';
@@ -974,7 +1006,7 @@ export class Drill {
       const q = this.pairQuestion(pair);
       if (q) return q;
     }
-    const dyadPair = top && level >= 1 ? this.harmonic.takeExposure() : null;
+    const dyadPair = top && this.dyadsOpen() ? this.harmonic.takeExposure() : null;
     if (dyadPair) {
       const q = this.pairQuestion(dyadPair, { harmonic: true });
       if (q) return q;
@@ -987,7 +1019,7 @@ export class Drill {
         return this.intervalQuestion('remediation', target);
       }
     }
-    while (level >= 1 && this.harmonicRemediationQueue.length > 0) {
+    while (this.dyadsOpen() && this.harmonicRemediationQueue.length > 0) {
       const raw = this.harmonicRemediationQueue.shift();
       const iv = this.harmonic.inwardVariant(raw, a);
       if (iv !== null) {
@@ -1012,7 +1044,7 @@ export class Drill {
       return { kind: 'echo', collect: true, notes: [], meter: 4, label: 'echo: the drill is quiet -- play two or three notes and it will ask for them back' };
     }
     this.plainQuestions += 1;
-    if (level >= 1 && top && this.plainQuestions % POLY.dyadEvery === 0) {
+    if (this.dyadsOpen() && top && this.plainQuestions % POLY.dyadEvery === 0) {
       if (this.harmonic.state.tiersUnlocked >= POLY.harmonicTiersForChords && this.plainQuestions % (POLY.dyadEvery * 3) === 0) {
         const q = this.chordQuestion();
         if (q) return q;
@@ -1622,7 +1654,7 @@ export class Drill {
         if (!dyad) this.harmonic.ask(iv, this.idx(exp.harmonicFrom), null, { scope: 'passage' });
         if (!correct) {
           this.harmonic.reportMiss(this.idx(exp.harmonicFrom), played === null ? this.idx(exp.harmonicFrom) : this.idx(note), { confuse: dyad });
-          if (!dyad && this.polyState.level >= 1 && this.remediated < REMEDIATE_MAX_PER_PASSAGE &&
+          if (!dyad && this.dyadsOpen() && this.remediated < REMEDIATE_MAX_PER_PASSAGE &&
               this.harmonic.predictedAcc(iv, this.idx(exp.harmonicFrom)) < 0.8) {
             this.harmonicRemediationQueue.push(simpleOf(iv));
             this.remediated += 1;

@@ -226,10 +226,39 @@ opens every input port.
   twelfth duo row arrived after the level was last read. The change itself is
   announced by nothing; `flushPolyMove()` prints the line AFTER the passage
   verdict, so a demotion is not read as caused by the passage that just went
-  clean. Dyads keep the anchor as a FIXED BASS; every 9th
-  plain slot is a `chord` from CHORD_SHAPES once harmonic tiers >= 3 (dom7
+  clean. The ladder now governs PASSAGE TEXTURE ONLY
+  (`passageKinds`); LEVEL_NAMES[1] is "two voices", not "dyads and two
+  voices".
+  DYADS AND CHORDS RUN ON INTERVAL CONFIDENCE, NOT ON THIS LADDER
+  (`dyadsOpen()`, 2026-09-12): the same entry bar as before (tiers and
+  mastered counts) but a duo-passage slump can no longer take them away. A
+  dyad is an interval played together and a chord is a sonority; neither has
+  anything to do with holding two melodic voices apart in a Bach excerpt,
+  and tying them together switched off the only harmonic practice in the
+  drill whenever the passages had a bad night. The harmonic engine had 81
+  trials in the profile's LIFETIME against the melodic engine's 2,395 --
+  62 of them on P5 and P8, the harmonic m6 asked ONCE and the M6 seven
+  times at 8%. Gates moved: the dyad/chord slot, the harmonic remediation
+  drain, the harmonic remediation queue after a passage miss, and the
+  harmonic pair-focus exposure.
+  Dyads keep the anchor as a FIXED BASS; every 9th
+  plain slot is a `chord` from CHORD_SHAPES once harmonic tiers >= 2 (dom7
   at >= 5); each chord tone is framed for the harmonic engine as it is
-  graded (`q.chord`), never pre-asked. KEYED PASSAGES grade the pivot too
+  graded (`q.chord`), never pre-asked. THE CHORD GATE IS 2, NOT 3, AND THE
+  REASON IS THE POINT OF THE FEATURE: TWO NOTES ARE AMBIGUOUS AND THREE ARE
+  NOT. E-C is a m6 that could be C major, Am7 or F6; E-G-C is C major in
+  first inversion and nothing else. Function appears at three notes, so
+  gating the sonorities behind a ladder earned on two-note asks holds back
+  the thing that gives the interval its meaning (McLachlan 2013: hearing out
+  chord tones tracks familiarity with the TYPE). `[3,8]` and `[4,9]` ARE the
+  first inversions -- major and minor -- and a first inversion IS a harmonic
+  sixth, which is why this is the route to the sixths and bare-interval
+  drilling was not: 283 melodic m6/M6 trials over eight days moved nothing.
+  Caleb, 2026-09-12: "I need to hear and play them in a chord to learn them,
+  which is something I haven't done much of." Opening the chords is also the
+  sixths bias, delivered structurally -- half the CHORD_SHAPES triads carry
+  a sixth -- so do NOT also weight the harmonic pool toward sixths without
+  re-reading the data first, or they are counted twice. KEYED PASSAGES grade the pivot too
   (it is not the note under the hand): buildGroups frames it from the
   anchor: the duo's BASS first note (its pivot voice starts on the anchor
   and is free). A KEYED PASSAGE STILL STARTS ON THE NOTE UNDER YOUR HAND --
