@@ -486,6 +486,7 @@ export class Drill {
     // correction survives the end of a session.
     this.window = null; // { missed, clean, question, phraseId, sec, bpm, pressed }
     this.correction = null; // { notes, bpm }
+    this.reanchor = null; // { target, forRetry, served } -- transient, like the window
     this.retry = resumed?.retry ? this.replace(resumed.retry) : null; // { id, kind, tries, score, placed }
     this.variantQueue = (resumed?.variantQueue ?? []).map((v) => this.replace(v)).filter(Boolean);
     // A resumed sitting re-opens its block rather than carrying one: the
@@ -569,13 +570,51 @@ export class Drill {
     return placed.notes.every((n) => n[0] >= this.lo && n[0] <= this.hi);
   }
 
-  /** The anchor stays inside the stage's keyboard window (applied wherever the anchor is set). */
+  /**
+   * Where in the stage's keyboard window this note would sit. A pure
+   * calculation now: the caller asks the player to MOVE here (reanchorQuestion)
+   * rather than moving the anchor out from under him, so nothing is logged --
+   * the re-anchor question is its own record.
+   */
   clampAnchor(midi) {
     const w = this.win;
     if (midi >= w.lo && midi <= w.hi) return midi;
-    const a = Math.max(w.lo + 3, Math.min(w.hi - 3, midi));
-    this.log(`  (anchor brought back to ${name(a)})`);
-    return a;
+    return Math.max(w.lo + 3, Math.min(w.hi - 3, midi));
+  }
+
+  /**
+   * PUT THE HAND WHERE THE NEXT CALL STARTS. Two notes: the note he is
+   * already on, SOUNDED and free, then the note the next call needs, a beat
+   * later, graded. Nothing is played that he is not asked to play back.
+   *
+   * The shape is `intervalQuestion`'s sounded-anchor branch, which only
+   * players below the exact stage ever hear -- so at the top of the ladder it
+   * is the ONLY sequential two-note call whose first note sounds (a dyad's
+   * two notes are simultaneous; a gesture's and an interval's anchor is
+   * silent; a passage is four notes at minimum). That makes it legible as
+   * "corrections are done, we are about to try again" without a cue, which is
+   * Caleb's design and the reason for the unison. Below the exact stage the
+   * signal is not distinctive -- every interval question looks like this --
+   * and that is accepted: beginners are not running long corrective loops.
+   *
+   * NAVIGATION, NOT EVIDENCE (`navigation`): he is handed the target by ear
+   * and asked to match it, and it fires most often on the phrases he is
+   * failing, so scoring it would bias the ladder in exactly the wrong
+   * direction. gradeNote skips the engines for it, and it is not an
+   * `isolatedKind`, so the stage never sees it either.
+   */
+  reanchorQuestion(target) {
+    return {
+      kind: 'reanchor',
+      navigation: true,
+      optionalAnchor: true,
+      notes: [
+        { midi: this.anchor, b: 0, dur: 1, voice: 0, free: true },
+        { midi: target, b: 1, dur: 1, voice: 0 },
+      ],
+      meter: 4,
+      label: `re-anchor: ${name(this.anchor)} -> ? (${signed(target - this.anchor)})`,
+    };
   }
 
   /** Notes are { midi, b, dur, voice, free, silent }. */
@@ -1008,11 +1047,45 @@ export class Drill {
       this.correction = null;
       return this.correctionQuestion(c);
     }
+    // A re-anchor that was served last question: did it land? The anchor is
+    // whatever he played, so landing means it equals the note we asked for.
+    if (this.reanchor?.served) {
+      const { target, forRetry } = this.reanchor;
+      this.reanchor = null;
+      if (this.anchor !== target) {
+        if (forRetry) {
+          // He could not find the note the retry starts on, so there is no
+          // point serving it. Drop it WITHOUT a verdict: no try is spent, the
+          // phrase is not rested, and its failed first asking has already set
+          // it due tomorrow. That is the whole penalty.
+          this.log('  (re-anchor missed: the retry is dropped, the phrase is due tomorrow)');
+          this.retry = null;
+        } else {
+          // He did not land it. Never ask twice -- fall back to the old
+          // behaviour and move the anchor, so the walk cannot run off the end.
+          this.anchor = this.clampAnchor(this.anchor);
+          this.log(`  (re-anchor missed: anchor brought back to ${name(this.anchor)})`);
+        }
+      }
+    }
+    if (this.reanchor) { this.reanchor.served = true; return this.reanchorQuestion(this.reanchor.target); }
     if (this.retry) {
       // Straight back, before anything else, in the SAME key and register:
       // the correction has to be adjacent to the miss to be one, and constant
       // practice until correct is what the evidence backs.
-      if (this.fits(this.retry.placed)) return this.passageQuestion('retry', this.retry.placed);
+      if (this.fits(this.retry.placed)) {
+        // ...but a retry's first note is FREE, so if his hand has wandered off
+        // it during the attempt he just failed, it is a note to find cold at
+        // the worst moment. Put him on it first. Caleb: "I'm getting lost
+        // during the passage and losing track of the anchor. Then my retry is
+        // corrupted by not remembering what note the passage started on."
+        const pivot = this.retry.placed.notes[this.retry.placed.phrase.pivot][0];
+        if (pivot !== this.anchor) {
+          this.reanchor = { target: pivot, forRetry: true, served: true };
+          return this.reanchorQuestion(pivot);
+        }
+        return this.passageQuestion('retry', this.retry.placed);
+      }
       this.log('  (retry dropped: the phrase no longer fits the keyboard)');
       this.retry = null;
     }
@@ -1650,7 +1723,7 @@ export class Drill {
       // octave on its own.
       if (q.wide && !correct && played !== null && Math.abs(played - exp.midi) === 12) { heightErr = true; credit = true; }
     }
-    if (exp.graded) {
+    if (exp.graded && !q.navigation) {
       if (exp.melodicFrom !== null && exp.melodicFrom !== exp.midi) {
         const raw = exp.midi - exp.melodicFrom;
         const iv = q.wide || Math.abs(raw) > 12 ? simpleOf(raw) : raw; // the ladder knows simple intervals only
@@ -1767,7 +1840,19 @@ export class Drill {
     };
     if (n > 0) {
       this.prevAnchor = n >= 2 ? top(this.groups[n - 2]) : this.anchor;
-      this.anchor = this.clampAnchor(top(this.groups[n - 1]));
+      // THE ANCHOR IS THE NOTE UNDER THE HAND. It used to be clamped into the
+      // stage's window here, which kept target selection in range and quietly
+      // broke that: the call would then be built from a note he was not on,
+      // his attempt to start where his hand actually was got eaten by the
+      // free-note rule, and he was graded from a note he never found
+      // (2026-09-13, anchor pulled to B5 with his hand on F#6, and the next
+      // passage opened on B5 -- correctly placed, still lost). Now the hand
+      // keeps the anchor and the drill ASKS him to move, which is the only
+      // thing that actually puts him there.
+      const hand = top(this.groups[n - 1]);
+      const inWindow = this.clampAnchor(hand);
+      this.anchor = hand;
+      if (inWindow !== hand) this.reanchor = { target: inWindow, forRetry: false, served: false };
     }
     // When the next question starts is decided in tick(): a beat of silence
     // (a round's is fixed and already set).

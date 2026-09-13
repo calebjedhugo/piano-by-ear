@@ -103,9 +103,33 @@ opens every input port.
   targets lean diatonic (DIATONIC_LEAN). No cadence, no drone, no emergent
   key (tonalfield.js is gone: it renamed the key almost every question).
   KINDS: prime | interval | gesture | discrimination | exposure | remediation |
-  dyad | chord | passage | retry | variant | round | echo. Selection
-  order in `makeQuestion()`: round, retry (SAME placement as
-  the miss: `retry.placed`), block prime, pair exposure, remediation queues
+  dyad | chord | passage | retry | variant | round | echo | reanchor.
+  RE-ANCHOR (`reanchorQuestion`, Caleb's design 2026-09-13): two notes -- the
+  note he is ALREADY ON, sounded and free, then the note the next call needs,
+  a beat later, graded. It is `intervalQuestion`'s sounded-anchor branch,
+  which only players below the exact stage ever hear, so at the top of the
+  ladder it is the ONLY sequential two-note call whose first note sounds (a
+  dyad's are simultaneous; a gesture's and an interval's anchor is silent; a
+  passage is 4 notes minimum). That makes it legible as "corrections are done,
+  we are about to try again" WITHOUT A CUE. Below exact the signal is not
+  distinctive and that is accepted -- beginners are not running long
+  corrective loops. It is NAVIGATION, NOT EVIDENCE (`q.navigation`): gradeNote
+  skips both engines for it and it is not an `isolatedKind`, so the stage
+  never sees it -- he is handed the target by ear, and it fires most often on
+  the phrases he is failing, so scoring it would bias the ladder the wrong
+  way. Fires (1) before a RETRY whose free first note is not under his hand --
+  Caleb: "I'm getting lost during the passage and losing track of the anchor.
+  Then my retry is corrupted by not remembering what note the passage started
+  on"; a missed re-anchor DROPS the retry with no verdict, no try spent and no
+  rest (its failed first asking already set the phrase due tomorrow); (2) when
+  the anchor leaves the stage window. THE ANCHOR IS THE NOTE UNDER THE HAND
+  AND IS NO LONGER CLAMPED BEHIND HIS BACK: clampAnchor is now a pure
+  calculation and the drill ASKS him to move, because that is the only thing
+  that actually puts him there. A missed re-anchor of kind (2) falls back to
+  moving the anchor, so the walk cannot run off the end and it never asks
+  twice. Selection
+  order in `makeQuestion()`: round, window, correction, re-anchor, retry (SAME
+  placement as the miss: `retry.placed`), block prime, pair exposure, remediation queues
   (folded to simple intervals), due variant, passage (streak >= 3 or 6
   clean notes, < 3 in a row; top stage only), echo game (echo stage always,
   contour every 3rd), dyad/chord slot, then a plain target (discrimination
