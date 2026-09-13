@@ -386,6 +386,33 @@ export class Drill {
     st.history.push({ kind, clean, ts: Date.now() });
     if (st.history.length > POLY.historyMax) st.history.splice(0, st.history.length - POLY.historyMax);
     this.polyStore.save(st);
+    // THE LEVEL IS RE-READ HERE, not only at startSession. A sitting can run
+    // half an hour, and the passage that fills the judging window usually
+    // lands mid-session: 2026-09-12's 33-minute session (267 questions) ran
+    // to the end on duo passages at 0% clean because the 12th duo row -- the
+    // one that would have demoted it -- arrived after the level was last
+    // read. A level the player is failing must not hold for the rest of the
+    // sitting. Announced by nothing but the change in what is asked.
+    const before = st.level;
+    this.polyState = this.polyLevel();
+    this.polyStore.save(this.polyState);
+    // The level changes NOW -- everything downstream of this question sees it
+    // -- but the LINE waits for the passage verdict. Printed before it, a
+    // demotion reads as though the passage that just went clean had caused
+    // it; the twelfth duo row is what caused it, whatever that row said.
+    if (this.polyState.level !== before) this.polyMove = before;
+  }
+
+  /**
+   * Say that the polyphony level moved, once the verdict it followed is out.
+   * Log only: no cue, no sound. The change in what is asked IS the signal.
+   */
+  flushPolyMove() {
+    if (this.polyMove === null || this.polyMove === undefined) return;
+    const from = this.polyMove;
+    const to = this.polyState.level;
+    this.polyMove = null;
+    this.log(`  polyphony level ${to > from ? 'up' : 'down'} to ${to} (${LEVEL_NAMES[to]})`);
   }
 
   // --- session -------------------------------------------------------------
@@ -403,6 +430,7 @@ export class Drill {
     this.harmonic.startSession({ questionInSession: resumed?.questionInSession ?? 0 });
     this.polyState = this.polyLevel();
     this.polyStore.save(this.polyState);
+    this.polyMove = null; // a pending level-change line, flushed after the verdict
     this.floorSec = this.sessionFloor();
     // The lead-in only carries the anchor to the first downbeat; every
     // question sets its own tempo in beginQuestion().
@@ -1614,6 +1642,7 @@ export class Drill {
       phraseId: q.phrase?.id ?? null, position: g.index, graded: exp.graded, inTime, beatMs: this.beat * 1000,
       credit: isolated || q.prime ? credit : null, stage: isolated || q.prime ? this.stage.current : null, heightErr: q.wide ? heightErr : null,
       voice: exp.voice ?? null, behind: this.behind,
+      key: this.block ? keyName(this.block.key) : null,
     });
     exp.rowId = rowId; // so a re-attack can mark this note caught
     // Remember this key press so its release can be graded for duration.
@@ -1757,6 +1786,7 @@ export class Drill {
         const verdict = this.retryVerdict(q, rungs, bank);
         const tail = this.pitchClean ? (verdict ? ` -- ${verdict}` : '') : ` -- ${describeRungs(rungs)}; ${verdict}`;
         this.log(`  passage ${this.pitchClean ? 'clean' : 'done with errors'} (streak ${this.streak})${tail}${timing}`);
+        this.flushPolyMove();
         if (first && this.pitchClean) {
           // Nailed COLD: it comes back in the next block, varied (key, a step,
           // or the mode). Nailed on a retry is not nailed; that phrase is due

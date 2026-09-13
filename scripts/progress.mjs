@@ -19,6 +19,7 @@ import { homedir } from 'node:os';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseKey, diatonicIn } from '../src/keyblock.js';
 
 // ---------- args & db path ----------
 function parseArgs(argv) {
@@ -161,9 +162,91 @@ function loadCorpusCollectionMap() {
 }
 const collectionOf = (map, phraseId) => map.get(phraseId) || 'other';
 
+// ================= 0. Notes in context =================
+// THE SECTION THAT MATCHES THE GOAL. The drill's terminal skill is hearing a
+// line and playing it, not naming intervals -- and over 2026-09-05..12 every
+// interval class was 20-37 points worse inside a phrase than asked cold,
+// including the ones already at ceiling in isolation (the whole step: 92%
+// cold, 69% in a phrase). Isolated precision is not the constraint anywhere.
+// What the material is actually made of: 68% of graded passage notes are a
+// half or whole step from the note before, and 72% of passage errors are off
+// by one or two semitones. That is scale-degree placement -- which degree of
+// the key am I on -- not interval sizing. So this section leads, and section
+// 1 (isolated intervals) is kept below as a diagnostic floor, not a target.
+function section0() {
+  console.log('\n=== 0. Notes in context (scale-degree placement inside a phrase) ===');
+  const rows = db.prepare(`
+    SELECT session_id, ts, anchor, target, played, velocity, correct, kind,
+           ${col('attempts', 'question')}, ${col('attempts', 'voice')}, ${col('attempts', 'key')}
+    FROM attempts
+    WHERE graded = 1 AND ts >= ? AND anchor IS NOT NULL
+    ORDER BY ts ASC`).all(cutoff);
+  if (!rows.length) return console.log('(no data)');
+
+  // A question is polyphonic if any of its notes carries a voice above the
+  // bass; duo/chorale material is held apart so it cannot swamp the melodic
+  // line, which is where the placement question lives.
+  const poly = new Set();
+  for (const r of rows) if (r.voice !== null && r.voice > 0) poly.add(`${r.session_id}:${r.question}`);
+  const isPoly = (r) => poly.has(`${r.session_id}:${r.question}`);
+  const width = (r) => Math.abs(r.target - r.anchor);
+  const band = (w) => (w === 0 ? null : w <= 2 ? 'step (1-2)' : w <= 7 ? 'leap (3-7)' : 'wide (8+)');
+  // FIRST ASKINGS ONLY. A retry or a correction is a phrase heard seconds
+  // ago, and a variant is a transposed re-asking -- a transfer probe, scored
+  // in section 2. Mixing either in makes this measure move for reasons that
+  // are not placement (2026-09-12: variants alone pulled the period down 7
+  // points). Same rule as PhraseBank.record: only qkind 'passage' counts.
+  const inPhrase = (r) => r.kind === 'passage';
+  const isolated = (r) => r.kind === 'interval' || r.kind === 'discrimination';
+
+  // --- the context penalty -------------------------------------------------
+  const BANDS = ['step (1-2)', 'leap (3-7)', 'wide (8+)'];
+  const penalty = BANDS.map((b) => {
+    const iso = rows.filter((r) => isolated(r) && band(width(r)) === b).map((r) => r.correct);
+    const psg = rows.filter((r) => inPhrase(r) && band(width(r)) === b).map((r) => r.correct);
+    const gap = iso.length && psg.length ? Math.round((mean(psg) - mean(iso)) * 100) : null;
+    return [b, pctN(iso), pctN(psg), gap === null ? '--' : signed(gap)];
+  });
+  printTable('The context penalty: the same interval asked cold vs. inside a phrase (first askings)',
+    ['interval', 'isolated', 'in a phrase', 'gap'], penalty);
+
+  // --- the 68%: steps and seconds in a melodic line, by day ----------------
+  const steps = rows.filter((r) => inPhrase(r) && !isPoly(r) && width(r) >= 1 && width(r) <= 2);
+  const leaps = rows.filter((r) => inPhrase(r) && !isPoly(r) && width(r) >= 3 && width(r) <= 7);
+  const days = [...new Set(rows.filter(inPhrase).map((r) => localDay(r.ts)))].sort();
+  printTable('Melodic (mono) passage notes by day -- steps are ~2/3 of all the material there is',
+    ['day', 'step (1-2)', 'leap (3-7)'],
+    days.map((d) => [d,
+      pctN(steps.filter((r) => localDay(r.ts) === d).map((r) => r.correct)),
+      pctN(leaps.filter((r) => localDay(r.ts) === d).map((r) => r.correct))]));
+
+  // --- the wrong note: still a degree of the key, or lost? -----------------
+  // The distinction the `key` column was added for. An in-key wrong note is
+  // the right degree-space and the wrong degree; an out-of-key one is lost.
+  // The target's own in-key rate is printed beside it as the base rate --
+  // without it "most wrong notes are in the key" says nothing, because most
+  // RIGHT notes are too.
+  const keyed = rows.filter((r) => inPhrase(r) && r.key && parseKey(r.key));
+  if (!keyed.length) {
+    console.log('\nWrong notes: in the key or out of it');
+    console.log('(no data -- attempts.key was added 2026-09-12; this fills from the next session on)');
+  } else {
+    const kdays = [...new Set(keyed.map((r) => localDay(r.ts)))].sort();
+    printTable('Wrong notes: still a degree of the key, or lost?',
+      ['day', 'wrong notes', 'wrong but in key', 'targets in key (base rate)'],
+      kdays.map((d) => {
+        const list = keyed.filter((r) => localDay(r.ts) === d);
+        const wrong = list.filter((r) => !r.correct && r.velocity > 0);
+        return [d, wrong.length,
+          pctN(wrong.map((r) => (diatonicIn(r.played, parseKey(r.key)) ? 1 : 0))),
+          pctN(list.map((r) => (diatonicIn(r.target, parseKey(r.key)) ? 1 : 0)))];
+      }));
+  }
+}
+
 // ================= 1. Isolated intervals =================
 function section1() {
-  console.log('\n=== 1. Isolated intervals (first attempt per sitting per signed interval) ===');
+  console.log('\n=== 1. Isolated intervals -- a diagnostic floor, NOT the goal (see section 0) ===');
   const rows = db.prepare(`
     SELECT session_id, ts, anchor, target, played, velocity, correct, ${col('attempts', 'credit')}
     FROM attempts
@@ -733,6 +816,7 @@ function section9() {
 console.log('piano-by-ear progress report');
 console.log(`db: ${dbPath}`);
 console.log(`window: last ${args.days} day(s), local calendar days`);
+section0();
 section1();
 section2();
 section3();

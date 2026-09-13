@@ -219,7 +219,14 @@ opens every input port.
   POLY.masteredForDyads mastered), not passages; higher levels from the
   last 12 passages of the level's kind (>= 70% / < 30%) plus tier gates.
   Demotion 1 -> 0 on duo passages < 30% holds the gate closed for
-  POLY_DEMOTE_HOLD_MS. Dyads keep the anchor as a FIXED BASS; every 9th
+  POLY_DEMOTE_HOLD_MS. THE LEVEL IS RE-READ AFTER EVERY FIRST-ASKED PASSAGE
+  (`recordPolyOutcome`), not only at `startSession`: the row that fills the
+  12-passage window usually lands mid-sitting, and 2026-09-12's 33-minute
+  session (267 questions) ran to the end on duo at 0% clean because the
+  twelfth duo row arrived after the level was last read. The change itself is
+  announced by nothing; `flushPolyMove()` prints the line AFTER the passage
+  verdict, so a demotion is not read as caused by the passage that just went
+  clean. Dyads keep the anchor as a FIXED BASS; every 9th
   plain slot is a `chord` from CHORD_SHAPES once harmonic tiers >= 3 (dom7
   at >= 5); each chord tone is framed for the harmonic engine as it is
   graded (`q.chord`), never pre-asked. KEYED PASSAGES grade the pivot too
@@ -292,7 +299,9 @@ opens every input port.
   is actually being failed, so a player who was never GIVEN fast notes is
   never locked into slow ones. Over the corpus this lands 53..88 bpm, with
   40 bpm on 0.2% (the 32nd-note phrases).
-- `src/keyblock.js` KEY BLOCKS. `parseKey`, `phraseKey(phrase)` (the piece
+- `src/keyblock.js` KEY BLOCKS. `parseKey` (the corpus's kern form, `D`/`d`,
+  and the "D major" form that `keyName` writes to the log and to
+  `attempts.key`), `phraseKey(phrase)` (the piece
   key if every note fits or at most one pitch class of >= 4 notes is
   foreign; else the nearest key on the circle of fifths that holds every
   note; null = chromatic, gets no prime), `shiftToKey` (mode reconciled via
@@ -359,10 +368,23 @@ opens every input port.
   collection 'hymns' (familiar tunes for the family: Berkowska & Dalla
   Bella 2013, known songs before abstract intervals).
 - `scripts/progress.mjs [--db] [--days]` the report that matters: NEXT-DAY
-  FIRST ATTEMPTS per day (isolated accuracy and the known pairs, passage
-  pitch-clean and rung score, savings on re-encounter, retry loop and
-  judgments, timing apart from pitch, stage, session shape). In-session
-  gains are performance; judge progress here.
+  FIRST ATTEMPTS per day. SECTION 0 LEADS AND IS THE ONE THAT MATCHES THE
+  GOAL -- notes in context: the context penalty (the same interval cold vs.
+  inside a phrase), melodic step/leap accuracy by day, and whether a wrong
+  note was still a degree of the key. Over 2026-09-05..12 EVERY interval
+  class was 20-37 points worse inside a phrase than asked cold, including
+  ones already at ceiling in isolation (whole step 92% cold, 69% in a
+  phrase), 68% of graded passage notes are a half or whole step from the note
+  before, and 72% of passage errors are off by one or two semitones. The
+  wall is scale-degree placement, not interval sizing (Karpinski,
+  function over intervals). SECTION 1 (isolated intervals) is kept as a
+  DIAGNOSTIC FLOOR, NOT A TARGET: the sixths and the P4/P5 pair sat flat at
+  63-77% for eight days while retention and span both moved, and they are
+  1.7% of the material. Do not tune the drill to move section 1. Then
+  passage pitch-clean and rung score, savings on re-encounter, retry loop and
+  judgments, timing apart from pitch, stage, session shape. In-session
+  gains are performance; judge progress here. Section 0 counts FIRST ASKINGS
+  ONLY (`kind = 'passage'`): retries are echoes, variants are transfer.
 - `scripts/sim.mjs <db> <player> <n> [bpm] [nophrases]` headless scripted
   player (perfect | sloppy | kid | liz | random) against a scratch DB; the
   way every path above was verified. Never a live profile.
@@ -399,7 +421,11 @@ opens every input port.
 - `src/db.js`     node:sqlite, WAL, busy_timeout. Guarded migrations add
   columns. `kv(key)` returns a guarded {load, save}. Tables `sessions`,
   `attempts` (one row per graded key press or miss; `credit`/`stage` = the
-  stage's judgment, `height_err` = right pitch class wrong octave),
+  stage's judgment, `height_err` = right pitch class wrong octave, `key` =
+  the block key in force, "D major", NULL outside a block -- without it a
+  wrong note that is still a degree of the key cannot be told from one
+  outside it, and that is the whole scale-degree question; added
+  2026-09-12, so earlier rows are NULL),
   `passages` (one row per passage question, see rungs.js; `clean` = pitch
   AND time, `pitch_clean` = pitch, backfilled from exact = notes),
   `judgments` (HISTORICAL: the judge window, removed 2026-09-11; nothing

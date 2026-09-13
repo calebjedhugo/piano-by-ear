@@ -19,6 +19,15 @@ const ATTEMPT_COLUMNS = {
   height_err: 'INTEGER', // compound ask: pitch class right, octave wrong
   voice: 'INTEGER', // the voice within a chord / polyphonic passage (0 = the bass or the melody)
   behind: 'INTEGER', // beats between the call and the response's first note: the effort signature
+  // THE KEY IN FORCE when this note was asked ("D major"; src/keyblock.js
+  // keyName, read back by parseKey), or NULL outside a block. Without it a
+  // wrong note that is still a degree of the key cannot be told from one
+  // outside it -- and that distinction IS the scale-degree question, which is
+  // what the passage errors turned out to be (2026-09-12: 72% of passage
+  // errors are off by one or two semitones, on notes that were themselves a
+  // step away). Recorded on EVERY attempt, keyed question or not; `kind` says
+  // whether the question was the key's (drill.js KEYED_KINDS).
+  key: 'TEXT',
   // The player missed this note and then went back and played it right,
   // before the next note was due -- the one re-attack a note gets. The note
   // is still a miss (the passage fails on exact pitch, first try), but the
@@ -151,8 +160,8 @@ export class Db {
         ORDER BY id DESC LIMIT ?`),
       attempt: this.db.prepare(`
         INSERT INTO attempts (session_id, ts, anchor, target, played, velocity, correct, first_attempt, onset_ms,
-                              question, kind, phrase_id, position, graded, in_time, beat_ms, credit, stage, height_err, voice, behind)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
+                              question, kind, phrase_id, position, graded, in_time, beat_ms, credit, stage, height_err, voice, behind, key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
       recentIsolated: this.db.prepare(`
         SELECT anchor, target, CASE WHEN velocity > 0 THEN played ELSE NULL END played, stage FROM attempts
         WHERE graded = 1 AND kind IN ('interval', 'discrimination', 'remediation', 'echo') ORDER BY id DESC LIMIT ?`),
@@ -230,6 +239,7 @@ export class Db {
       a.correct ? 1 : 0, a.firstAttempt ? 1 : 0, a.onsetMs ?? null,
       a.question ?? null, a.kind ?? null, a.phraseId ?? null, a.position ?? null,
       a.graded ? 1 : 0, nb(a.inTime), a.beatMs ?? null, nb(a.credit), a.stage ?? null, nb(a.heightErr), a.voice ?? null, a.behind ?? null,
+      a.key ?? null,
     ).id;
   }
 

@@ -29,6 +29,15 @@ export const BLOCK_QUESTIONS = 8;
 /** Parse a corpus key string ("B-", "f#", "E-") into { tonic, mode }. */
 export function parseKey(str) {
   if (!str) return null;
+  // "D major" / "A# minor": how a key is written in the log and stored beside
+  // an attempt (keyName). The kern form below stays the corpus's own.
+  const named = /^([A-G])([#-]?)\s+(major|minor)$/.exec(str.trim());
+  if (named) {
+    let pc = PC[named[1]];
+    if (named[2] === '#') pc += 1;
+    if (named[2] === '-') pc += 11;
+    return { tonic: ((pc % 12) + 12) % 12, mode: named[3] };
+  }
   const m = /^([A-Ga-g])([#-]?)$/.exec(str.trim());
   if (!m) return null;
   let pc = PC[m[1].toUpperCase()];
