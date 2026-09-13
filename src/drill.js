@@ -310,11 +310,20 @@ export class Drill {
   onNoteOn({ note, velocity, at, port }) {
     this.audio.startVoice(note, velocity);
     this.keysDown.add(note);
-    if (port && port !== this.range.portName) this.range.setPort(port);
-    if (this.range.observe(note)) {
+    // A DIFFERENT CONTROLLER IS A DIFFERENT KEYBOARD. A session captures
+    // lo/hi once in startSession, and observe() only fires on a note OUTSIDE
+    // the current port's stored range -- so switching from the 25-key to the
+    // 88 mid-sitting left the session running on the 25-key's bounds, with
+    // everything above them outside the stage window and the anchor being
+    // dragged back. Nothing ever signalled the change, because on the 88 at
+    // 32..100 there is no note he can play that is out of range. The switch
+    // itself is the signal.
+    const switched = Boolean(port) && port !== this.range.portName;
+    if (switched) this.range.setPort(port);
+    if (this.range.observe(note) || switched) {
       this.rangeDirty = true;
       const { lo, hi } = this.range.current;
-      this.log(`range widened to ${lo}..${hi}`);
+      this.log(switched ? `  keyboard now ${port} (range ${lo}..${hi})` : `range widened to ${lo}..${hi}`);
     }
     if (velocity < MIN_VELOCITY) return;
     if (this.state === 'IDLE') {

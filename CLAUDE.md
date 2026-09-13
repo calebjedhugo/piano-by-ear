@@ -485,6 +485,14 @@ opens every input port.
   unnecessary (median onset -45 ms against a -31 ms all-time baseline).
 - `src/range.js`  per-port range: guessed from a standalone key count in the
   name, else 48..72; widening snaps to a standard layout while guessed.
+  A PORT SWITCH IS A RANGE CHANGE (`onNoteOn`, 2026-09-13): a session captures
+  lo/hi once in startSession and `observe()` only fires on a note OUTSIDE the
+  current port's range, so picking up a different controller mid-sitting used
+  to leave the session on the old one's bounds -- and nothing signalled it,
+  because on the 88 at 32..100 there is no note he can play that is out of
+  range. Switching now sets `rangeDirty` itself. Ending the session was always
+  enough (startSession re-reads `range.current`, and `onNoteOn` calls
+  `setPort` BEFORE it), so the old workaround was ten seconds of silence.
 - `src/db.js`     node:sqlite, WAL, busy_timeout. Guarded migrations add
   columns. `kv(key)` returns a guarded {load, save}. Tables `sessions`,
   `attempts` (one row per graded key press or miss; `credit`/`stage` = the
