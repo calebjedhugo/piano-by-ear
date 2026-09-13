@@ -264,7 +264,21 @@ opens every input port.
   and is free). A KEYED PASSAGE STILL STARTS ON THE NOTE UNDER YOUR HAND --
   `PhraseBank.pick` with a key REQUIRES the pivot to land on the anchor and
   pickPassage falls back to anchor placement (no key) when nothing does. The
-  pivot is free, as it always was. Placing a phrase merely "in the key" made
+  pivot is free, as it always was. THE SAME GUARD NOW COVERS `pickInKey`, the
+  VARIANT path (2026-09-13): it never had it, so 40 of 53 variants in Caleb's
+  history opened a mean 3.6 semitones off the note under his hand -- and
+  because the pivot is FREE, his attempt to start where his hand actually was
+  was swallowed as an ignored free-note press and he was graded from a note he
+  never found. He caught it by FEEL, not from the numbers: "I noticed I was
+  frustrated and that's what told me it was a bug." The aggregate damage was
+  small (variants fail on the first graded note 34% vs passages 32%) and the
+  cost was real anyway, because it fired right after a miss. Variant fallbacks
+  are anchored too: they used to transpose `v.placed` -- the placement from
+  when he NAILED it -- by +-2/3 semitones or into the other mode, starting the
+  call where his hand was THEN. The anchor has moved since, so placing on the
+  anchor IS the transposition (`pickById`, rejected when it reproduces the
+  original's pitch set); mode swap is last and re-checks the pivot, since
+  moving degrees 3/6/7 can shift it. Placing a phrase merely "in the key" made
   its first note something to find cold, and the player starts where he is
   sitting because that is what the drill taught: 13 of 22 failed passages in
   the 2026-09-11 10:35 session failed on the FIRST note. Do not re-introduce

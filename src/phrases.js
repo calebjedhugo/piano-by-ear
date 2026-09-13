@@ -183,7 +183,20 @@ export class PhraseBank {
     const phrase = this.byId.get(id);
     if (!phrase || !phrase.tonalKey) return null;
     const shift = shiftToKey(phrase, phrase.tonalKey, key, anchor, lo, hi) ?? shiftToKey(phrase, phrase.tonalKey, key, placementPoint(anchor, lo, hi), lo, hi);
-    return shift === null ? null : this.place(phrase, shift, anchor, key);
+    if (shift === null) return null;
+    // THE CALL STARTS UNDER THE HAND, VARIANTS INCLUDED. pick() has enforced
+    // this for first askings since 2026-09-11 (the `key && pivot + shift !==
+    // anchor` guard below); this path never got it, so a variant could open on
+    // a note he had to find cold -- and because the pivot is FREE, his attempt
+    // to start where his hand actually was got swallowed as an ignored
+    // free-note press, and he was then graded from a note he never found.
+    // Caught 2026-09-13 from the log: three times in one session, each one
+    // immediately after a miss, which is the worst possible moment for it.
+    // shiftToKey only searches octaves of one pitch class, so this usually
+    // fails and the caller falls through to anchor placement -- that is the
+    // intended shape, not a loss.
+    if (phrase.notes[phrase.pivot][0] + shift !== anchor) return null;
+    return this.place(phrase, shift, anchor, key);
   }
 
   /** Transpose a specific phrase (retry) onto `anchor`, or null if it can't fit. */

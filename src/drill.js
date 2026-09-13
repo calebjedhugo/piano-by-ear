@@ -931,18 +931,36 @@ export class Drill {
       if (picked && v.placed && (((picked.shift - v.placed.shift) % 12) + 12) % 12 === 0) picked = null;
       if (picked) how = `now in ${keyName({ tonic: (((phrase.tonalKey.tonic + picked.shift) % 12) + 12) % 12, mode: phrase.tonalKey.mode })}`;
     }
-    if (!picked && v.placed?.notes) {
-      const step = [2, -2, 3, -3].find((s) => v.placed.notes.every((n) => n[0] + s >= this.lo && n[0] + s <= this.hi));
-      if (step !== undefined) {
-        picked = { phrase, notes: v.placed.notes.map((n) => [n[0] + step, ...n.slice(1)]), octave: 0, key: null, shift: v.placed.shift + step };
-        how = `${signed(step)} semitones`;
+    // EVERY FALLBACK IS ANCHORED TOO. These used to transpose v.placed -- the
+    // placement from when he NAILED it -- by +-2/3 semitones or into the other
+    // mode, which starts the call wherever his hand was THEN, not where it is
+    // now. The anchor has moved since (it is wherever the last note landed),
+    // so placing the phrase on the anchor IS the transposition; there is no
+    // need to step off his hand to find one. Rejected when it reproduces the
+    // original's pitch set, i.e. he happens to be sitting where he sat before.
+    const onAnchor = () => bank.pickById(v.id, this.anchor, this.lo, this.hi);
+    const isNewKey = (p) => !v.placed || (((p.shift - v.placed.shift) % 12) + 12) % 12 !== 0;
+    if (!picked) {
+      const cand = onAnchor();
+      if (cand && isNewKey(cand)) {
+        picked = cand;
+        how = phrase.tonalKey
+          ? `now in ${keyName({ tonic: (((phrase.tonalKey.tonic + cand.shift) % 12) + 12) % 12, mode: phrase.tonalKey.mode })}`
+          : `now from ${name(this.anchor)}`;
       }
     }
-    if (!picked && phrase.tonalKey && v.placed?.notes) {
-      const notes = modeSwap(v.placed.notes, { tonic: (((phrase.tonalKey.tonic + v.placed.shift) % 12) + 12) % 12, mode: phrase.tonalKey.mode });
-      if (notes.every((n) => n[0] >= this.lo && n[0] <= this.hi)) {
-        picked = { phrase, notes, octave: 0, key: null, shift: v.placed.shift };
-        how = `in the ${phrase.tonalKey.mode === 'major' ? 'minor' : 'major'} mode`;
+    if (!picked && phrase.tonalKey) {
+      // Last, because it changes the melody itself. Mode-swapping can move the
+      // pivot (degrees 3, 6 and 7 shift), so re-check that the call still
+      // opens on the anchor rather than assuming it.
+      const cand = onAnchor();
+      if (cand) {
+        const sounding = { tonic: (((phrase.tonalKey.tonic + cand.shift) % 12) + 12) % 12, mode: phrase.tonalKey.mode };
+        const notes = modeSwap(cand.notes, sounding);
+        if (notes[phrase.pivot][0] === this.anchor && notes.every((n) => n[0] >= this.lo && n[0] <= this.hi)) {
+          picked = { ...cand, notes };
+          how = `in the ${phrase.tonalKey.mode === 'major' ? 'minor' : 'major'} mode`;
+        }
       }
     }
     if (!picked) return null;
