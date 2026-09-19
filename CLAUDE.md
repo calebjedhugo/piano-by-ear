@@ -303,7 +303,25 @@ opens every input port.
   one-week retention; forward chaining won). DECLARED IN ADVANCE, do not
   re-score it later: the target is SEGMENT ACCURACY >= 80% -- playing instead
   of guessing -- and the 12% next-cold-clean is watched, not targeted.
-  Order in makeQuestion: round, WINDOW, CORRECTION, CHAIN, retry. Neither moves the
+  Order in makeQuestion: round, WINDOW, CORRECTION, CHAIN, retry.
+  PASSAGE LENGTH IS A TARGET, NOT A CEILING (`LEN`, `passageLength`,
+  `updatePassageLength`). It used to pass its value as `maxNotes` alone, so the
+  bank returned ANY phrase under it, and `grow` counted clean passages without
+  caring how long they were -- a clean TWO-note passage raised the ceiling that
+  admits NINE-note ones (09-18 20:40: clean at 2,7,6,7,7 -> ceiling 7->8->9 ->
+  failed 8,9,9). Mono clean by length 09-11..19: 2 67%, 3 61%, 4 65%, 5 44%,
+  6 45%, 7 31%, 8 18%, 9 0% (n=9, the whole lifetime record); per-note accuracy
+  is FLAT at 72-81%, so length is arithmetic, not harder material. It also cost
+  a polyphony level: duo started at 8 notes and floored at 6, his duo record at
+  6+ is 0 for 23 (at 3 notes it is 63%), and the window that demoted him
+  duo->mono on 09-18 had all 3 cleans at 3-5 notes and 8 of 9 failures at 6-9.
+  NOW: `minNotes = target - LEN.band` bounds the pick from below, and ONLY a
+  passage served in the band votes on grow/shrink. The band is a preference --
+  `pickPassage` widens down rather than serving nothing. Starts/mins are where
+  the data puts him (mono 4/3, duo 3/3). A high target also SHRINKS THE POOL,
+  which is what made long phrases recur; it is a symptom of the target, not a
+  separate bug. Variants and retries do not go through the band (a nailed
+  phrase's length is proven for that phrase). Neither moves the
   streak, cleanNotes, passagesInARow or the ladder; a correction is scored at
   passage scope and queues no remediation. The CUED judge window it replaces
   is dead (`judgments`, historical) -- a cue is a note you are not asked to

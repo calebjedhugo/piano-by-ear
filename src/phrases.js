@@ -77,6 +77,7 @@ export class PhraseBank {
    * @param {import('./engine.js').AdaptiveEngine} [opts.harmonic] harmonic engine (chords)
    * @param {string} [opts.kind]        'mono' (default) | 'duo' | 'chorale' | 'poly'
    * @param {number} opts.maxNotes
+   * @param {number} [opts.minNotes]  the bottom of the band (see LEN in drill.js)
    * @param {Set<string>} [opts.exclude] phrase ids to skip this session
    * @param {{tonic:number, mode:string}} [opts.key]  place phrases IN this key
    *   (src/keyblock.js) rather than on the anchor; phrases with no clear key
@@ -88,7 +89,7 @@ export class PhraseBank {
    * too quick. The old speed filter hid 38% of the corpus at a fast session
    * tempo, which is exactly backwards.
    */
-  pick(anchor, lo, hi, { engine, harmonic = null, kind = 'mono', maxNotes, exclude, key = null }) {
+  pick(anchor, lo, hi, { engine, harmonic = null, kind = 'mono', maxNotes, minNotes = 0, exclude, key = null }) {
     const now = Date.now();
     const memo = (eng) => {
       const m = new Map();
@@ -109,6 +110,11 @@ export class PhraseBank {
       for (const phrase of this.phrases) {
         if (phrase.kind !== kind) continue;
         if (phrase.notes.length > maxNotes) continue;
+        // AND NOT FAR UNDER IT. maxNotes used to be the only bound, so the
+        // controller set a CEILING and the bank returned anything beneath it:
+        // the length it had earned was the length it could not exceed, not the
+        // length it asked for. See LEN in src/drill.js.
+        if (phrase.notes.length < minNotes) continue;
         if (phrase.melodic.length + phrase.harmonic.length === 0) continue;
         if (exclude && exclude.has(phrase.id)) continue;
         const st = this.stats[phrase.id];

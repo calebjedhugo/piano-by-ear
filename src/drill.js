@@ -178,9 +178,38 @@ const CALL_MAX_S = 2; // the longest a call note sounds; a hold is never graded 
 // Passage length follows passage results, not the tier ladder: grow a note
 // after LEN.grow clean passages in a row, shrink after LEN.shrink failures in
 // a row, inside [min, ceiling] where the ceiling comes from the engines.
+// THE LENGTH CONTROLLER SETS A LENGTH, NOT A CEILING. It used to pass its
+// value as `maxNotes` alone, so the bank returned ANY phrase at or under it
+// and the diet was everything from two notes to the ceiling. Two things
+// followed, and both were defects:
+//
+// (1) GROWTH WAS EARNED CHEAP AND SPENT DEAR. `grow` counts clean passages
+//     without caring how long they were, so a run that included a clean
+//     TWO-note passage raised the ceiling that admits NINE-note ones.
+//     2026-09-18, 20:40-20:41: clean at 2, 7, 6, 7, 7 -> ceiling 7->8->9 ->
+//     failed 8, 9, 9. Mono clean rate by length over 09-11..19: 2 notes 67%,
+//     3 61%, 4 65%, 5 44%, 6 45%, 7 31%, 8 18%, 9 0% (n=9, and 0 for 9 is the
+//     whole lifetime record at that length). Per-note accuracy is FLAT at
+//     72-81% across all of it, so a long passage is not harder material, it
+//     is only arithmetic: .75^9 is 7%.
+//
+// (2) IT COST HIM A POLYPHONY LEVEL. duo started at EIGHT notes and could not
+//     fall below SIX, and his duo record at six-plus is 0 for 23 (at three
+//     notes it is 63%, the same as his mono rate there). The twelve-passage
+//     window that demoted him duo->mono on 2026-09-18 had all three of its
+//     clean passages at 3, 4 and 5 notes and eight of its nine failures at
+//     6, 7, 8 and 9. He was judged on material he has never once completed
+//     and lost a level he was competent at.
+//
+// So: `band` is how far under the target the bank may go, and only a passage
+// served INSIDE the band votes on growth or shrink -- a clean three-note
+// passage says nothing about nine and no longer gets to say it. Starts and
+// minimums are set where the data puts him rather than where the ladder
+// wished he was (Wilson et al. 2019: aim near the rate at which he succeeds).
 const LEN = {
-  start: { mono: 5, duo: 8, chorale: 10, poly: 10 },
-  min: { mono: 4, duo: 6, chorale: 8, poly: 8 },
+  start: { mono: 4, duo: 3, chorale: 4, poly: 4 },
+  min: { mono: 3, duo: 3, chorale: 3, poly: 3 },
+  band: 1, // a pick may be this many notes under the target, and still votes
   grow: 2,
   shrink: 3,
 };
@@ -1259,9 +1288,15 @@ export class Drill {
     return Math.max(LEN.min[kind], Math.min(this.lengthCeiling(kind), st.notes));
   }
 
-  /** A passage of this kind (first asking, not a retry) ended clean or not, on pitch. */
-  updatePassageLength(kind, clean) {
+  /**
+   * A passage of this kind (first asking, not a retry) ended clean or not, on
+   * pitch. ONLY A PASSAGE SERVED AT THE TARGET LENGTH VOTES: a clean short one
+   * is not evidence about a long one, and letting it vote is what walked the
+   * mono ceiling to nine and the duo ceiling to eight (see LEN).
+   */
+  updatePassageLength(kind, clean, served = null) {
     const before = this.passageLength(kind); // also creates the kind's state
+    if (served !== null && served < before - LEN.band) return;
     const st = this.len[kind];
     if (clean) { st.cleanRun += 1; st.failRun = 0; } else { st.failRun += 1; st.cleanRun = 0; }
     if (st.cleanRun >= LEN.grow) { st.notes = before + 1; st.cleanRun = 0; }
@@ -1280,11 +1315,18 @@ export class Drill {
         harmonic: kind === 'mono' ? null : this.harmonic,
         kind,
         maxNotes: this.passageLength(kind),
+        minNotes: this.passageLength(kind) - LEN.band,
         exclude: this.askedThisSession,
       };
       // In the block key first; on the anchor only if nothing fits the key.
+      // THE BAND IS A PREFERENCE, NOT A FAMINE: when nothing in it fits the
+      // key, the hand and the range, the bottom drops away rather than the
+      // question. Widening down is safe -- a short passage is the easy end.
+      const wide = { ...opts, minNotes: 0 };
       const picked = (this.block && bank.pick(this.anchor, this.lo, this.hi, { ...opts, key: this.block.key })) ||
-        bank.pick(this.anchor, this.lo, this.hi, opts);
+        bank.pick(this.anchor, this.lo, this.hi, opts) ||
+        (this.block && bank.pick(this.anchor, this.lo, this.hi, { ...wide, key: this.block.key })) ||
+        bank.pick(this.anchor, this.lo, this.hi, wide);
       if (picked && this.fits(picked)) return picked;
     }
     return null;
@@ -2342,7 +2384,7 @@ export class Drill {
         if (first) {
           bank.record(q.phrase.id, this.pitchClean);
           this.recordPolyOutcome(q.phrase.kind, this.pitchClean);
-          this.updatePassageLength(q.phrase.kind, this.pitchClean);
+          this.updatePassageLength(q.phrase.kind, this.pitchClean, q.phrase.notes.length);
         }
         const verdict = this.retryVerdict(q, rungs, bank);
         const tail = this.pitchClean ? (verdict ? ` -- ${verdict}` : '') : ` -- ${describeRungs(rungs)}; ${verdict}`;
