@@ -29,6 +29,7 @@ where a session is reviewed afterwards.
 ```bash
 npm start                      # flags: --port <substr> --profiles <dir> --debug-midi
 node src/main.js --user Caleb  # skip the chord: development only
+node src/main.js --keys 36..96 # decode only these keys (small machines)
 node src/main.js --bpm 160     # developer override only
 ```
 
@@ -85,6 +86,28 @@ not seen Liz for a month retires her while she plays daily on the other one.
 
 Config: `~/.piano-by-ear/sync.json` (`{enabled, host, dir}`), machine identity
 `~/.piano-by-ear/device-id`.
+
+## MEMORY, FOR SMALL MACHINES (2026-09-19)
+
+The sampled pianos decode every kept layer into memory at startup. Measured
+RSS on the mac, profile open, samples present:
+
+| decoded keys | RSS | grand PCM | upright PCM |
+|---|---|---|---|
+| 21..108 (88, the default) | 615 MB | 243 MB | 107 MB |
+| 36..96 (61) | 477 MB | 176 MB | 69 MB |
+| 48..72 (25) | 375 MB | 77 MB | 32 MB |
+
+The corpus is ~130 MB of that and loads PER PROFILE OPEN (both banks), so it
+is not paid until somebody plays. Salamander is already trimmed to 4 of 16
+velocity layers (`SALAMANDER_LAYERS`); velocity still varies continuously by
+gain, so the layers are timbre only.
+
+`--keys lo..hi` trims what is decoded. **Only for a machine with one
+permanently attached controller**: a key outside the decoded range falls back
+to the synth mid-sitting, silently, which is exactly what a second keyboard
+switched on later would cause. It is infrastructure, not a musical setting --
+it changes nothing the drill asks for, only what is in memory to sound it.
 
 No MIDI device present at start is fine; `src/midi.js` polls every 2s and
 opens every input port.

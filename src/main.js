@@ -2,7 +2,7 @@
 // piano-by-ear: headless learn-piano-by-ear drill for a MIDI controller.
 //
 //   node src/main.js [--port <substring>] [--profiles <dir>] [--user <name>]
-//                    [--debug-midi]
+//                    [--keys <lo..hi>] [--debug-midi]
 //
 // No musical settings: tempo, question type, passage length and timing
 // tolerance are all decided from your history (see src/drill.js).
@@ -40,6 +40,14 @@ const { values: args } = parseArgs({
     profiles: { type: 'string', default: join(DATA, 'profiles') },
     user: { type: 'string' }, // development: open a profile without the chord
     'debug-midi': { type: 'boolean', default: false },
+    // A SMALL MACHINE'S LEVER, not a musical setting. The sampled pianos
+    // decode every kept layer for these keys into memory at startup: the
+    // whole 88 costs ~690MB RSS, a 61-key range ~545MB, a 25-key one ~400MB.
+    // Trim it ONLY where one controller is permanently attached: a key
+    // outside the decoded range falls back to the synth mid-sitting, silently
+    // and audibly, which is exactly what happens on a machine where a second
+    // keyboard gets switched on later.
+    keys: { type: 'string' },
     // developer overrides, not for normal use
     bpm: { type: 'string' },
     composer: { type: 'string' },
@@ -52,6 +60,16 @@ if (args.bpm && !(bpmOverride > 0)) {
   console.error('--bpm must be a positive number');
   process.exit(1);
 }
+
+const keyRange = (() => {
+  if (!args.keys) return {}; // the full 88: every controller is covered
+  const m = /^(\d+)\.\.(\d+)$/.exec(args.keys);
+  if (!m || Number(m[1]) >= Number(m[2])) {
+    console.error('--keys must look like 36..96 (MIDI note numbers, low..high)');
+    process.exit(1);
+  }
+  return { lo: Number(m[1]), hi: Number(m[2]) };
+})();
 
 const PROFILES = args.profiles;
 const TMP = join(DATA, 'tmp');
@@ -187,7 +205,7 @@ if (out) {
 }
 
 log(`piano-by-ear  profiles: ${roster.live.map((p) => p.name).join(', ') || 'none yet'}`);
-audio.load().then(({ detail }) => log(`voice: ${detail}`), (err) => log(`voice: synth (samples failed to load: ${err.message})`));
+audio.load(keyRange).then(({ detail }) => log(`voice: ${detail}${args.keys ? `, keys ${args.keys} only` : ''}`), (err) => log(`voice: synth (samples failed to load: ${err.message})`));
 midi.start();
 if (midi.portNames.length === 0) log('no MIDI inputs yet; plug in a controller (polling every 2s)');
 if (args.user) lobby.load(args.user, { guest: args.user === 'Guest', why: '--user' });
