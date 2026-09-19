@@ -16,15 +16,20 @@
 //           end a session and the profile closes again -- the next person at
 //           the keyboard should have to say who they are.
 //
-// A session ending does NOT close the profile: it drops back to LOADED, so
-// one more anchor picks up where you left off without replaying the chord.
+// THE PROFILE CLOSES OUT WITH THE SESSION. Ten seconds of silence ends the
+// sitting, and the same silence is the answer to "is anyone still there", so
+// making him wait a second ten before the door shuts only meant twenty
+// seconds of nothing meant the same thing twice. It closes a beat later, not
+// at once: the session-over clicks go out on setTimeout (src/midiout.js), and
+// a sync blocks the event loop for seconds, which would swallow them.
 // The profile's history is merged with the pi (src/sync.js) as it opens and
-// again every time a session ends.
+// as it closes.
 import { rmSync } from 'node:fs';
 
 const MIN_VELOCITY = 20; // the drill's own threshold: a brush is not a login
 const CHORD_GRACE_MS = 300; // long enough for a rolled chord and a ragged release
 const TICK_MS = 500;
+const CLOSE_AFTER_SESSION_MS = 1200; // long enough for audio.sessionOver() to finish sounding
 
 export class Lobby {
   /**
@@ -50,6 +55,7 @@ export class Lobby {
     this.pending = new Set(); // the chord being played, collected across releases
     this.decideAt = null;
     this.needsSync = false; // a sitting has happened that the pi has not got
+    this.closeAt = null; // the session is over and the door is closing
     this.idleSince = performance.now();
     this.timer = setInterval(() => this.tick(), TICK_MS);
     this.timer.unref();
@@ -94,13 +100,18 @@ export class Lobby {
       }
       return;
     }
-    // A LOADED profile that is not in a session closes on the same silence
-    // that ends one. `drill.state` is IDLE between sessions and while waiting
-    // for the very first anchor.
+    // `drill.state` is IDLE between sessions and while waiting for the very
+    // first anchor -- the only two places the door can shut.
     if (this.profile.drill.state !== 'IDLE') {
       this.idleSince = performance.now();
+      this.closeAt = null;
       return;
     }
+    if (this.closeAt) {
+      if (performance.now() >= this.closeAt) this.unload('the session ended');
+      return;
+    }
+    // A chord that never became an anchor: somebody logged in and walked away.
     if (performance.now() - this.idleSince > this.profile.drill.stage.timeoutMs) this.unload('nobody there');
   }
 
@@ -135,15 +146,13 @@ export class Lobby {
     this.audio.ready(); // low-high: the profile is open, play your anchor
   }
 
-  /** A session just ended. The profile stays open; its history goes home. */
+  /** A session just ended: close the profile, once it has finished sounding. */
   afterSession() {
-    // The LOADED window starts now, not from the silence that ended the
-    // session: one more anchor should carry on without the chord.
-    this.idleSince = performance.now();
-    if (!this.profile || this.profile.guest) return;
+    if (!this.profile) return;
+    this.closeAt = performance.now() + CLOSE_AFTER_SESSION_MS;
+    if (this.profile.guest) return;
     this.roster.touch(this.profile.name);
     this.needsSync = true;
-    if (this.sync.run(this.profile.db, this.profile.name, { reason: 'session over' }).ok) this.needsSync = false;
   }
 
   /**
@@ -163,11 +172,11 @@ export class Lobby {
     if (!this.profile) return;
     const { name, db, drill, guest } = this.profile;
     drill.stop({ silent: true });
-    // Only if there is something to send: the session-end sync has usually
-    // just run. It is still tried here when THAT one failed (no network at
-    // the time), which is the case worth keeping.
-    if (!guest && this.needsSync) this.sync.run(db, name, { reason: 'closing' });
+    // Only if a sitting actually happened: opening a profile and walking away
+    // without playing has nothing to send.
+    if (!guest && this.needsSync) this.sync.run(db, name, { reason: 'session over' });
     this.needsSync = false;
+    this.closeAt = null;
     db.close();
     this.profile = null;
     this.held.clear();

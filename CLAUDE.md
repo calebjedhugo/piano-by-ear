@@ -47,10 +47,16 @@ once every key has been up for 300ms. **The match is on exact notes, octave
 included** -- `C4-E4-G4` is William and `C5-E5-G5` is Evelyn, and the octave
 is the only thing between them. The low-high click (`audio.ready()`) means the
 profile is open and the next thing to play is the anchor; a single click means
-only that a controller appeared. A loaded profile that sits idle for as long
-as it takes to end a session closes itself, so the next person has to say who
-they are; a session ending only drops back to LOADED, so one more anchor
-carries on without the chord.
+only that a controller appeared.
+
+**THE PROFILE CLOSES OUT WITH THE SESSION.** Ten seconds of silence ends the
+sitting, and the same silence answers "is anyone still there" -- waiting a
+second ten only meant twenty seconds of nothing meaning the same thing twice.
+It closes a beat later (1.2s), never at once: the session-over clicks go out
+on `setTimeout` (`src/midiout.js`) and a sync blocks the event loop for
+seconds, which would swallow them. A chord that never becomes an anchor --
+somebody logged in and walked away -- closes on the ordinary silence timeout
+instead, and pushes nothing, because nothing was played.
 
 A profile nobody has played for 30 days is SOFT DELETED: the db moves to
 `profiles/retired/` and the chord stops matching, so playing it starts a
@@ -64,7 +70,7 @@ Two computers (upstairs, downstairs) and a laptop that travels with the
 machine overwrites with another: the event tables carry `(device, origin_id)`
 and a sync inserts what is missing in both directions, under a per-profile
 lock on the pi (`src/sync.js`, `Db.mergeFrom`). It runs when a profile opens
-and every time a session ends. No network means you play on the local copy
+and when it closes, which is now the same thing as a session ending. No network means you play on the local copy
 and the rows go home at the next sync -- that is the whole point.
 
 **The kv store cannot be merged** (engine tiers, stage, the passage-length
