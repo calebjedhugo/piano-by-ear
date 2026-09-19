@@ -1,13 +1,25 @@
 #!/usr/bin/env node
 // piano-by-ear: headless learn-piano-by-ear drill for a MIDI controller.
 //
-//   node src/main.js [--port <substring>] [--db <path>] [--debug-midi]
+//   node src/main.js [--port <substring>] [--profiles <dir>] [--user <name>]
+//                    [--debug-midi]
 //
 // No musical settings: tempo, question type, passage length and timing
 // tolerance are all decided from your history (see src/drill.js).
+//
+// WHO IS PLAYING IS ALSO DECIDED FROM THE KEYBOARD (src/lobby.js): the drill
+// boots with no profile open and the first thing you play says who you are --
+// your chord opens your history, an unknown chord starts a new one, a single
+// note is a guest. `--user` skips that, for development only.
+//
+// A profile's history lives on the pi and is MERGED with it, in both
+// directions, as the profile opens and every time a session ends
+// (src/sync.js). No network means you play on the local copy and it catches
+// up later, which is the whole point: the laptop travels.
 import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { mkdirSync, renameSync, existsSync, writeFileSync } from 'node:fs';
 import { Audio } from './audio.js';
 import { Db } from './db.js';
 import { Midi } from './midi.js';
@@ -15,12 +27,18 @@ import { MidiOut, hardwareSound } from './midiout.js';
 import { RangeTracker } from './range.js';
 import { AdaptiveEngine } from './engine.js';
 import { Drill } from './drill.js';
+import { Lobby } from './lobby.js';
+import { Roster, RETIRE_DAYS } from './roster.js';
+import { Sync, syncConfig } from './sync.js';
+import { deviceId } from './device.js';
 import { PhraseBank, MONO_PATH, HYMNS_PATH, POLY_PATH } from './phrases.js';
 
+const DATA = join(homedir(), '.piano-by-ear');
 const { values: args } = parseArgs({
   options: {
     port: { type: 'string' },
-    db: { type: 'string', default: join(homedir(), '.piano-by-ear', 'piano-by-ear.db') },
+    profiles: { type: 'string', default: join(DATA, 'profiles') },
+    user: { type: 'string' }, // development: open a profile without the chord
     'debug-midi': { type: 'boolean', default: false },
     // developer overrides, not for normal use
     bpm: { type: 'string' },
@@ -35,40 +53,123 @@ if (args.bpm && !(bpmOverride > 0)) {
   process.exit(1);
 }
 
-const db = new Db(args.db);
-const backfilled = db.backfillPassages();
-if (backfilled) log(`passages: rung summaries built for ${backfilled} earlier passages`);
+const PROFILES = args.profiles;
+const TMP = join(DATA, 'tmp');
+mkdirSync(PROFILES, { recursive: true });
+mkdirSync(TMP, { recursive: true });
+const dbPath = (name) => join(PROFILES, `${name}.db`);
+
+const device = deviceId(join(DATA, 'device-id'));
+const roster = new Roster(join(DATA, 'roster.json'));
+const sync = new Sync({ config: syncConfig(join(DATA, 'sync.json')), device: device.id, tmpDir: TMP, log });
+log(`this machine: ${device.label} (${device.id})${sync.enabled ? ` <-> ${sync.cfg.host}:${sync.cfg.dir}` : ' (sync off)'}`);
+sync.syncRoster(roster);
+reconcileLastPlayed();
+retire();
+
+/**
+ * The roster's clock only moves when a profile is CLOSED on some machine, so
+ * a profile played by an older build -- or by --user, or on a machine whose
+ * roster never reached the pi -- can look idle when it is not. Retirement
+ * deletes a login, so it reads the local history too and takes the later of
+ * the two. It only ever moves the clock forward.
+ */
+function reconcileLastPlayed() {
+  for (const p of roster.live) {
+    if (!existsSync(dbPath(p.name))) continue;
+    let db = null;
+    try {
+      db = new Db(dbPath(p.name));
+      const last = db.lastSessionAt();
+      if (last > (p.lastPlayedAt ?? 0)) {
+        p.lastPlayedAt = last;
+        roster.save();
+      }
+    } catch {
+      /* a db we cannot read is not evidence of idleness either way */
+    } finally {
+      db?.close();
+    }
+  }
+}
+
+/**
+ * SOFT DELETE, from the shared clock. A profile nobody has played for
+ * RETIRE_DAYS stops being a login: its db is moved aside (never deleted) and
+ * its chord no longer matches, so playing it again starts a fresh profile.
+ * Bringing one back is deliberate -- move the file back and clear `retiredAt`
+ * in roster.json.
+ */
+function retire() {
+  const due = roster.dueForRetirement();
+  if (!due.length) return;
+  const retiredDir = join(PROFILES, 'retired');
+  mkdirSync(retiredDir, { recursive: true });
+  for (const p of due) {
+    roster.retire(p.name);
+    for (const suffix of ['', '-wal', '-shm']) {
+      const from = dbPath(p.name) + suffix;
+      if (existsSync(from)) renameSync(from, join(retiredDir, `${p.name}.db${suffix}`));
+    }
+    sync.retireRemote(p.name);
+    log(`retired ${p.name}: nobody has played it in ${RETIRE_DAYS} days (history kept in profiles/retired)`);
+  }
+  sync.syncRoster(roster);
+}
+
 const hardware = hardwareSound();
 const audio = new Audio({ hardware });
-const range = new RangeTracker(db.kv('ranges'));
-const phrases = new PhraseBank({ store: db.kv('phraseStats'), composer: args.composer, path: [MONO_PATH, HYMNS_PATH] });
-const poly = new PhraseBank({ store: db.kv('polyStats'), composer: args.composer, path: POLY_PATH });
+const phraseFiles = { mono: [MONO_PATH, HYMNS_PATH], poly: POLY_PATH };
+let currentPort = null;
 
-const drill = new Drill({
+/** Everything that belongs to one player, built when the chord opens them. */
+function openProfile(name) {
+  const db = new Db(dbPath(name));
+  const backfilled = db.backfillPassages();
+  if (backfilled) log(`passages: rung summaries built for ${backfilled} earlier passages`);
+  const range = new RangeTracker(db.kv('ranges'));
+  if (currentPort) range.setPort(currentPort);
+  const phrases = new PhraseBank({ store: db.kv('phraseStats'), composer: args.composer, path: phraseFiles.mono });
+  const poly = new PhraseBank({ store: db.kv('polyStats'), composer: args.composer, path: phraseFiles.poly });
+  const drill = new Drill({
+    audio, db, range, phrases, poly, log, bpmOverride,
+    onSessionEnd: () => lobby.afterSession(),
+    makeEngine: (lo, hi, fluentMs, which) =>
+      new AdaptiveEngine({ range: hi - lo, fluentMs, pitchClassOffset: lo % 12, store: db.engineStore(which) }),
+  });
+  const { lo, hi } = range.current;
+  log(`${name}: ${phrases.size} melodic + ${poly.size} polyphonic passages, range ${lo}..${hi}`);
+  return { db, drill };
+}
+
+const lobby = new Lobby({
   audio,
-  db,
-  range,
-  phrases,
-  poly,
+  roster,
+  sync,
+  dbPath,
+  open: openProfile,
+  announce: (name) => {
+    try {
+      writeFileSync(join(DATA, 'current-user'), name ?? '');
+    } catch {
+      /* the launcher will just show nobody */
+    }
+  },
   log,
-  bpmOverride,
-  makeEngine: (lo, hi, fluentMs, which) =>
-    new AdaptiveEngine({ range: hi - lo, fluentMs, pitchClassOffset: lo % 12, store: db.engineStore(which) }),
 });
 
 const midi = new Midi({
   match: args.port,
-  onNoteOn: (e) => drill.onNoteOn(e),
-  onNoteOff: (e) => drill.onNoteOff(e),
+  onNoteOn: (e) => lobby.onNoteOn(e),
+  onNoteOff: (e) => lobby.onNoteOff(e),
   onPort: (portName, connected) => {
     if (connected) {
-      range.setPort(portName);
-      const { lo, hi, guessed, named } = range.current;
-      log(`MIDI in: ${portName} (range ${lo}..${hi}${guessed ? (named ? ', guessed from name' : ', default until you play wider') : ''})`);
-      audio.ready();
+      currentPort = portName;
+      log(`MIDI in: ${portName}`);
+      audio.listening();
     } else {
       log(`MIDI disconnected: ${portName}`);
-      if (midi.portNames.length === 0) drill.stop();
+      if (midi.portNames.length === 0) lobby.pause('the keyboard went away');
     }
   },
 });
@@ -85,23 +186,21 @@ if (out) {
   out.start();
 }
 
-log(`piano-by-ear  ${phrases.size} melodic + ${poly.size} polyphonic passages  db: ${args.db}`);
+log(`piano-by-ear  profiles: ${roster.live.map((p) => p.name).join(', ') || 'none yet'}`);
 audio.load().then(({ detail }) => log(`voice: ${detail}`), (err) => log(`voice: synth (samples failed to load: ${err.message})`));
 midi.start();
 if (midi.portNames.length === 0) log('no MIDI inputs yet; plug in a controller (polling every 2s)');
-log('play any note to start a session');
+if (args.user) lobby.load(args.user, { guest: args.user === 'Guest', why: '--user' });
+else log('play your chord to open your profile, or a single note to play as a guest');
 
 let closing = false;
 function shutdown() {
   if (closing) return;
   closing = true;
-  drill.stop({ silent: true });
+  lobby.stop();
   midi.stop();
   out?.stop();
-  audio.close().catch(() => {}).finally(() => {
-    db.close();
-    process.exit(0);
-  });
+  audio.close().catch(() => {}).finally(() => process.exit(0));
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

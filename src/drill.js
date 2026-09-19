@@ -355,8 +355,9 @@ export class Drill {
    * @param {import('./phrases.js').PhraseBank|null} [deps.poly]    polyphonic bank
    * @param {(msg: string) => void} deps.log
    * @param {number} [deps.bpmOverride]  debugging only
+   * @param {() => void} [deps.onSessionEnd]  the sitting is over: src/lobby.js sends it to the pi
    */
-  constructor({ audio, db, range, makeEngine, phrases, poly = null, log, bpmOverride = null }) {
+  constructor({ audio, db, range, makeEngine, phrases, poly = null, log, bpmOverride = null, onSessionEnd = null }) {
     this.keysDown = new Set(); // every key currently down, graded or not
     this.lastReleasedAt = null; // audio time of the last key-up
     this.audio = audio;
@@ -367,6 +368,7 @@ export class Drill {
     this.poly = poly;
     this.log = log;
     this.bpmOverride = bpmOverride;
+    this.onSessionEnd = onSessionEnd;
     this.polyStore = db.kv('poly');
     this.lenStore = db.kv('passageLen');
     this.carryStore = db.kv('carry');
@@ -639,6 +641,7 @@ export class Drill {
     if (!silent) this.audio.sessionOver();
     this.state = 'IDLE';
     this.log(`session over (${reason}): ${this.questions} questions, ${this.passagesDone} passages. Play a note to start again.`);
+    this.onSessionEnd?.();
   }
 
   stop({ silent = false } = {}) {

@@ -215,6 +215,16 @@ export class Audio {
     this.click(at + 0.15, { accent: true });
   }
 
+  /**
+   * A controller has appeared. ONE click, kept plainly different from ready()
+   * above, which now means something more specific than it used to: your
+   * PROFILE is open and the next thing you play is your anchor. A keyboard
+   * being plugged in is not that -- the drill still does not know who you are.
+   */
+  listening(at = this.now) {
+    this.click(at);
+  }
+
   /** Session over: three slowing clicks. No pitch -- the only pitched sound
    *  this program makes is a call you are being asked to play back. */
   sessionOver(at = this.now) {

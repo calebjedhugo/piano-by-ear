@@ -14,22 +14,71 @@ Normal use is the macOS launcher, `launcher/` -> `/Applications/Piano by
 Ear.app` (`launcher/build.sh` rebuilds it; rerun after editing the
 AppleScript, `pbe.sh` or `icon.py`). Click when stopped: admin dialog to
 disable lid sleep (Cancel leaves it), then start; click when running: Free
-play / Drill (switch mode), the sound toggle, Switch user, Restart, End drill
+play / Drill (switch mode), the sound toggle, Restart, End drill
 (End re-enables sleep). It always boots into the drill. `launcher/pbe.sh
-status|users|current|mode|sound [app|hardware]|start [user] [free]|stop` is the
+status|users|current|mode|sound [app|hardware]|start [free]|stop` is the
 process control both the app
 and the `/piano-by-ear` skill use; it never touches sleep. Profiles are one
-DB each in `~/.piano-by-ear/profiles/<user>.db` ("Guest" is always listed
-and wiped on every start as Guest), current user in
-`~/.piano-by-ear/current-user`, sound in `~/.piano-by-ear/sound`; log always
+DB each in `~/.piano-by-ear/profiles/<user>.db`, chords in
+`roster.json`, who is loaded right now in `current-user` (written by the
+running drill, empty for nobody), sound in `~/.piano-by-ear/sound`; log always
 `~/.piano-by-ear/run.log`.
 Restart after every code change with `launcher/pbe.sh start`; the log is
 where a session is reviewed afterwards.
 
 ```bash
-npm start                      # flags: --port <substr> --db <path> --debug-midi
+npm start                      # flags: --port <substr> --profiles <dir> --debug-midi
+node src/main.js --user Caleb  # skip the chord: development only
 node src/main.js --bpm 160     # developer override only
 ```
+
+## WHO IS PLAYING IS A CHORD (2026-09-19)
+
+There is no user menu any more, because a menu is not a keyboard. The drill
+boots into a LOBBY with nothing open and nothing graded, and the first thing
+played says who it is (`src/lobby.js`):
+
+- a chord on the roster -> that profile opens
+- a chord nobody owns -> a NEW profile, named from the chord, there and then
+- a single note -> Guest, wiped on every guest login
+
+A chord is a SET of MIDI notes, so it may be rolled or spread; it is complete
+once every key has been up for 300ms. **The match is on exact notes, octave
+included** -- `C4-E4-G4` is William and `C5-E5-G5` is Evelyn, and the octave
+is the only thing between them. The low-high click (`audio.ready()`) means the
+profile is open and the next thing to play is the anchor; a single click means
+only that a controller appeared. A loaded profile that sits idle for as long
+as it takes to end a session closes itself, so the next person has to say who
+they are; a session ending only drops back to LOADED, so one more anchor
+carries on without the chord.
+
+A profile nobody has played for 30 days is SOFT DELETED: the db moves to
+`profiles/retired/` and the chord stops matching, so playing it starts a
+fresh profile. Restoring one is deliberate -- move the file back and clear
+`retiredAt` in `roster.json`.
+
+## THE PI IS THE SOURCE OF TRUTH, AND SYNC IS A MERGE (2026-09-19)
+
+Two computers (upstairs, downstairs) and a laptop that travels with the
+25-key all write to the same profiles, so a profile CANNOT be a file one
+machine overwrites with another: the event tables carry `(device, origin_id)`
+and a sync inserts what is missing in both directions, under a per-profile
+lock on the pi (`src/sync.js`, `Db.mergeFrom`). It runs when a profile opens
+and every time a session ends. No network means you play on the local copy
+and the rows go home at the next sync -- that is the whole point.
+
+**The kv store cannot be merged** (engine tiers, stage, the passage-length
+controller, the phrase schedule are running state, not events): it is taken
+whole from whichever side played last and the other side's is kept in
+`kv_archive`. That only bites when the SAME player plays two machines while
+the pi is unreachable. Rows are never at risk.
+
+The roster travels too, for a sharper reason than convenience: retirement is
+decided from `lastPlayedAt`, and without a shared roster a computer that has
+not seen Liz for a month retires her while she plays daily on the other one.
+
+Config: `~/.piano-by-ear/sync.json` (`{enabled, host, dir}`), machine identity
+`~/.piano-by-ear/device-id`.
 
 No MIDI device present at start is fine; `src/midi.js` polls every 2s and
 opens every input port.

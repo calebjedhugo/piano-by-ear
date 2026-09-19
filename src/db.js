@@ -1,6 +1,6 @@
 // SQLite history + kv persistence (node:sqlite, Node 22.5+).
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { summarizeRungs } from './rungs.js';
 
@@ -46,6 +46,22 @@ const SESSION_COLUMNS = { passages: 'INTEGER NOT NULL DEFAULT 0' };
 // controllers read pitch_clean (pitch and rhythm are separable skills:
 // Pfordresher 2003; Brown & Penhune 2018).
 const PASSAGE_COLUMNS = { pitch_clean: 'INTEGER', self_corrected: 'INTEGER' };
+
+// WHERE A ROW CAME FROM. Two computers (upstairs, downstairs) and a laptop
+// that plays with no network all write to the same profile, so a profile's
+// history cannot be a file that one machine overwrites with another -- it has
+// to MERGE. These two columns are what makes that possible: `device` is the
+// machine that recorded the row and `origin_id` is the id it had there, so
+// (device, origin_id) names a row globally and a merge is "insert what I am
+// missing". Local ids stay local and are remapped on the way in.
+// The event tables merge. The kv store CANNOT (engine tiers, stage, the
+// passage-length controller and the phrase schedule are running state, not
+// events): it is taken whole from whichever side played last, and the other
+// side's copy is kept in kv_archive rather than dropped. See src/sync.js.
+const SYNC_COLUMNS = { device: 'TEXT', origin_id: 'INTEGER' };
+const SYNCED_TABLES = ['sessions', 'attempts', 'passages', 'windows', 'judgments'];
+// kv keys that are about THIS MACHINE and never travel with a profile.
+const LOCAL_KEYS = new Set(['device', 'sync']);
 
 export class Db {
   constructor(path) {
@@ -142,6 +158,14 @@ export class Db {
     this.migrate('sessions', SESSION_COLUMNS);
     this.migrate('passages', PASSAGE_COLUMNS);
     this.migrate('judgments', JUDGMENT_COLUMNS);
+    for (const t of SYNCED_TABLES) this.migrate(t, SYNC_COLUMNS);
+    this.db.exec(`
+      ${SYNCED_TABLES.map((t) => `CREATE INDEX IF NOT EXISTS ${t}_origin ON ${t}(device, origin_id);`).join('\n      ')}
+      -- The kv a merge did not keep. Nothing a player earned is ever deleted;
+      -- it is set aside with the machine and moment it came from.
+      CREATE TABLE IF NOT EXISTS kv_archive (
+        id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, device TEXT, key TEXT NOT NULL, value TEXT NOT NULL
+      );`);
     // Windows from before the flag existed were windows before the cue had
     // been explained (the first real session: 18 windows, no presses).
     this.db.exec('UPDATE judgments SET learning = 1 WHERE learning IS NULL AND guessed = 0');
@@ -317,6 +341,159 @@ export class Db {
       throw err;
     }
     return n;
+  }
+
+  // --- sync ----------------------------------------------------------------
+
+  /** Columns of a table, minus the rowid: what a merge carries across. */
+  columnsOf(table) {
+    return this.db.prepare(`PRAGMA table_info(${table})`).all().map((r) => r.name).filter((n) => n !== 'id');
+  }
+
+  /**
+   * Claim every row this machine has recorded but not yet stamped. Run before
+   * a push, so that anything leaving this computer already says where it came
+   * from -- an unstamped row has no identity and cannot be merged back.
+   */
+  stamp(device) {
+    this.kv('device').save(device);
+    let n = 0;
+    for (const t of SYNCED_TABLES) {
+      const r = this.db.prepare(`UPDATE ${t} SET device = ?, origin_id = id WHERE device IS NULL`).run(device);
+      n += r.changes;
+    }
+    return n;
+  }
+
+  get deviceOfRecord() {
+    return this.kv('device').load();
+  }
+
+  sessionCount() {
+    return this.db.prepare('SELECT COUNT(*) n FROM sessions').get().n;
+  }
+
+  /** When this profile last played anything, by any machine: who wins the kv. */
+  lastSessionAt() {
+    return this.db.prepare('SELECT MAX(COALESCE(ended_at, started_at)) t FROM sessions').get().t ?? 0;
+  }
+
+  /** A consistent single-file copy while the drill is still open on it (no WAL to chase). */
+  snapshot(path) {
+    rmSync(path, { force: true });
+    this.db.exec(`VACUUM INTO '${path.replace(/'/g, "''")}'`);
+  }
+
+  /**
+   * Fold another copy of this profile into this one. Event rows are inserted
+   * where missing, keyed by (device, origin_id), with session ids remapped;
+   * the kv is taken whole from whichever side played more recently. Returns
+   * what moved. The caller pushes the union back up, so every machine
+   * converges on the same history however long it was away.
+   */
+  mergeFrom(path, { log = () => {} } = {}) {
+    const quoted = path.replace(/'/g, "''");
+    this.db.exec(`ATTACH DATABASE '${quoted}' AS r`);
+    const counts = {};
+    try {
+      const theirDevice = (() => {
+        const row = this.db.prepare("SELECT value FROM r.kv WHERE key = 'device'").get();
+        try { return JSON.parse(row.value); } catch { return null; }
+      })();
+      this.db.exec('BEGIN');
+      try {
+        // Sessions first: everything else hangs off them. `byRemoteId` maps
+        // the OTHER machine's local session id onto ours.
+        const mine = new Map();
+        for (const r of this.db.prepare('SELECT device, origin_id, id FROM sessions WHERE device IS NOT NULL').all()) {
+          mine.set(`${r.device}:${r.origin_id}`, r.id);
+        }
+        const cols = this.columnsOf('sessions');
+        const insert = this.db.prepare(
+          `INSERT INTO sessions (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')}) RETURNING id`,
+        );
+        const byRemoteId = new Map();
+        let added = 0;
+        for (const row of this.db.prepare('SELECT * FROM r.sessions').all()) {
+          const device = row.device ?? theirDevice;
+          const origin = row.origin_id ?? row.id;
+          if (!device) continue; // no identity: cannot be merged, only overwritten
+          const key = `${device}:${origin}`;
+          let id = mine.get(key);
+          if (id === undefined) {
+            id = insert.get(...cols.map((c) => (c === 'device' ? device : c === 'origin_id' ? origin : row[c] ?? null))).id;
+            mine.set(key, id);
+            added += 1;
+          }
+          byRemoteId.set(row.id, id);
+        }
+        counts.sessions = added;
+
+        for (const table of SYNCED_TABLES.filter((t) => t !== 'sessions')) {
+          const tcols = this.columnsOf(table);
+          const ins = this.db.prepare(`INSERT INTO ${table} (${tcols.join(', ')}) VALUES (${tcols.map(() => '?').join(', ')})`);
+          const have = new Set(
+            this.db.prepare(`SELECT device, origin_id FROM ${table} WHERE device IS NOT NULL`).all().map((r) => `${r.device}:${r.origin_id}`),
+          );
+          let n = 0;
+          for (const row of this.db.prepare(`SELECT * FROM r.${table}`).all()) {
+            const device = row.device ?? theirDevice;
+            const origin = row.origin_id ?? row.id;
+            if (!device || have.has(`${device}:${origin}`)) continue;
+            const session = byRemoteId.get(row.session_id);
+            if (session === undefined) continue; // an orphan row: its session did not come across
+            ins.run(...tcols.map((c) => {
+              if (c === 'device') return device;
+              if (c === 'origin_id') return origin;
+              if (c === 'session_id') return session;
+              return row[c] ?? null;
+            }));
+            have.add(`${device}:${origin}`);
+            n += 1;
+          }
+          counts[table] = n;
+        }
+        this.db.exec('COMMIT');
+      } catch (err) {
+        this.db.exec('ROLLBACK');
+        throw err;
+      }
+
+      // The kv is not a log and cannot be merged: the side that played last
+      // holds the controller state, and the other side's is archived whole.
+      const theirLast = this.db.prepare('SELECT MAX(COALESCE(ended_at, started_at)) t FROM r.sessions').get().t ?? 0;
+      const mineLast = this.db.prepare(
+        'SELECT MAX(COALESCE(ended_at, started_at)) t FROM sessions WHERE device IS NULL OR device = ?',
+      ).get(this.deviceOfRecord)?.t ?? 0;
+      counts.kv = 'kept';
+      if (theirLast > mineLast) {
+        const theirs = this.db.prepare('SELECT key, value FROM r.kv').all().filter((r) => !LOCAL_KEYS.has(r.key));
+        const ours = new Map(this.db.prepare('SELECT key, value FROM kv').all().filter((r) => !LOCAL_KEYS.has(r.key)).map((r) => [r.key, r.value]));
+        // Adopting state we already hold would archive a fresh copy of it on
+        // every sync, so a no-change sync has to be a no-op.
+        const differs = theirs.length !== ours.size || theirs.some((r) => ours.get(r.key) !== r.value);
+        if (theirs.length && differs) {
+          this.db.exec('BEGIN');
+          try {
+            const arch = this.db.prepare('INSERT INTO kv_archive (ts, device, key, value) VALUES (?, ?, ?, ?)');
+            const now = Date.now();
+            for (const r of this.db.prepare('SELECT key, value FROM kv').all()) {
+              if (!LOCAL_KEYS.has(r.key)) arch.run(now, this.deviceOfRecord ?? null, r.key, r.value);
+            }
+            for (const r of theirs) this.stmts.setKv.run(r.key, r.value);
+            this.db.exec('COMMIT');
+          } catch (err) {
+            this.db.exec('ROLLBACK');
+            throw err;
+          }
+          counts.kv = 'adopted';
+          log(`  sync: took the ladder state from the other copy (it played ${new Date(theirLast).toLocaleString()}); ours is archived`);
+        }
+      }
+    } finally {
+      this.db.exec('DETACH DATABASE r');
+    }
+    return counts;
   }
 
   close() {
