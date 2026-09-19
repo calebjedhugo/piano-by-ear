@@ -49,6 +49,7 @@ export class Lobby {
     this.held = new Set();
     this.pending = new Set(); // the chord being played, collected across releases
     this.decideAt = null;
+    this.needsSync = false; // a sitting has happened that the pi has not got
     this.idleSince = performance.now();
     this.timer = setInterval(() => this.tick(), TICK_MS);
     this.timer.unref();
@@ -136,9 +137,13 @@ export class Lobby {
 
   /** A session just ended. The profile stays open; its history goes home. */
   afterSession() {
+    // The LOADED window starts now, not from the silence that ended the
+    // session: one more anchor should carry on without the chord.
+    this.idleSince = performance.now();
     if (!this.profile || this.profile.guest) return;
     this.roster.touch(this.profile.name);
-    this.sync.run(this.profile.db, this.profile.name, { reason: 'session over' });
+    this.needsSync = true;
+    if (this.sync.run(this.profile.db, this.profile.name, { reason: 'session over' }).ok) this.needsSync = false;
   }
 
   /**
@@ -158,7 +163,11 @@ export class Lobby {
     if (!this.profile) return;
     const { name, db, drill, guest } = this.profile;
     drill.stop({ silent: true });
-    if (!guest) this.sync.run(db, name, { reason: 'closing' });
+    // Only if there is something to send: the session-end sync has usually
+    // just run. It is still tried here when THAT one failed (no network at
+    // the time), which is the case worth keeping.
+    if (!guest && this.needsSync) this.sync.run(db, name, { reason: 'closing' });
+    this.needsSync = false;
     db.close();
     this.profile = null;
     this.held.clear();
