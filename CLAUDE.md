@@ -64,6 +64,21 @@ opens every input port.
   questions are a flat INTERVAL_BPM 72 (the round's tempo dimension is the
   one exception and resets after). Tolerance = beat/8 clamped 45..110 ms
   and never more than 40% of the note's gap.
+  RE-METERING (2026-09-14): an excerpt whose fastest note would still go by
+  under REMETER_BELOW_S (0.32s) is RE-QUANTISED ONTO A 0.4s CLICK -- the
+  shortest note becomes the beat, and everything else keeps very nearly the
+  real duration it had, because gaps and lengths are measured in SECONDS at
+  the tempo the music wanted and then rounded to whole clicks (min 1, max a
+  half note). So a quarter comes out 0.80s, not 1.60s: only what was too fast
+  to hear is stretched. Caleb: "slowed down to half-time and then any longer
+  notes put back at the regular tempo so things don't get too slow." 42% of
+  the mono corpus qualifies. THE COST, ACCEPTED: sixteenths and eighths both
+  become one click, so a 2:1 written ratio flattens -- pitch exact, rhythm
+  approximate. Never more than ONE CLICK of silence between onsets (the note
+  is lengthened, never the gap), which keeps the MAX_REST_BEATS guarantee
+  that rounding would otherwise have broken. Because a re-metered beat is
+  0.4s, every wait written in beats has an absolute floor MIN_QUIET_S (0.8s)
+  or an answer gets cut off mid-phrase.
   **THE ONE RULE: NO NOTE IS PLAYED THAT THE PLAYER IS NOT BEING ASKED TO
   PLAY BACK.** No listen-only questions, no cues, no chimes, no error
   sounds, anywhere. Feedback is intrinsic to the content served: a miss is
@@ -102,8 +117,108 @@ opens every input port.
   pivot still on the anchor), gestures step diatonically in it, plain
   targets lean diatonic (DIATONIC_LEAN). No cadence, no drone, no emergent
   key (tonalfield.js is gone: it renamed the key almost every question).
+  HARMONIC RECOVERY WALK (`queueRecovery`/`recoveryQuestion`, Caleb's design
+  2026-09-14). A missed dyad/chord/placing used to queue another dyad -- an
+  "easier" inward variant off a 119-trial harmonic model -- which sat at
+  36-41% clean whether it came first or second in a row (i.e. it was never
+  easier), and arriving straight after a miss is what made the drill feel like
+  a cascade: "I feel stressed, and the data agrees with how I'm feeling."
+  THE OLD HARMONIC REMEDIATION QUEUE IS GONE. Now the interval is given a
+  chord to live in (`chordFor`: the diatonic chord of the block key holding
+  both pitch classes -- consonant triad, else seventh, else diminished; a
+  tritone comes back as V7, a sixth as the triad it inverts) and the ear is
+  WALKED there, every step a plain melodic ask: (1) the note that was missed,
+  alone; (2) a chord tone, the biggest leap the ladder has opened that still
+  leaves the other note reachable; (3) the other note of the dyad; (4) the
+  same two notes together; (5) THE SAME INTERVAL ELSEWHERE IN THE SAME KEY
+  (`transferBass`), on a different degree, both notes diatonic. By (4) the
+  chord has been laid out in time rather than sounded at once -- "a sparsely
+  orchestrated chord". (5) exists because (4) can be passed from HAND MEMORY:
+  by then his hand has been on both notes, so a clean retry does not prove he
+  heard anything, and perceptual learning consolidates at the hard end
+  (Ahissar & Hochstein's reverse hierarchy: easy exemplars first, then the
+  hard case, repeatedly). A different degree is required, not merely a
+  different octave, or the interval arrives with the same function and it is
+  the same trial; relaxed only where the key holds no second placement (a
+  tritone sits on one degree pair, so F+B after B+F is the only elsewhere
+  there is). Steps are GRADED
+  but scored like the prime: evidence at passage scope, stage credit on the
+  rung, NEVER the tier ladder (a prompted step inside a scaffold must not
+  promote). ONE MISS ANYWHERE DROPS THE WHOLE WALK, back to the ordinary
+  drill -- no stacking failures, and the retry is never announced, so a
+  dropped one is simply never noticed. Only out of a dyad/chord/placing: a
+  harmonic miss inside a PASSAGE keeps its own loop (window -> correction ->
+  re-anchor -> retry) rather than having a walk pushed into the middle of it.
+  A chromatic pair gets no walk (the key has nothing to build on).
+  WHY MELODIC STEPS WORK WHEN THE DYAD DOES NOT (his profile, 2026-09-14):
+  m3 82% melodic / 38% harmonic, M3 79/21, m6 62/25, M6 69/17 -- but P5 72/79
+  and the octave 90/71. Perfect consonances fuse into one nameable object;
+  imperfect ones fuse into a blur. Sequential presentation separates the
+  streams (Bregman). P4/P5 are still walked when missed: a freebie after a
+  miss is what an 85% training rate is made of (Wilson et al. 2019).
+  WHAT THIS IS NOT: recall. THE ONE RULE means the call SOUNDS every note the
+  player must produce, so the answer is in the stimulus on every question in
+  the drill -- there is no question anywhere that withholds it. Retrieval-
+  practice findings (Kornell/Hays/Bjork: errorful generation needs the answer
+  to follow) DO NOT APPLY here and were cited against this design in error.
+  The task is auditory discrimination plus an ear-to-hand mapping, its
+  feedback is intrinsic and immediate (call heard, own note heard, mismatch
+  audible), and the governing literature is perceptual learning, where
+  repeated exposure at the hard end is the mechanism and immediate repetition
+  is correct -- which is what the retry has always said: "constant practice
+  until correct is what the evidence backs".
   KINDS: prime | interval | gesture | discrimination | exposure | remediation |
-  dyad | chord | passage | retry | variant | round | echo | reanchor.
+  dyad | chord | passage | retry | variant | round | echo | reanchor | placing
+  | recovery | dyad retry.
+  PLACING (`placingPlan`/`serveWithPlacement`). TWO CASES, and the second was
+  missed until 2026-09-15. (a) A MELODIC PLACING when the passage does not
+  begin under the hand AT ALL: `PhraseBank` offers each phrase at octave 0 and
+  at +/-12 (`placement`), so a variant can start an octave away, and then the
+  PIVOT -- the one note that is supposed to be free, the note you already have
+  -- is somewhere else entirely. The pivot is asked as an ordinary melodic
+  interval (kind 'placing'), the anchor moves onto it as after any interval,
+  and `picked.octave` is zeroed because the displacement is no longer true.
+  Caleb, guest mode 2026-09-15: "The last question made me start a passage
+  cold. My hand was not on the starting note" -- Mozart K332 variant, starts
+  C#4, anchor C#3; he fumbled A#3 on the free note (swallowed, as in the
+  09-13 keyed case) and was 1.6s late into a re-metered 150 bpm line. THE
+  PIVOT IS PLACED FIRST because placing it MOVES the anchor and (b) is
+  measured from the anchor, so a two-handed passage in a foreign octave
+  places in two steps: the hand you have, then the hand you do not. The chain
+  terminates -- a landed melodic placing leaves the pivot ON the anchor, so it
+  can never be asked twice, and the dyad is always last.
+  (b) THE PLACING DYAD (`placingQuestion`, Caleb 2026-09-14, on unlocking
+  polyphony again: "There's nothing placing my left hand before the example
+  starts"): before EVERY polyphonic passage (first asking and variant, not retry --
+  there every voice's first note is already free), the other hand's first
+  note is asked as a dyad against the anchor. The pivot is placed on the
+  anchor, so one hand knows where it is; every other voice's entry was a cold
+  interval to be found while the passage was already moving. SAME BUG CLASS AS
+  THE RE-ANCHOR: a call assuming the hand is where it isn't. (buildGroups had
+  already made a duo's first bass note GRADED -- 09-11, "ungraded yet fatal" --
+  but nothing ever ASKED for it.) A dyad, not a melodic ask, because what has
+  to be placed is two hands DOWN AT ONCE, and `keepAnchor` stops
+  completeQuestion moving the anchor to the note just played (which is exactly
+  what would unplace the pivot). The target is the LOWEST entry among the
+  voices the pivot does not cover, and it is usually BELOW the anchor, so
+  buildGroups honours an explicit `harmonicRef` instead of the group's bass
+  and gradeNote takes the harmonic interval BY SIZE, folded (a sixth is a
+  sixth whichever of the two you were already holding). EVIDENCE, at passage
+  scope, unlike the re-anchor: it is a real sonority he found, not navigation.
+  Across the poly corpus these placings are 23% sixths (+8 1794, +9 1460 of
+  13971), so this is also the harmonic sixth dose that opening chords failed
+  to deliver (+8 was n=2 lifetime on 09-13). Served EVERY time for now --
+  Caleb: "err on the program being easier for now". A MISSED PLACING DROPS THE
+  PASSAGE, with no verdict and no try spent, exactly as a missed re-anchor
+  drops a retry -- Caleb, 09-14, on the passage that followed one he missed:
+  "I didn't stand a chance because my left hand wasn't in position." A passage
+  he cannot reach is not practice, it is a failure being recorded. It cannot
+  ping-pong: a missed dyad resets `streak` to 0, so another passage has to be
+  earned again. Not in KEYED_KINDS (no block question spent) and not an
+  isolatedKind (the tier ladder never sees it). It is drained at the TOP of
+  `makeQuestion` so nothing can come between the hand being placed and the
+  call that needs it there. TUNE LATER if it gets tedious when he is more
+  advanced (first asking only, or only when the entry is far from the anchor).
   RE-ANCHOR (`reanchorQuestion`, Caleb's design 2026-09-13): two notes -- the
   note he is ALREADY ON, sounded and free, then the note the next call needs,
   a beat later, graded. It is `intervalQuestion`'s sounded-anchor branch,
@@ -128,11 +243,21 @@ opens every input port.
   that actually puts him there. A missed re-anchor of kind (2) falls back to
   moving the anchor, so the walk cannot run off the end and it never asks
   twice. Selection
-  order in `makeQuestion()`: round, window, correction, re-anchor, retry (SAME
-  placement as the miss: `retry.placed`), block prime, pair exposure, remediation queues
+  order in `makeQuestion()`: round, window, correction, placed passage,
+  recovery walk, re-anchor, retry (SAME
+  placement as the miss: `retry.placed`), block prime, pair exposure, the melodic remediation queue
   (folded to simple intervals), due variant, passage (streak >= 3 or 6
-  clean notes, < 3 in a row; top stage only), echo game (echo stage always,
-  contour every 3rd), dyad/chord slot, then a plain target (discrimination
+  clean notes, < 3 in a row; top stage only), echo game (every 2nd plain
+  question at the echo stage, every 3rd at contour, and never after two
+  unfilled windows in a sitting -- `this.echoEmpty`; it used to be EVERY question at the echo
+  stage, which is a dead end: the plain slot could produce nothing else, so a
+  player who makes nothing up gets silent 30s windows forever and the drill
+  has visibly stopped asking, AND the ordinary questions the stage is read
+  from never happen, so he can never climb off 'echo'. William, 2026-09-15.
+  THE GAME STAYS -- it is for Evelyn, who is four, and inventing may be more
+  than she can do by answering; which of the two kinds of player is on the
+  bottom rung is settled by `echoEmpty`, not by the stage),
+  dyad/chord slot, then a plain target (discrimination
   from the pair focus, wide ask, gesture GESTURE_RATE, or interval). The
   harmonic engine's pair focus gets its exposure call too (as dyads).
   PITCH AND TIME ARE SEPARATE: `pitchClean` drives streak, retry, length,
@@ -155,7 +280,30 @@ opens every input port.
   passage, a false alarm). No press = "it was clean", right or a miss gone
   unnoticed. Then `correction`: the live misses minus the ones he named,
   served at the passage's tempo (`q.tempo`) to play back, cascade included.
-  Order in makeQuestion: round, WINDOW, CORRECTION, retry. Neither moves the
+  THE CHAIN REPLACES BOTH PAST THREE MISSED NOTES (`CHAIN.minMissed`, first
+  askings only). Correction accuracy by how many notes the passage missed
+  (09-11..18): 2 -> 81%, 3 -> 62%, 4 -> 47%, 5 -> 20%, 6 -> 20%; and the next
+  COLD asking of that phrase on a later day is clean 60-63% after a clean or
+  one-miss try and 12% after a deep one. At two the correction works because
+  it hands you a note and asks for one; past that it is a list of pitches with
+  no run-up. `startChain` cuts the SPAN out of the passage as placed and heard
+  (`window.notes`) -- from the note BEFORE the first miss through the last
+  one, INCLUDING the correct notes between, because half of multi-miss
+  failures are scattered and serving only the misses teaches a sequence that
+  is not in the music. Each step = the span's opening note (handed, ungraded,
+  the reference) + `len` after it; clean GROWS it, a miss SHRINKS it (never
+  repeats -- that is what terminates the walk and keeps him near the rate at
+  which he is playing rather than guessing, Wilson 2019); done at the whole
+  span or `CHAIN.maxSteps`. NO RETRY FOLLOWS (`startChain` clears
+  `this.retry`): a retry records nothing anyway, and re-serving a passage he
+  just missed badly sits far under the error band. Scored exactly like a
+  correction (`correction: true`) but logged as `kind: 'chain'` so the walk
+  reads apart from the loop it replaced. Ash & Holding 1990 (keyboard task:
+  both part methods beat whole training in training, on the whole task and at
+  one-week retention; forward chaining won). DECLARED IN ADVANCE, do not
+  re-score it later: the target is SEGMENT ACCURACY >= 80% -- playing instead
+  of guessing -- and the 12% next-cold-clean is watched, not targeted.
+  Order in makeQuestion: round, WINDOW, CORRECTION, CHAIN, retry. Neither moves the
   streak, cleanNotes, passagesInARow or the ladder; a correction is scored at
   passage scope and queues no remediation. The CUED judge window it replaces
   is dead (`judgments`, historical) -- a cue is a note you are not asked to
@@ -324,7 +472,52 @@ opens every input port.
 - `src/engine.js` AdaptiveEngine (ear-training port), instantiated twice:
   melodic (kv `engine`) and harmonic (kv `engine:harmonic`). TIER_WIDTHS is
   SIMPLE INTERVALS ONLY (12 tiers; `simpleOf()` folds compounds; a loaded
-  state with more tiers is clamped). Evidence scopes: interval questions
+  state with more tiers is clamped). IT IS ORDERED BY HOW HARD THE INTERVAL
+  IS TO PLAY, NOT TO NAME (2026-09-14): `[2, 1, 3, 4, 5, 7, 12, 9, 8, 10, 11, 6]`
+  -- steps, thirds, fourth/fifth, octave, sixths, sevenths, tritone. It used
+  to open octave-then-fifth (the ear-training-class order, which is an
+  IDENTIFICATION order and nearly the reverse of a production one) and put a
+  whole step at tier 7. The effect: three of four profiles sat at MIN_TIERS
+  forever (William 209 isolated trials at ewma 0.30, Liz 119 at 0.60, Evelyn
+  5 at 0.33), because the ladder only opens a tier above 0.85 and nobody
+  places a cold fifth at 0.85. A beginner's whole session was descending
+  fifths, and the session ended when he stopped answering. Reordering costs
+  an advanced profile nothing: at Caleb's 9 tiers the old and new sets are
+  IDENTICAL. AT THE ENTRY LEVEL THE BLOCK KEY IS ALWAYS C MAJOR
+  (`chooseKey(..., entry)`, `Drill.entryLevel()` = tiers < DIATONIC_TIERS).
+  Rooting every block on the note the player is sitting on is right for
+  someone who knows where he is; for a beginner it meant the first block could
+  be C MINOR and the third question of his life asked for an E-flat (Guest,
+  2026-09-15: "White keys only wasn't happening. It started up black keys on
+  the third question." The diatonic gate was honoured -- it just was not C).
+  The tonic is then NOT necessarily the note under the hand, so it stays in
+  the prime walk's `left` and is one of the notes to find (`nearestPc`), which
+  is the better lesson anyway. And `fits()` refuses any passage or variant
+  with a note outside the block key at this level: passages fall back to
+  ANCHOR placement when none fits the key, and a variant has two more
+  fallbacks (anchor, mode swap) -- that is how a C major block served an F#
+  major transposition. EVERY path that chooses a target has to be gated, not
+  just the plain slot, and each one that was missed showed up as black keys in
+  a C major block: `remediation` (picks its own interval off the queue --
+  takes whichever direction lands in the key), the confusion FOCUS branch of
+  `nextTargetIndex` (returns before the pool is built, so `allowed` is applied
+  there too; when neither direction fits, the pair is not served and no trial
+  is spent), `clampAnchor` (walked him to the WINDOW'S EDGE, an arbitrary
+  pitch -- now the nearest note of the key), and the ROUND (it pushes past the
+  level by design, but the level's promise is the white keys: it widens inside
+  the key instead, and tempo/lead are untouched). Verified across five
+  scripted players, ~150 graded notes each: zero black TARGETS. Black-key
+  ANCHORS are not a bug and are left alone -- that is the player's own wrong
+  note, the anchor follows the hand as it always does, and the next question
+  asks for a white key FROM there, which walks him back.
+  Below `DIATONIC_TIERS` (6, i.e. until steps/thirds/4th/5th are
+  all open) the plain slot passes `only: inKey` to `nextTargetIndex` -- a
+  HARD filter on the target, not the DIATONIC_LEAN, which only chooses which
+  SIDE of the anchor to land on and so did nothing for a beginner (a fifth
+  from a white key in C is diatonic either way). So the half step arrives
+  where the scale puts it (E-F, B-C) instead of as an interval of its own,
+  and the black keys turn on with the octave. `only` is dropped if it would
+  empty the pool: a filter must never be able to end the drill. Evidence scopes: interval questions
   update parent stats/cells/confusions/tier controller; passage notes and
   gestures (`scope:'passage'`) update a `+7|src:passage` cell AND record
   near-miss confusions; the round (`scope:'round'`) updates `src:round`
@@ -364,8 +557,18 @@ opens every input port.
   history input and can only slow things down: it bins recent graded passage
   notes by their excerpt's fastest note and raises the floor only where a bin
   is actually being failed, so a player who was never GIVEN fast notes is
-  never locked into slow ones. Over the corpus this lands 53..88 bpm, with
-  40 bpm on 0.2% (the 32nd-note phrases).
+  never locked into slow ones. ITS RATE IS A NOTE RATE THAT ADDS UP TO A
+  PASSAGE: OK_RATE is 0.85, not 0.5 -- a passage is clean only if EVERY note
+  lands, and 0.5 per note over six notes is 3% clean, which is exactly what
+  the drill was serving while the net sat quiet (2026-09-14: notes at
+  0.20-0.24s were 55% correct, the passages built from them 3-16% clean).
+  The floor is also the top of the SLOWEST failing bin now, not the fastest --
+  it used to return early and leave a bin it was failing above its own floor.
+  Over the corpus this lands 53..88 bpm, with
+  40 bpm on 0.2% (the 32nd-note phrases). `remeterPlan`/`remeterNotes` are
+  the re-metering pair (see TEMPO IS PER QUESTION above); `sessionFloor` must
+  ask `remeterPlan` before scaling `beat_ms` by `minDur`, because in a
+  re-metered excerpt the shortest note IS the beat.
 - `src/keyblock.js` KEY BLOCKS. `parseKey` (the corpus's kern form, `D`/`d`,
   and the "D major" form that `keyName` writes to the log and to
   `attempts.key`), `phraseKey(phrase)` (the piece
@@ -454,7 +657,11 @@ opens every input port.
   ONLY (`kind = 'passage'`): retries are echoes, variants are transfer.
 - `scripts/sim.mjs <db> <player> <n> [bpm] [nophrases]` headless scripted
   player (perfect | sloppy | kid | liz | random) against a scratch DB; the
-  way every path above was verified. Never a live profile.
+  way every path above was verified. Never a live profile. ALWAYS PASS A BPM:
+  the harness needs `bpmOverride`, and running it with 0 (no override, real
+  per-excerpt tempos) produces NaN onsets and Infinity timeouts inside the
+  SCRIPT, not the drill. Timing rules written in real seconds (MIN_QUIET_S)
+  therefore have to be checked by arithmetic, not by the sim.
 - `scripts/build-corpus.mjs` **kern -> phrases.json. Integer ticks
   (TPQ 1680). Melody = rightmost kern spine and all its sub-spines, highest
   attacked pitch unless a higher note is still held. Meter per barline;

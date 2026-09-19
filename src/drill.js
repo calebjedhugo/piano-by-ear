@@ -143,10 +143,10 @@
 // piano under your keys (the controller has no sound of its own). See the
 // rule at the top: nothing else sounds, ever.
 
-import { TIER_WIDTHS, WARMUP_QUESTIONS, simpleOf } from './engine.js';
-import { floorFromHistory, passageTempo, toleranceMsFor } from './tempo.js';
+import { DIATONIC_TIERS, TIER_WIDTHS, WARMUP_QUESTIONS, simpleOf } from './engine.js';
+import { floorFromHistory, passageTempo, remeterNotes, remeterPlan, toleranceMsFor } from './tempo.js';
 import { summarizeRungs, describeRungs, rungScore } from './rungs.js';
-import { BLOCK_QUESTIONS, NAMES, chooseKey, keyName, primeSet, diatonicIn, diatonicStep, modeSwap } from './keyblock.js';
+import { BLOCK_QUESTIONS, NAMES, chooseKey, chordFor, keyName, nearestPc, primeSet, diatonicIn, diatonicStep, modeSwap } from './keyblock.js';
 import { Stage } from './stage.js';
 
 const MIN_VELOCITY = 20; // key brushes are echoed but never graded
@@ -216,11 +216,62 @@ const WINDOW_BEATS = 2;
 // A beat of silence ends an answer, except where the player is recalling
 // rather than echoing: a retry or a variant waits two.
 const QUIET_BEATS = { retry: 2, variant: 2 };
+// A re-metered excerpt's beat is the length of a sixteenth, and "a beat of
+// silence means you are done" then cuts an answer off in four tenths of a
+// second. Every wait measured in beats gets this floor in real time.
+const MIN_QUIET_S = 0.8;
 // The round: this many clean, in-time plain answers started within two beats
 // open one; a run is this many calls or this many misses; then a cool-down
 // call. At the ~70% a 2-down/1-up staircase converges on, 16 calls expect
 // about 5 misses, so a run usually ends on its length, not on a failure.
 const ROUND = { trigger: 5, calls: 16, misses: 5, cooldown: 15, maxLevel: 4, leads: [4, 3, 2], tempoStep: 6 };
+// THE CHAIN. Past a certain number of missed notes the corrective loop stops
+// working, and the data says exactly where. Correction accuracy by how many
+// notes the passage missed (2026-09-11..18, first askings, the correction
+// served two questions later):
+//
+//     missed   n    graded notes   note acc   whole correction right
+//        2     21       1.0           81%            81%
+//        3     34       1.5           59%            62%
+//        4     32       2.1           53%            47%
+//        5     20       3.1           41%            20%
+//        6      5       4.4           27%            20%
+//
+// At two it works, because the correction hands you the first note and asks
+// for one: a reference, then a step. At three and past it, the correction
+// turns into a list of pitches with no run-up and the answer is a guess. And
+// what the loop leaves behind falls off the same cliff -- the next COLD
+// asking of the same phrase, on a later day, is clean 60-63% of the time
+// after a clean or one-miss first try and 12% of the time after a deep one.
+//
+// So past three, the correction and the retry are both replaced by a chain
+// (Ash & Holding 1990: on a keyboard task both part methods beat whole
+// training during training, on the whole task, and at one-week retention;
+// forward chaining won). It is cut from the passage AS PLACED AND HEARD --
+// the same pitches, rhythm and tempo -- and it runs over the SPAN: from the
+// note before the first miss through the last one, INCLUDING the notes in
+// between that were played correctly. Not the set of missed notes: half of
+// all multi-miss failures are scattered rather than contiguous, and serving
+// only the misses teaches a sequence that never occurs in the music.
+//
+// Each step is the span's opening note (handed, ungraded -- the reference)
+// plus `len` notes after it. Clean and it grows by one; missed and it
+// SHRINKS by one, so the drill stays near the rate at which he is playing
+// rather than guessing (Wilson et al. 2019). At the shortest step it stops.
+//
+// NO RETRY FOLLOWS. A retry already records nothing (see the corrective loop
+// below: `const first = q.kind === 'passage'` gates every store), so dropping
+// it costs no measurement -- and re-serving a passage he just missed badly
+// keeps him far under the error band the rest of the drill aims at. The
+// phrase's retention test was, and remains, its next cold asking.
+//
+// WHAT THIS IS FOR, stated in advance so it is not re-scored later: the
+// target is SEGMENT ACCURACY >= 80% -- playing instead of guessing. The 12%
+// next-cold-clean is watched, not targeted.
+const CHAIN = {
+  minMissed: 3, // at two the correction already works; this starts past the cliff
+  maxSteps: 8,  // a span is 3-5 notes; this caps the walk even if it oscillates
+};
 // Kinds that use the block key: what a block counts.
 const KEYED_KINDS = new Set(['interval', 'gesture', 'discrimination', 'remediation', 'passage', 'variant']);
 // Once a level is dropped, the interval-confidence gate cannot lift it again for this long.
@@ -348,7 +399,11 @@ export class Drill {
     for (const r of this.db.recentPassageNotes(FLOOR_WINDOW)) {
       const phrase = this.phrases?.byId.get(r.phrase_id) ?? this.poly?.byId.get(r.phrase_id);
       if (!phrase) continue; // a phrase the corpus no longer has
-      rows.push({ fastestSec: (phrase.minDur * r.beat_ms) / 1000, clean: Boolean(r.correct && r.in_time) });
+      // In a re-metered excerpt the shortest note IS the beat, so beat_ms is
+      // already how long it lasted; scaling by minDur again would report a
+      // sixteenth that ran at 0.4s as having flown by at 0.1s.
+      const remetered = Boolean(remeterPlan(phrase));
+      rows.push({ fastestSec: (remetered ? r.beat_ms : phrase.minDur * r.beat_ms) / 1000, clean: Boolean(r.correct && r.in_time) });
     }
     return floorFromHistory(rows);
   }
@@ -481,6 +536,7 @@ export class Drill {
     this.sessionId = this.db.newSession({ bpm: this.bpm, anchor });
     this.questions = 0;
     this.plainQuestions = 0;
+    this.echoEmpty = 0; // windows in a row the player left silent
     this.passagesDone = 0;
     this.streak = 0;
     this.cleanNotes = 0;
@@ -488,14 +544,16 @@ export class Drill {
     this.roundCooldown = 0;
     this.round = null;
     this.remediationQueue = resumed?.remediationQueue ?? [];
-    this.harmonicRemediationQueue = [];
+    this.recovery = null; // { a, t, chord, step } -- the walk out of a harmonic miss
     // The corrective loop and the variants carry as ids + placement, re-placed
     // from the bank (a phrase object through JSON would be a detached copy).
     // A window belongs to the passage that just happened; neither it nor its
     // correction survives the end of a session.
     this.window = null; // { missed, clean, question, phraseId, sec, bpm, pressed }
     this.correction = null; // { notes, bpm }
+    this.chain = null; // { notes, onsets, len, steps, bpm, meter, phraseId } -- the walk out of a deep miss
     this.reanchor = null; // { target, forRetry, served } -- transient, like the window
+    this.placing = null; // { kind, picked, suffix, target, dyad } -- the passage waiting behind its placing question
     this.retry = resumed?.retry ? this.replace(resumed.retry) : null; // { id, kind, tries, score, placed }
     this.variantQueue = (resumed?.variantQueue ?? []).map((v) => this.replace(v)).filter(Boolean);
     // A resumed sitting re-opens its block rather than carrying one: the
@@ -576,7 +634,15 @@ export class Drill {
   }
 
   fits(placed) {
-    return placed.notes.every((n) => n[0] >= this.lo && n[0] <= this.hi);
+    if (!placed.notes.every((n) => n[0] >= this.lo && n[0] <= this.hi)) return false;
+    // AT THE ENTRY LEVEL, ON THE WHITE KEYS. A passage or variant is placed
+    // in the block key when one fits and ON THE ANCHOR when none does, and
+    // that fallback -- plus the variant's own anchor/mode-swap fallbacks --
+    // is how a beginner's C major block ends up serving him an F# major
+    // transposition. There is no shortage of C major excerpts; drop the ones
+    // that leave it rather than bending the level to fit a phrase.
+    return !this.entryLevel() || !this.block
+      || placed.notes.every((n) => diatonicIn(n[0], this.block.key));
   }
 
   /**
@@ -588,7 +654,19 @@ export class Drill {
   clampAnchor(midi) {
     const w = this.win;
     if (midi >= w.lo && midi <= w.hi) return midi;
-    return Math.max(w.lo + 3, Math.min(w.hi - 3, midi));
+    let back = Math.max(w.lo + 3, Math.min(w.hi - 3, midi));
+    // The window's edge is an arbitrary pitch, so at the entry level walking
+    // him back to it can land on a black key -- the one note the level is
+    // supposed not to contain. Take the nearest note of the key instead.
+    if (this.entryLevel() && this.block) {
+      for (let d = 0; d <= 6; d += 1) {
+        const up = back + d;
+        const down = back - d;
+        if (up <= w.hi && diatonicIn(up, this.block.key)) { back = up; break; }
+        if (down >= w.lo && diatonicIn(down, this.block.key)) { back = down; break; }
+      }
+    }
+    return back;
   }
 
   /**
@@ -670,6 +748,247 @@ export class Drill {
       meter: 4,
       label: `gesture: ${name(this.anchor)} -> ? (${signed(target - this.anchor)})${tail} in ${keyName(k)}${diatonicIn(target, k) ? '' : ', borrowed'}`,
     };
+  }
+
+  /**
+   * THE OTHER HAND'S FIRST NOTE, asked as a dyad against the anchor before a
+   * polyphonic passage is served. The pivot is placed on the anchor, so one
+   * hand knows where it is; every other voice's first note was a cold
+   * interval to be found while the passage was already moving -- the same
+   * "a call assuming the hand is where it isn't" that the re-anchor cured for
+   * mono. Caleb, on unlocking polyphony again: "There's nothing placing my
+   * left hand before the example starts."
+   *
+   * A dyad rather than a melodic ask, because what has to be placed is two
+   * hands DOWN AT ONCE; the anchor does not move (keepAnchor), since moving
+   * it is exactly what would unplace the pivot.
+   */
+  placingQuestion(target) {
+    return {
+      kind: 'placing',
+      dyad: true,
+      placing: true,
+      keepAnchor: true,
+      optionalAnchor: true,
+      notes: [
+        { midi: this.anchor, b: 0, dur: 2, voice: 0, free: true },
+        { midi: target, b: 0, dur: 2, voice: 1, harmonicRef: this.anchor },
+      ],
+      meter: 4,
+      label: `placing: ${name(this.anchor)} + ? (${signed(target - this.anchor)} together) -- the other hand's first note`,
+    };
+  }
+
+  /** The note a placing dyad should put the other hand on: the lowest entry
+   *  among the voices the pivot does not cover (the hand with travelling to
+   *  do). Null when there is nothing to place. */
+  placingTarget(picked) {
+    const { phrase, notes } = picked;
+    if (phrase.kind === 'mono') return null;
+    const pivotVoice = notes[phrase.pivot][3] ?? 0;
+    const firsts = new Map(); // voice -> [offset, midi]
+    for (const [midi, off, , voice = 0] of notes) {
+      const seen = firsts.get(voice);
+      if (!seen || off < seen[0]) firsts.set(voice, [off, midi]);
+    }
+    let target = null;
+    for (const [voice, [, midi]] of firsts) {
+      if (voice === pivotVoice || midi === this.anchor) continue;
+      if (target === null || midi < target) target = midi;
+    }
+    return target;
+  }
+
+  /**
+   * What must be under a hand before this passage can start, and how to ask
+   * for it. Two cases, and the second was missed until 2026-09-15:
+   *
+   *   dyad      the PIVOT hand is already home and the OTHER hand has
+   *             travelling to do -- ask for them together.
+   *   interval  the passage does not begin under the hand AT ALL. A variant
+   *             may be shifted an octave (`picked.octave`), and then the
+   *             pivot -- the one note that is supposed to be free, the note
+   *             you already have -- is somewhere else entirely. Ask for it
+   *             as a plain melodic interval, and the hand ends up on it,
+   *             which is the whole point. (Caleb, guest mode: "The last
+   *             question made me start a passage cold. My hand was not on
+   *             the starting note." Mozart K332 variant, starts C#4, anchor
+   *             C#3: he fumbled A#3 on the free note and was 1.6s late into
+   *             a re-metered 150 bpm line.)
+   *
+   * Null when the passage already begins where the hand is.
+   */
+  placingPlan(picked) {
+    // THE PIVOT FIRST, because placing it MOVES the anchor, and the other
+    // hand's dyad is measured from the anchor. A duo that is both in a
+    // foreign octave and two-handed therefore places in two steps: the hand
+    // you have, then the hand you do not. The order also makes the chain
+    // terminate -- a landed melodic placing leaves the pivot ON the anchor,
+    // so it can never be asked for twice, and a dyad placing is always last.
+    const pivotMidi = picked.notes[picked.phrase.pivot][0];
+    if (pivotMidi !== this.anchor) return { target: pivotMidi, dyad: false };
+    const other = this.placingTarget(picked);
+    return other === null ? null : { target: other, dyad: true };
+  }
+
+  /** Serve a passage, putting the hand where it has to be first. */
+  serveWithPlacement(kind, picked, suffix = '') {
+    const plan = this.placingPlan(picked);
+    if (plan === null) {
+      const q = this.passageQuestion(kind, picked);
+      if (suffix) q.label += suffix;
+      return q;
+    }
+    this.placing = { kind, picked, suffix, ...plan };
+    if (plan.dyad) return this.placingQuestion(plan.target);
+    // A plain interval question: nothing marks it as a placement, because
+    // from the player's side it is not one. The anchor moves to it the way
+    // it moves after any interval, and the passage then starts under the
+    // hand -- so the octave displacement in the label is no longer true.
+    const q = this.intervalQuestion('placing', plan.target);
+    q.placing = true;
+    q.label += ' -- the note the passage starts on';
+    return q;
+  }
+
+  /**
+   * THE WALK OUT OF A HARMONIC MISS. A missed dyad used to queue another
+   * dyad -- an "easier" inward variant off a 119-trial model -- which landed
+   * at 36-41% clean whether it came first or second in a row, i.e. it was
+   * never easier at all, and being handed it straight after a miss is what
+   * made the drill feel like a cascade (Caleb, 2026-09-14: "I feel stressed",
+   * and the data agreed).
+   *
+   * Instead the interval is given a chord to live in and the ear is walked
+   * there one note at a time, every step a plain melodic ask -- the thing he
+   * does at 62-90% while the same intervals harmonically sit at 17-38%
+   * (m3 82/38, M3 79/21, m6 62/25, M6 69/17; P5 72/79 and the octave 90/71
+   * need no help, which is the fusion story: perfect consonances resolve into
+   * one nameable object, imperfect ones into a blur).
+   *
+   *   1. the note that was MISSED, alone, from wherever the hand is
+   *   2. a chord tone, the biggest leap he has tiers for
+   *   3. the other note of the dyad
+   *   4. the dyad again -- the same two notes
+   *
+   * By step 4 the chord has been laid out in time rather than sounded at
+   * once: "the user will be hearing a sparsely orchestrated chord by now."
+   * ONE MISS ANYWHERE AND THE WHOLE THING IS DROPPED, back to the ordinary
+   * drill -- no stacking failures, and the retry that never arrives is never
+   * announced, so he may not know it was coming.
+   */
+  queueRecovery(from, missed) {
+    // Only out of a dyad, chord or placing. A harmonic miss inside a PASSAGE
+    // already has a corrective loop of its own (window -> correction ->
+    // re-anchor -> retry) and inserting a walk into the middle of it would
+    // push the retry four questions away from the miss it answers.
+    if (!this.q?.dyad || this.q.recovery || this.recovery || !this.block || !this.dyadsOpen()) return;
+    const chord = chordFor(this.block.key, [from % 12, missed % 12]);
+    if (!chord) return; // a chromatic pair: the key has nothing to build on
+    this.recovery = { a: from, t: missed, chord, step: 0 };
+  }
+
+  /** Every question in the walk carries the flag: it keeps the ladder out of
+   *  it, and it stops a missed retry from spawning a second walk. */
+  mark(q) {
+    q.recovery = true;
+    return q;
+  }
+
+  /** The chord tone to pass through: the biggest leap the ladder has opened
+   *  that still leaves the other note of the dyad reachable. */
+  recoveryTone() {
+    const r = this.recovery;
+    const widths = this.primeWidths();
+    let best = null;
+    for (let midi = this.lo; midi <= this.hi; midi += 1) {
+      if (midi === this.anchor || midi === r.a || midi === r.t) continue;
+      if (!r.chord.includes(((midi % 12) + 12) % 12)) continue;
+      const out = Math.abs(midi - this.anchor);
+      const back = Math.abs(r.a - midi);
+      if (!widths.has(out) || !widths.has(back)) continue;
+      if (!best || out + back > best.span) best = { midi, span: out + back };
+    }
+    return best ? best.midi : null;
+  }
+
+  /**
+   * THE SAME INTERVAL SOMEWHERE ELSE IN THE SAME KEY. The retry proves he can
+   * play the two keys he has just played; it does not prove he heard
+   * anything, because by then his hand has been on both. This is the trial
+   * that cannot be passed from hand memory -- and keeping both notes diatonic
+   * keeps it inside the harmonic field the walk just built, so the same
+   * interval arrives with a different function. Prefer no approach at all
+   * (his hand already works as the bass), then a bass inside the same chord,
+   * then any diatonic one he can reach.
+   */
+  transferBass(r) {
+    const iv = r.t - r.a;
+    const key = this.block.key;
+    const widths = this.primeWidths();
+    const ok = (b) => b !== r.a && b >= this.lo && b <= this.hi
+      && b + iv >= this.lo && b + iv <= this.hi
+      && diatonicIn(b, key) && diatonicIn(b + iv, key);
+    // A DIFFERENT DEGREE, not the same pair an octave away: the interval has
+    // to arrive with a different function or the trial is the same trial.
+    // Relaxed only when the key holds no other placement -- a tritone sits on
+    // exactly one degree pair, and F+B after B+F is the only "elsewhere"
+    // there is.
+    const pc = (m) => ((m % 12) + 12) % 12;
+    const fresh = (b) => pc(b) !== pc(r.a);
+    const pick = (test) => {
+      if (ok(this.anchor) && test(this.anchor)) return this.anchor;
+      let best = null;
+      for (let b = this.lo; b <= this.hi; b += 1) {
+        if (!ok(b) || !test(b) || !widths.has(Math.abs(b - this.anchor))) continue;
+        const d = Math.abs(b - this.anchor);
+        if (!best || d < best.d) best = { b, d };
+      }
+      return best ? best.b : null;
+    };
+    return pick(fresh) ?? pick(() => true);
+  }
+
+  recoveryQuestion() {
+    const r = this.recovery;
+    for (;;) {
+      if (r.step === 0) {
+        r.step = 1;
+        if (this.anchor === r.t) continue; // already there: nothing to ask
+        return this.mark(this.intervalQuestion('recovery', r.t));
+      }
+      if (r.step === 1) {
+        r.step = 2;
+        const tone = this.recoveryTone();
+        if (tone !== null) return this.mark(this.intervalQuestion('recovery', tone));
+        continue; // no room for a pass: go straight back
+      }
+      if (r.step === 2) {
+        r.step = 3;
+        if (this.anchor === r.a) continue;
+        return this.mark(this.intervalQuestion('recovery', r.a));
+      }
+      if (r.step === 3) {
+        r.step = 4;
+        // The same two notes, and the anchor is the note under his hand: the
+        // walk ended on it, which is the only reason this can be the dyad
+        // that was missed.
+        if (this.anchor === r.a) return this.mark(this.dyadQuestion('dyad retry', r.t));
+        break;
+      }
+      if (r.step === 4) {
+        r.step = 5;
+        const bass = this.transferBass(r);
+        if (bass === null) break;
+        r.bass = bass;
+        if (this.anchor === bass) continue; // already there: no approach needed
+        return this.mark(this.intervalQuestion('recovery', bass));
+      }
+      this.recovery = null;
+      return this.anchor === r.bass ? this.mark(this.dyadQuestion('dyad transfer', r.bass + (r.t - r.a))) : null;
+    }
+    this.recovery = null;
+    return null;
   }
 
   dyadQuestion(kind, target) {
@@ -870,7 +1189,14 @@ export class Drill {
   }
 
   passageQuestion(kind, picked) {
-    const { phrase, notes, octave, key } = picked;
+    const { phrase, octave, key } = picked;
+    // RE-METERED when the written rhythm is too fast to hear at its own
+    // tempo: the shortest note becomes the beat and the long notes are capped
+    // so they do not drag behind it (src/tempo.js). The pivot index still
+    // points at the same note -- only offsets and lengths change.
+    const plan = remeterPlan(phrase, this.floorSec);
+    const notes = plan ? remeterNotes(picked.notes, plan) : picked.notes;
+    const pickup = plan ? Math.round((phrase.pickup * plan.beatSec) / plan.unitSec) : phrase.pickup;
     // Placed in a key, the pivot is no longer the note under the hand: it is
     // a heard note like any other and is graded (buildGroups frames it from
     // the anchor). Placed on the anchor, it stays free. On a RETRY every
@@ -882,19 +1208,21 @@ export class Drill {
       seen.add(voice);
       // The pivot is the note under your hand, in a key or not (PhraseBank
       // places it there): free, as it always was.
-      return { midi, b: phrase.pickup + off, dur, voice, free: i === phrase.pivot || (kind === 'retry' && firstInVoice) };
+      return { midi, b: pickup + off, dur, voice, free: i === phrase.pivot || (kind === 'retry' && firstInVoice) };
     });
     const pivotMidi = notes[phrase.pivot][0];
+    const remetered = plan ? `, re-metered (${plan.meter} per beat)` : '';
     const start = key ? `, in ${keyName(key)}` : octave === 0 ? '' : `, starts ${name(pivotMidi)} (octave ${octave > 0 ? 'above' : 'below'} anchor)`;
     const poly = phrase.kind !== 'mono';
     return {
       kind,
       notes: placed,
-      meter: phrase.meter,
+      meter: plan ? plan.meter : phrase.meter,
+      tempo: plan ? plan.bpm : undefined,
       phrase,
       octave,
       placed: picked,
-      label: `${kind === 'passage' ? '' : `${kind}: `}${poly ? `${phrase.kind}: ` : ''}${phrase.composer} ${phrase.catalog} "${phrase.title}" bar ${phrase.bar}, ${phrase.meter}-beat bars, ${poly ? `${phrase.voices} voices, ` : ''}${notes.length} notes in ${phrase.key || '?'}${start}`,
+      label: `${kind === 'passage' ? '' : `${kind}: `}${poly ? `${phrase.kind}: ` : ''}${phrase.composer} ${phrase.catalog} "${phrase.title}" bar ${phrase.bar}, ${phrase.meter}-beat bars, ${poly ? `${phrase.voices} voices, ` : ''}${notes.length} notes in ${phrase.key || '?'}${start}${remetered}`,
     };
   }
 
@@ -957,7 +1285,7 @@ export class Drill {
       // In the block key first; on the anchor only if nothing fits the key.
       const picked = (this.block && bank.pick(this.anchor, this.lo, this.hi, { ...opts, key: this.block.key })) ||
         bank.pick(this.anchor, this.lo, this.hi, opts);
-      if (picked) return picked;
+      if (picked && this.fits(picked)) return picked;
     }
     return null;
   }
@@ -1011,26 +1339,36 @@ export class Drill {
         }
       }
     }
-    if (!picked) return null;
-    const q = this.passageQuestion('variant', picked);
-    q.label += ` (${how})`;
-    return q;
+    if (!picked || !this.fits(picked)) return null;
+    return this.serveWithPlacement('variant', picked, ` (${how})`);
+  }
+
+  /** The drill is still on the white keys: C major, wherever the hand is. */
+  entryLevel() {
+    return this.engine.state.tiersUnlocked < DIATONIC_TIERS;
   }
 
   /**
    * A new key block opens on the note you are on: that note is the tonic, and
    * the walk through the key's set starts from it. The tonic itself is never
    * asked -- it is already under the hand.
+   *
+   * AT THE ENTRY LEVEL THE KEY IS C MAJOR INSTEAD, so the tonic is NOT
+   * necessarily the note under the hand -- and then it is one of the notes to
+   * find, which is the right lesson anyway: the beginner walks to the tonic
+   * by step rather than being told he is already standing on it.
    */
   openBlock() {
-    const key = chooseKey(this.anchor, this.block?.key ?? null);
+    const key = chooseKey(this.anchor, this.block?.key ?? null, this.entryLevel());
     this.blockN += 1;
     this.block = { key, asked: 0, n: this.blockN };
     // Below the exact stage only the stepwise sets are open (tiers 0).
     const tiers = this.stage.current === 'exact' ? this.engine.state.tiersUnlocked : 0;
     const set = primeSet(key, { tiers });
-    const left = set.degrees.slice(1); // degree 0 is the note under the hand
-    this.priming = { key, tonic: this.anchor, set: set.name, left, step: 0, total: left.length, lastIv: 0 };
+    const tonic = nearestPc(this.anchor, key.tonic, this.lo, this.hi) ?? this.anchor;
+    const onIt = tonic === this.anchor;
+    const left = onIt ? set.degrees.slice(1) : set.degrees.slice(); // degree 0 is the note under the hand
+    this.priming = { key, tonic, set: set.name, left, step: 0, total: left.length, lastIv: 0 };
     this.log(`key block: ${keyName(key)} -- ${set.name}, ${left.length} note${left.length === 1 ? '' : 's'} to find`);
     return this.primeQuestion();
   }
@@ -1055,6 +1393,37 @@ export class Drill {
       const c = this.correction;
       this.correction = null;
       return this.correctionQuestion(c);
+    }
+    // The chain stands in the correction's place and holds the floor until
+    // the span is walked (stepChain clears it), so nothing comes between the
+    // steps of one walk.
+    if (this.chain) return this.chainQuestion();
+    // The passage its placing dyad was served for, immediately: nothing may
+    // come between the hand being placed and the call that needs it there.
+    // A MISSED PLACING DROPS IT, with no verdict and no try spent, exactly as
+    // a missed re-anchor drops a retry. Caleb, on the passage that followed
+    // the one he missed: "I didn't stand a chance because my left hand wasn't
+    // in position." A passage he cannot reach is not practice, it is a
+    // failure being recorded.
+    if (this.placing) {
+      const p = this.placing;
+      this.placing = null;
+      if (!p.landed) {
+        this.log(`  (placing missed: the passage is dropped -- ${p.dyad ? 'the other hand was never there' : 'the hand never got to the note it starts on'})`);
+      } else if (this.fits(p.picked)) {
+        // A melodic placing MOVED the anchor onto the pivot, so the passage
+        // now begins under the hand and the octave in the label is stale.
+        // It may also have left a second hand still to place: ask again.
+        if (!p.dyad) return this.serveWithPlacement(p.kind, { ...p.picked, octave: 0 }, p.suffix);
+        const q = this.passageQuestion(p.kind, p.picked);
+        if (p.suffix) q.label += p.suffix;
+        return q;
+      }
+    }
+    // THE WALK OUT OF A HARMONIC MISS, before anything else can intervene.
+    if (this.recovery) {
+      const q = this.recoveryQuestion();
+      if (q) return q;
     }
     // A re-anchor that was served last question: did it land? The anchor is
     // whatever he played, so landing means it equals the note we asked for.
@@ -1114,18 +1483,17 @@ export class Drill {
     }
     while (this.remediationQueue.length > 0) {
       const raw = this.remediationQueue.shift();
-      const iv = engine.inwardVariant(raw, a);
+      let iv = engine.inwardVariant(raw, a);
+      // The plain slot's key gate does not reach here -- remediation picks its
+      // own interval off the queue -- so at the entry level take whichever
+      // direction lands in the key. It is usually free (both do), and when
+      // neither does, the anchor itself is off the white keys because he just
+      // played a wrong note; the walk gets him back either way.
+      if (iv !== null && this.entryLevel() && this.block && !diatonicIn(a + iv + this.lo, this.block.key)
+        && engine.feasible(a, -iv) && diatonicIn(a - iv + this.lo, this.block.key)) iv = -iv;
       if (iv !== null) {
         const target = engine.ask(iv, a, prev) + this.lo;
         return this.intervalQuestion('remediation', target);
-      }
-    }
-    while (dyads && this.harmonicRemediationQueue.length > 0) {
-      const raw = this.harmonicRemediationQueue.shift();
-      const iv = this.harmonic.inwardVariant(raw, a);
-      if (iv !== null) {
-        const target = this.harmonic.ask(iv, a, null) + this.lo;
-        return this.dyadQuestion('dyad remediation', target);
       }
     }
     if (this.variantQueue.length > 0 && this.variantQueue[0].block < this.blockN) {
@@ -1136,11 +1504,32 @@ export class Drill {
     if (this.phrases && top) {
       if ((this.streak >= STREAK_FOR_PASSAGE || this.cleanNotes >= CLEAN_NOTES_FOR_PASSAGE) && this.passagesInARow < MAX_PASSAGES_IN_A_ROW) {
         const picked = this.pickPassage();
-        if (picked) return this.passageQuestion('passage', picked);
+        if (picked) return this.serveWithPlacement('passage', picked);
       }
     }
-    // The echo game: at the lowest stage every question; at contour, every third.
-    if (this.stage.current === 'echo' || (this.stage.current === 'contour' && this.plainQuestions % 3 === 2)) {
+    // The echo game: every third plain question at the two lowest stages.
+    //
+    // IT USED TO BE EVERY QUESTION AT 'echo', AND THAT IS A DEAD END. At that
+    // stage the echo game was the ONLY thing the plain slot could produce, so
+    // a player who does not make something up got a silent 30-second window,
+    // the "nothing played yet" skip, and then another silent window, forever:
+    // from the outside the drill has simply stopped asking. (William,
+    // 2026-09-15: four primes, all four exactly right, and then nothing the
+    // drill would ask him.) Worse, the ordinary questions are what the STAGE
+    // is read from, so a player pinned at 'echo' could never generate the
+    // evidence that would lift him off it. Echo is a warm-up device, not a
+    // drill. Two unfilled windows and it stops being offered this sitting:
+    // a player who has nothing to make up is telling you so.
+    // At the bottom rung the game is half the plain slot (a four-year-old may
+    // have more to say by inventing than by answering -- Evelyn); at contour
+    // it is a third. Never all of it at either: the ordinary questions are
+    // what the stage is read from, so a player with no ordinary questions can
+    // never climb. Which of the two kinds of player is at the bottom rung --
+    // the one who fills the window and the one who has nothing to make up --
+    // is settled by `echoEmpty`, not by the stage.
+    const echoEvery = this.stage.current === 'echo' ? 2 : 3;
+    if (this.echoEmpty < 2 && this.stage.current !== 'exact' && this.stage.current !== 'sizing'
+      && this.plainQuestions % echoEvery === echoEvery - 1) {
       this.plainQuestions += 1;
       return { kind: 'echo', collect: true, notes: [], meter: 4, label: 'echo: the drill is quiet -- play two or three notes and it will ask for them back' };
     }
@@ -1169,6 +1558,11 @@ export class Drill {
         if (inKey(t)) return inKey(mirror) && feasible(mirror) ? 1 : DIATONIC_LEAN;
         return inKey(mirror) && feasible(mirror) ? CHROMATIC_SIDE : 1;
       },
+      // Early on the lean is not enough: it only chooses which SIDE of the
+      // anchor to land on, and from a white key in C a fifth is diatonic
+      // either way, so a beginner got fifths in key and learned nothing about
+      // the key. Below DIATONIC_TIERS the target must actually be in it.
+      only: engine.state.tiersUnlocked < DIATONIC_TIERS ? inKey : null,
     }) + this.lo;
     if (engine.servedQueue) return this.intervalQuestion('discrimination', target);
     if (engine.lastWide) return this.intervalQuestion('interval', target, { wide: true });
@@ -1200,7 +1594,17 @@ export class Drill {
   roundQuestion(a, prev) {
     const r = this.round;
     const extra = r.dim === 'interval' ? r.level : 0;
-    const target = this.engine.nextTargetIndex(a, prev, { extraTiers: extra, scope: 'round', bounds: { lo: this.idx(this.win.lo), hi: this.idx(this.win.hi) } }) + this.lo;
+    // The round pushes PAST the current level on one dimension -- that is what
+    // it is for -- but the entry level's promise is the white keys, and a
+    // round widening by extraTiers off a white key lands on black ones (C + 3).
+    // It can widen inside the key instead; tempo and lead are untouched.
+    const key = this.block?.key ?? null;
+    const target = this.engine.nextTargetIndex(a, prev, {
+      extraTiers: extra,
+      scope: 'round',
+      bounds: { lo: this.idx(this.win.lo), hi: this.idx(this.win.hi) },
+      only: this.entryLevel() && key ? (t) => diatonicIn(t + this.lo, key) : null,
+    }) + this.lo;
     r.calls += 1;
     const q = this.intervalQuestion('round', target);
     q.round = true;
@@ -1320,7 +1724,7 @@ export class Drill {
         g = { b: n.b, notes: [], at: null, acceptFrom: null, gapMs: null };
         groups.push(g);
       }
-      g.notes.push({ midi: n.midi, dur: n.dur, voice: n.voice, free: Boolean(n.free), silent: Boolean(n.silent), done: false, played: null, melodicFrom: null, melodicPrev: null, harmonicFrom: null, graded: false });
+      g.notes.push({ midi: n.midi, dur: n.dur, voice: n.voice, free: Boolean(n.free), silent: Boolean(n.silent), harmonicRef: n.harmonicRef ?? null, done: false, played: null, melodicFrom: null, melodicPrev: null, harmonicFrom: null, graded: false });
     }
     const lastInVoice = new Map(); // voice -> [prev, prevPrev] midis
     // A keyed passage is heard from the note under the hand: EVERY voice's
@@ -1344,7 +1748,11 @@ export class Drill {
           e.melodicFrom = hist[0];
           e.melodicPrev = hist.length > 1 ? hist[1] : (e.free || gi > 0 ? null : this.prevAnchor);
         }
-        if (g.notes.length > 1 && e.midi !== bass) e.harmonicFrom = bass;
+        // Normally the group's bass frames every note above it; a placing
+        // dyad names its reference instead, because the note being asked
+        // for is usually BELOW the anchor (the left hand).
+        if (e.harmonicRef !== null) e.harmonicFrom = e.harmonicRef;
+        else if (g.notes.length > 1 && e.midi !== bass) e.harmonicFrom = bass;
         e.graded = !e.free && ((e.melodicFrom !== null && e.melodicFrom !== e.midi) || e.harmonicFrom !== null);
         lastInVoice.set(e.voice, [e.midi, hist[0] ?? null]);
       }
@@ -1400,7 +1808,8 @@ export class Drill {
         // four windows, two figures -- and both of the other two ended his
         // session, which is the whole of what was wrong here.)
         if (this.q.collect && this.collected.length === 0) {
-          this.log('  nothing played yet: moving on');
+          this.echoEmpty += 1;
+          this.log(`  nothing played yet: moving on${this.echoEmpty >= 2 ? ' (and the echo game is done for this sitting)' : ''}`);
           this.lastPlayedAt = now;
           this.completeQuestion();
         } else {
@@ -1450,7 +1859,8 @@ export class Drill {
         const g = this.groups[this.gi];
         const quietSince = Math.max(this.lastPlayedAt ?? -Infinity, this.lastReleasedAt ?? -Infinity, g.at);
         const quiet = QUIET_BEATS[q.kind] ?? QUIET_BEATS_BEFORE_NEXT;
-        if (now >= quietSince + quiet * this.beat - this.toleranceMs / 1000) this.abandonResponse({ waited: quiet });
+        const wait = Math.max(quiet * this.beat, MIN_QUIET_S);
+        if (now >= quietSince + wait - this.toleranceMs / 1000) this.abandonResponse({ waited: quiet });
       }
     }
     if (this.answered) {
@@ -1463,7 +1873,7 @@ export class Drill {
       } else if (this.keysDown.size === 0) {
         const quietSince = Math.max(this.lastPlayedAt ?? -Infinity, this.lastReleasedAt ?? -Infinity);
         // A release within the timing tolerance after a click counts as on it.
-        const earliest = Math.max(quietSince - this.toleranceMs / 1000 + QUIET_BEATS_BEFORE_NEXT * this.beat, now);
+        const earliest = Math.max(quietSince - this.toleranceMs / 1000 + Math.max(QUIET_BEATS_BEFORE_NEXT * this.beat, MIN_QUIET_S), now);
         const n = Math.ceil((earliest - this.nextBarAt) / this.beat - 1e-6);
         this.nextQuestionAt = this.nextBarAt + n * this.beat;
       } else {
@@ -1500,6 +1910,7 @@ export class Drill {
     // asked for it are one question, because the drill never plays anything
     // it is not asking for. Every note is graded, the first included (it is
     // their note, not the anchor under the hand).
+    this.echoEmpty = 0;
     this.log(`  your figure: ${notes.map((n) => name(n.midi)).join(' ')}`);
     this.nextQ = { kind: 'echo', echoOf: true, notes: notes.map((n) => ({ ...n })), meter: 4, label: `echo: now you: ${notes.map((n) => name(n.midi)).join(' ')}` };
     this.lastPlayedAt = now;
@@ -1711,7 +2122,7 @@ export class Drill {
     // like a passage for engine evidence: heard in context, they inform the
     // engine at passage scope but never
     // moves the interval tier ladder, which only clean isolated probes own.
-    const passage = Boolean(q.phrase) || Boolean(q.gesture) || Boolean(q.prime) || Boolean(q.exposure) || Boolean(q.correction);
+    const passage = Boolean(q.phrase) || Boolean(q.gesture) || Boolean(q.prime) || Boolean(q.exposure) || Boolean(q.correction) || Boolean(q.recovery);
     const round = Boolean(q.round);
     const rtNorm = inTime ? Math.min(Math.abs(onsetMs), this.beat * 1000) / this.beat : null;
     const from = exp.melodicFrom ?? exp.harmonicFrom ?? this.anchor;
@@ -1726,7 +2137,7 @@ export class Drill {
     // asks for that a passage would otherwise cover, and a beginner who
     // arpeggiates in the right direction has done what he was asked. It
     // still never moves the ladder or the stage (see `isolated` below).
-    if ((isolated || q.prime) && exp.melodicFrom !== null) {
+    if ((isolated || q.prime || q.recovery) && exp.melodicFrom !== null) {
       credit = this.stage.credit(exp.melodicFrom, exp.midi, played);
       // A compound ask: the interval skill is judged on pitch class, the
       // octave on its own.
@@ -1750,16 +2161,14 @@ export class Drill {
         if (q.wide && (correct || heightErr)) this.engine.reportHeight(!heightErr);
       }
       if (exp.harmonicFrom !== null) {
-        const iv = exp.midi - exp.harmonicFrom;
-        const dyad = Boolean(q.dyad) && !q.chord; // a dyad was framed by nextTargetIndex; chord tones are framed here
+        // By SIZE: a placing dyad's note sits below its reference, and a
+        // sixth is a sixth whichever of the two you were already holding.
+        const iv = simpleOf(Math.abs(exp.midi - exp.harmonicFrom)); // the ladder knows simple intervals only
+        const dyad = Boolean(q.dyad) && !q.chord && !q.placing && !q.recovery; // a dyad was framed by nextTargetIndex; chord, placing and recovery tones are framed here
         if (!dyad) this.harmonic.ask(iv, this.idx(exp.harmonicFrom), null, { scope: 'passage' });
         if (!correct) {
           this.harmonic.reportMiss(this.idx(exp.harmonicFrom), played === null ? this.idx(exp.harmonicFrom) : this.idx(note), { confuse: dyad });
-          if (!dyad && this.dyadsOpen() && this.remediated < REMEDIATE_MAX_PER_PASSAGE &&
-              this.harmonic.predictedAcc(iv, this.idx(exp.harmonicFrom)) < 0.8) {
-            this.harmonicRemediationQueue.push(simpleOf(iv));
-            this.remediated += 1;
-          }
+          this.queueRecovery(exp.harmonicFrom, exp.midi);
         }
         this.harmonic.reportResolved(rtNorm);
       }
@@ -1847,7 +2256,7 @@ export class Drill {
       const played = grp.notes.filter((e) => e.played !== null).map((e) => e.played);
       return Math.max(...(played.length ? played : grp.notes.map((e) => e.midi)));
     };
-    if (n > 0) {
+    if (n > 0 && !this.q.keepAnchor) {
       this.prevAnchor = n >= 2 ? top(this.groups[n - 2]) : this.anchor;
       // THE ANCHOR IS THE NOTE UNDER THE HAND. It used to be clamped into the
       // stage's window here, which kept target selection in range and quietly
@@ -1889,6 +2298,13 @@ export class Drill {
     // clean answer, and it must not count toward earning the next passage.
     // A window has no notes at all, and neither of them breaks a run of
     // passages -- they are part of the passage that spawned them.
+    // ONE MISS ANYWHERE IN THE WALK AND IT IS DROPPED: no stacking failures,
+    // and the retry he never knew was coming simply does not come.
+    if (q.recovery && !this.pitchClean && this.recovery) {
+      this.recovery = null;
+      this.log('  (recovery dropped: back to the drill)');
+    }
+    if (q.chain && this.chain) this.stepChain();
     if (!q.correction) this.streak = this.pitchClean ? this.streak + 1 : 0;
     if (q.phrase) this.passagesInARow += 1;
     else if (!q.correction && !q.window) this.passagesInARow = 0;
@@ -1944,6 +2360,7 @@ export class Drill {
       // the ones you nailed.
       this.openWindow(q);
     } else if (q.kind === 'gesture' || q.dyad) {
+      if (q.placing && this.placing) this.placing.landed = this.pitchClean;
       const timing = this.timing.notes && !this.timeClean ? ` (timing ${this.timing.inTime}/${this.timing.notes})` : '';
       if (timing) this.log(`  ${this.pitchClean ? 'right' : 'wrong'} notes${timing}`);
     }
@@ -1971,6 +2388,13 @@ export class Drill {
       clean: this.pitchClean,
       question: this.questions,
       phraseId: q.phrase.id,
+      // The passage exactly as it was PLACED and heard -- the chain is cut
+      // from this, not rebuilt from the phrase, so it keeps the pitches, the
+      // rhythm and the re-metering of the call that was actually missed. Kept
+      // here because the window question that follows rebuilds this.groups.
+      notes: this.groups.flatMap((g) => g.notes.map((e) => ({ midi: e.midi, b: g.b, dur: e.dur, voice: e.voice }))),
+      meter: this.meter,
+      first: q.kind === 'passage',
       sec: Math.max(WINDOW_SEC, WINDOW_BEATS * this.beat),
       bpm: this.bpm,
       pressed: [],
@@ -2034,7 +2458,90 @@ export class Drill {
     // he caught in flight. Nothing is played that he has already shown.
     const serve = [];
     for (const m of live) if (!named.has(m.midi) && !serve.includes(m.midi)) serve.push(m.midi);
+    // Past the cliff the list of pitches is replaced by the chain (see CHAIN).
+    // Only a FIRST asking spawns one: a retry is already a second look, and a
+    // chain of a chain is a hole to fall down.
+    if (w.first && serve.length >= CHAIN.minMissed && this.startChain(w, live.filter((m) => !named.has(m.midi)))) {
+      this.correction = null;
+      return;
+    }
     this.correction = serve.length ? { notes: serve, bpm: w.bpm } : null;
+  }
+
+  /**
+   * Cut the chain out of the passage: the span from the note BEFORE the first
+   * miss (the handed reference -- a note he actually played right, so the run
+   * up to the error is real) through the last one. Returns false when there is
+   * nothing to walk, and the ordinary correction stands.
+   */
+  startChain(w, missed) {
+    if (!w.notes?.length || !missed.length) return false;
+    const all = [...new Set(w.notes.map((n) => n.b))].sort((a, b) => a - b);
+    const lo = Math.min(...missed.map((m) => m.b));
+    const hi = Math.max(...missed.map((m) => m.b));
+    const at = all.indexOf(lo);
+    const from = all[Math.max(0, at - 1)] ?? lo; // one note of run-up when there is one
+    const notes = w.notes.filter((n) => n.b >= from && n.b <= hi);
+    const onsets = [...new Set(notes.map((n) => n.b))].sort((a, b) => a - b);
+    if (onsets.length < 2) return false;
+    // The retry that retryVerdict just queued does not happen (see CHAIN).
+    this.retry = null;
+    this.chain = { notes, onsets, len: 1, steps: 0, bpm: w.bpm, meter: w.meter, phraseId: w.phraseId };
+    this.log(`  chaining the span: ${onsets.length} notes from where it went wrong (no retry)`);
+    return true;
+  }
+
+  /**
+   * One step of the walk: the span's opening note, handed back ungraded as the
+   * reference, plus `len` notes after it at the passage's own tempo and meter.
+   * Scored as a correction -- notes you were just given earn no credit, spend
+   * none, break no run and queue no remediation -- but logged as its own kind
+   * so the walk can be read apart from the loop it replaced.
+   */
+  chainQuestion() {
+    const c = this.chain;
+    const upto = c.onsets[Math.min(c.len, c.onsets.length - 1)];
+    const within = c.notes.filter((n) => n.b <= upto);
+    const base = c.onsets[0];
+    const last = Math.max(...within.map((n) => n.b));
+    const notes = within.map((n) => ({
+      midi: n.midi, b: n.b - base, dur: n.b === last ? Math.max(n.dur, 2) : n.dur, voice: n.voice,
+    }));
+    const heard = [...within].sort((a, b) => a.b - b.b || a.midi - b.midi).map((n) => name(n.midi)).join(' ');
+    return {
+      kind: 'chain',
+      correction: true, // scored exactly like one: handed, not earned
+      chain: true,
+      tempo: c.bpm,
+      meter: c.meter,
+      notes,
+      label: `chain ${c.len}/${c.onsets.length - 1}: ${heard} -- from the note before it went wrong`,
+    };
+  }
+
+  /**
+   * Grow on clean, SHRINK on a miss -- never repeat the step that just failed,
+   * which is what makes the walk terminate and what keeps him near the rate at
+   * which he is playing rather than guessing. The span is the whole of it:
+   * the walk stops there and the phrase is not asked again this sitting.
+   */
+  stepChain() {
+    const c = this.chain;
+    c.steps += 1;
+    if (this.pitchClean) c.len += 1;
+    else if (c.len > 1) c.len -= 1;
+    else {
+      this.chain = null;
+      this.log('  (chain done: the first step is still going wrong -- leaving it for tomorrow)');
+      return;
+    }
+    if (c.len > c.onsets.length - 1) {
+      this.chain = null;
+      this.log(`  (chain done: the whole span, in ${c.steps} step${c.steps === 1 ? '' : 's'})`);
+    } else if (c.steps >= CHAIN.maxSteps) {
+      this.chain = null;
+      this.log(`  (chain done: ${CHAIN.maxSteps} steps, leaving it for tomorrow)`);
+    }
   }
 
   /**

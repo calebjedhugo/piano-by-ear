@@ -26,7 +26,25 @@ const SCHEMA_VERSION = 2;
 // nextTargetIndex sometimes asks the simple interval an octave wider
 // (wideRate), the interval skill is credited on pitch CLASS, and the octave
 // goes to `state.height`.
-export const TIER_WIDTHS = [12, 7, 5, 4, 3, 9, 2, 8, 1, 10, 11, 6];
+// ORDERED BY HOW HARD THE INTERVAL IS TO PLAY, not how hard it is to NAME.
+// Those two orders are nearly opposite, and this drill is production: the
+// octave and the fifth are the easiest intervals to LABEL in an ear-training
+// class and among the hardest to FIND cold on a keyboard, because finding
+// them means knowing the span before you move. A step you can find by feel.
+// The list used to open octave-then-fifth, and the effect on beginners was
+// exactly what you would expect: three of four profiles sat at two tiers
+// forever (William 209 isolated trials at 30%, Liz 119 at 60%), never
+// reaching the 0.85 the ladder wants, so a whole step -- which sat at tier 7
+// -- was unreachable until octaves, fifths, fourths, thirds and sixths were
+// all mastered first. A beginner's entire session was descending fifths.
+// Steps, then thirds, then the fourth and fifth, then the octave, then
+// sixths, sevenths, and the tritone last.
+export const TIER_WIDTHS = [2, 1, 3, 4, 5, 7, 12, 9, 8, 10, 11, 6];
+// Below this many tiers the plain slot stays INSIDE THE BLOCK KEY: the white
+// keys in C, and the half step arrives where the scale actually puts it
+// (E-F, B-C) rather than as an interval of its own. The black keys turn on
+// with the octave, once steps, thirds, the fourth and the fifth are open.
+export const DIATONIC_TIERS = 6;
 const ASKABLE = new Set(TIER_WIDTHS);
 // Fold a signed interval wider than an octave onto its simple interval.
 export function simpleOf(interval) {
@@ -358,10 +376,14 @@ export class AdaptiveEngine {
    * @param {(targetIndex:number) => number} [opts.lean]  weight multiplier per candidate target (diatonic lean)
    * @param {string} [opts.scope]      evidence scope for the ask ('interval' | 'round')
    */
-  nextTargetIndex(anchorIndex, prevIndex = this.prevAnchorIndex, { allowWide = false, pool: poolOverride = null, bounds = null, extraTiers = 0, lean = null, scope = 'interval' } = {}) {
+  nextTargetIndex(anchorIndex, prevIndex = this.prevAnchorIndex, { allowWide = false, pool: poolOverride = null, bounds = null, extraTiers = 0, lean = null, only = null, scope = 'interval' } = {}) {
     this.servedQueue = false;
     this.lastWide = false;
     const inBounds = (t) => !bounds || (t >= bounds.lo && t <= bounds.hi);
+    // `only` is a hard filter on the TARGET (the key gate below DIATONIC_TIERS
+    // uses it), applied after bounds and dropped if it would leave nothing --
+    // a filter must never be able to end the drill.
+    const allowed = (t) => inBounds(t) && (!only || only(t));
     this.lastFromFocus = false;
     const f = this.state.focus;
     // Never inside a round: its evidence is scoped away, so a focus trial
@@ -371,7 +393,12 @@ export class AdaptiveEngine {
       // put (register and direction shift perceived size); flipped only when
       // the keyboard runs out.
       const pick = Math.random() < 0.5 ? f.a : f.b;
-      const ok = (iv) => this.feasible(anchorIndex, iv) && inBounds(anchorIndex + iv);
+      // `allowed`, not just inBounds: the focus branch returns before the pool
+      // is ever built, so the entry level's key gate has to be applied here
+      // too or a confused pair is the one thing that still lands on a black
+      // key. When neither direction fits the key, the focus is not served at
+      // all this time (and no trial is spent) -- the pool below is filtered.
+      const ok = (iv) => this.feasible(anchorIndex, iv) && allowed(anchorIndex + iv);
       const iv = ok(pick) ? pick : ok(-pick) ? -pick : null;
       if (iv !== null) {
         f.left -= 1;
@@ -388,12 +415,15 @@ export class AdaptiveEngine {
     const now = Date.now();
     let pool;
     if (poolOverride) {
-      pool = poolOverride.filter((i) => this.feasible(anchorIndex, i) && inBounds(anchorIndex + i));
+      pool = poolOverride.filter((i) => this.feasible(anchorIndex, i) && allowed(anchorIndex + i));
+      if (pool.length === 0) pool = poolOverride.filter((i) => this.feasible(anchorIndex, i) && inBounds(anchorIndex + i));
       if (pool.length === 0) pool = poolOverride.filter((i) => this.feasible(anchorIndex, i));
       if (pool.length === 0) pool = this.poolFor(anchorIndex);
     } else {
-      pool = this.poolFor(anchorIndex, extraTiers).filter((i) => inBounds(anchorIndex + i));
-      if (pool.length === 0) pool = this.poolFor(anchorIndex, extraTiers);
+      const open = this.poolFor(anchorIndex, extraTiers);
+      pool = open.filter((i) => allowed(anchorIndex + i));
+      if (pool.length === 0) pool = open.filter((i) => inBounds(anchorIndex + i));
+      if (pool.length === 0) pool = open;
     }
     if (pool.length === 0) return anchorIndex;
     const weights = pool.map((i) => this.weight(i, anchorIndex, now, prevIndex) * (lean ? lean(anchorIndex + i) : 1));

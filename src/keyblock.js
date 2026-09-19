@@ -177,11 +177,30 @@ export function modeSwap(notes, k) {
 }
 
 /** A new block key on the note the player is on: the mode rotates away from the last block's. */
-export function chooseKey(anchorMidi, last) {
+export function chooseKey(anchorMidi, last, entry = false) {
+  // AT THE ENTRY LEVEL THE KEY IS ALWAYS C MAJOR -- the white keys, and
+  // nothing else. Rooting every block on the note the player happens to be
+  // sitting on is right for someone who knows where he is; for a beginner it
+  // means the first block can be C minor, and the third question of his life
+  // asks for an E-flat. (Guest, 2026-09-15: "White keys only wasn't
+  // happening. It started up black keys on the third question.") The
+  // diatonic gate in drill.js was honoured -- it just was not C.
+  if (entry) return { tonic: 0, mode: 'major' };
   const tonic = ((anchorMidi % 12) + 12) % 12;
   let mode = Math.random() < 0.5 ? 'major' : 'minor';
   if (last && last.tonic === tonic && last.mode === mode) mode = mode === 'major' ? 'minor' : 'major';
   return { tonic, mode };
+}
+
+/** The instance of pitch class `pc` nearest `midi` and inside [lo, hi]. */
+export function nearestPc(midi, pc, lo, hi) {
+  let best = null;
+  for (let m = lo; m <= hi; m += 1) {
+    if (((m % 12) + 12) % 12 !== pc) continue;
+    const d = Math.abs(m - midi);
+    if (best === null || d < Math.abs(best - midi)) best = m;
+  }
+  return best;
 }
 
 /** A diatonic step off `midi` in key k, 1-2 semitones, toward `toward`; null if none. */
@@ -194,6 +213,37 @@ export function diatonicStep(midi, k, toward, lo, hi) {
     }
   }
   return null;
+}
+
+/**
+ * THE CHORD A HARMONIC INTERVAL LIVES IN: the diatonic chord of the key that
+ * both notes belong to -- a triad if one holds them, otherwise a seventh.
+ * A tritone comes back as the dominant seventh, a sixth as the triad it is a
+ * first inversion of, which is the point: the interval is given a function
+ * rather than a size (Caleb, 2026-09-14: "a harmonic context in which to
+ * live"). Returns pitch classes, root first, or null when the key has no
+ * chord holding both (a chromatic note: there is nothing to build on).
+ */
+export function chordFor(k, pcs) {
+  const scale = k.mode === 'minor' ? MINOR_STRICT : MAJOR;
+  const want = pcs.map((pc) => (((pc % 12) + 12) % 12));
+  const build = (i, size) => Array.from({ length: size }, (_, j) => (k.tonic + scale[(i + 2 * j) % scale.length]) % 12);
+  // Consonant triads first, then sevenths, and a diminished triad only if
+  // nothing else holds the pair: a tritone's home is the dominant seventh,
+  // not the bare vii(o) -- you cannot arpeggiate an unstable sonority and
+  // call it context.
+  const consonant = (c) => {
+    const iv = (x) => (((x - c[0]) % 12) + 12) % 12;
+    return c.length === 3 && iv(c[2]) === 7;
+  };
+  const found = [];
+  for (const size of [3, 4]) {
+    for (let i = 0; i < scale.length; i += 1) {
+      const chord = build(i, size);
+      if (want.every((pc) => chord.includes(pc))) found.push(chord);
+    }
+  }
+  return found.find((c) => consonant(c)) ?? found.find((c) => c.length === 4) ?? found[0] ?? null;
 }
 
 export { simpleOf };
