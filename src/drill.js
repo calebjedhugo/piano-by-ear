@@ -206,9 +206,17 @@ const CALL_MAX_S = 2; // the longest a call note sounds; a hold is never graded 
 // passage says nothing about nine and no longer gets to say it. Starts and
 // minimums are set where the data puts him rather than where the ladder
 // wished he was (Wilson et al. 2019: aim near the rate at which he succeeds).
+// UNITS: these are CORPUS notes -- `phrase.notes.length`, what `maxNotes`
+// filters on. `passages.notes` in the DB is the GRADED count, which leaves out
+// the free pivot, so it reads one LOWER (415 of 435 mono first askings, 78 of
+// 87 duo). Read a length off the database and you must add one before putting
+// it here. Getting this wrong once set duo to 3 when the poly corpus has
+// nothing shorter than 4, and duo passages silently stopped being served at
+// all. His clean rates in CORPUS notes: mono 4 61%, 5 65%, 6 44%, 7 45%,
+// 8 31%, 9 18%, 10 0%; duo 4 63%, 5 36%, 6 19%, 7+ 0 for 23.
 const LEN = {
-  start: { mono: 4, duo: 3, chorale: 4, poly: 4 },
-  min: { mono: 3, duo: 3, chorale: 3, poly: 3 },
+  start: { mono: 5, duo: 4, chorale: 4, poly: 4 },
+  min: { mono: 4, duo: 4, chorale: 4, poly: 4 },
   band: 1, // a pick may be this many notes under the target, and still votes
   grow: 2,
   shrink: 3,
