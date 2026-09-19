@@ -64,7 +64,13 @@ export class Roster {
       /* no roster yet */
     }
     const now = Date.now();
-    this.profiles = raw?.profiles ?? SEED.map((p) => ({ ...p, createdAt: now, updatedAt: now, lastPlayedAt: now, retiredAt: null }));
+    // THE SEED MUST LOSE EVERY MERGE. A second machine seeds these four before
+    // it has ever spoken to the pi, and an `updatedAt` of now would be NEWER
+    // than the real roster -- a blank install would overwrite it and quietly
+    // un-retire everyone. `lastPlayedAt` is still now, so a first boot with no
+    // network does not read its own seed as a month of silence and retire the
+    // family on the spot.
+    this.profiles = raw?.profiles ?? SEED.map((p) => ({ ...p, createdAt: now, updatedAt: 0, lastPlayedAt: now, retiredAt: null }));
     if (!raw) this.save();
     for (const p of this.profiles) {
       p.notes = p.chord.map(parseNote);
