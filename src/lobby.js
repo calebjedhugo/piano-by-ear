@@ -6,11 +6,17 @@
 //           they are your own hands. The FIRST thing you play is who you are:
 //             a CHORD on the roster  -> that profile opens
 //             a chord nobody owns    -> a NEW profile, there and then
-//             a single note          -> Guest (wiped every time)
+//             a single note          -> Guest, AND THAT NOTE IS THE ANCHOR:
+//                                       the session starts on it, because a
+//                                       guest asking to play should not then
+//                                       be asked to play again.
 //           A chord is a SET, so it may be rolled or spread; it is complete
-//           when every key has been up for CHORD_GRACE_MS. Exact MIDI notes,
-//           octave included -- the octave is the only thing between C4-E4-G4
-//           and C5-E5-G5, and those are two different players.
+//           when every key has been up for CHORD_GRACE_MS -- the decision
+//           always waits for the release, including the single note, which is
+//           the only way to tell one from the first note of a chord. Exact
+//           MIDI notes, octave included -- the octave is the only thing
+//           between C4-E4-G4 and C5-E5-G5, and those are two different
+//           players.
 //   LOADED  the profile is open and the low-high click has said so. Play your
 //           anchor and the session starts. Sit still as long as it takes to
 //           end a session and the profile closes again -- the next person at
@@ -119,7 +125,11 @@ export class Lobby {
 
   login(notes) {
     if (notes.length === 0) return;
-    if (notes.length === 1) return this.load('Guest', { guest: true, why: 'a single note' });
+    // A GUEST'S NOTE IS HIS ANCHOR. Everyone else is opening a history and is
+    // told so by the click, then plays an anchor; a guest has no history to
+    // open, so the note he already played starts the sitting. No click: the
+    // anchor ringing into the first bar is the answer.
+    if (notes.length === 1) return this.load('Guest', { guest: true, why: 'a single note', anchor: notes[0] });
     const known = this.roster.match(notes);
     if (known) return this.load(known.name, { guest: false, why: 'chord' });
     // A CHORD THIS MACHINE DOES NOT KNOW MAY STILL BE SOMEBODY. The roster is
@@ -137,7 +147,7 @@ export class Lobby {
     this.load(made.name, { guest: false, why: 'a chord nobody owned' });
   }
 
-  load(name, { guest, why }) {
+  load(name, { guest, why, anchor = null }) {
     this.log(`${guest ? 'guest' : name}: ${why}`);
     if (guest) for (const s of ['', '-wal', '-shm']) rmSync(this.dbPath('Guest') + s, { force: true });
     let opened;
@@ -153,7 +163,13 @@ export class Lobby {
     this.roster.touch(name);
     this.announce(name);
     this.idleSince = performance.now();
-    this.audio.ready(); // low-high: the profile is open, play your anchor
+    if (anchor === null) {
+      this.audio.ready(); // low-high: the profile is open, play your anchor
+      return;
+    }
+    // startSession rather than onNoteOn: the key has already sounded and been
+    // damped by the lobby, and onNoteOn would strike it a second time.
+    this.profile.drill.startSession(anchor);
   }
 
   /** A session just ended: close the profile, once it has finished sounding. */

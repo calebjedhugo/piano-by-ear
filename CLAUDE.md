@@ -41,10 +41,16 @@ played says who it is (`src/lobby.js`):
 
 - a chord on the roster -> that profile opens
 - a chord nobody owns -> a NEW profile, named from the chord, there and then
-- a single note -> Guest, wiped on every guest login
+- a single note -> Guest, wiped on every guest login, **and that note is the
+  anchor**: the session starts on it, with no click. Everyone else is opening
+  a history and is told so by the low-high click, then plays an anchor; a
+  guest has no history to open, so asking him to play a second time to begin
+  was a step that bought nothing.
 
 A chord is a SET of MIDI notes, so it may be rolled or spread; it is complete
-once every key has been up for 300ms. **The match is on exact notes, octave
+once every key has been up for 300ms. **The decision always waits for the
+release, the single note included** -- there is no other way to tell a guest's
+note from the first note of a rolled chord. **The match is on exact notes, octave
 included** -- `C4-E4-G4` is William and `C5-E5-G5` is Evelyn, and the octave
 is the only thing between them. The low-high click (`audio.ready()`) means the
 profile is open and the next thing to play is the anchor; a single click means
