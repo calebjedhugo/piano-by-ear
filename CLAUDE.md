@@ -83,6 +83,12 @@ the pi is unreachable. Rows are never at risk.
 The roster travels too, for a sharper reason than convenience: retirement is
 decided from `lastPlayedAt`, and without a shared roster a computer that has
 not seen Liz for a month retires her while she plays daily on the other one.
+It syncs at startup, **before creating a profile from an unknown chord**, and
+when a profile closes. The middle one is the important one: a drill running
+under systemd has been up since the last reboot, so a profile made on the
+other machine this afternoon is simply not in its copy -- creating one there
+would fork the player into two db files under one chord, and the roster can
+only keep one of the names.
 
 Config: `~/.piano-by-ear/sync.json` (`{enabled, host, dir}`), machine identity
 `~/.piano-by-ear/device-id`.

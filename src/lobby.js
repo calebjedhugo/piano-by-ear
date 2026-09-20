@@ -122,8 +122,18 @@ export class Lobby {
     if (notes.length === 1) return this.load('Guest', { guest: true, why: 'a single note' });
     const known = this.roster.match(notes);
     if (known) return this.load(known.name, { guest: false, why: 'chord' });
+    // A CHORD THIS MACHINE DOES NOT KNOW MAY STILL BE SOMEBODY. The roster is
+    // pulled when the process starts, and a drill that runs under systemd has
+    // been up since the last reboot -- so a profile made upstairs this
+    // afternoon is simply not in this copy. Creating one here would fork the
+    // player in two: two db files, one chord, and a roster that can only keep
+    // one of the names. Ask the pi before deciding nobody owns this.
+    this.sync.syncRoster(this.roster);
+    const shared = this.roster.match(notes);
+    if (shared) return this.load(shared.name, { guest: false, why: 'chord (new to this machine)' });
     const made = this.roster.create(notes);
     this.log(`new profile: ${made.name} (${made.chord.join(' ')}) -- play that chord again any time to come back`);
+    this.sync.syncRoster(this.roster); // publish it now, not at the next reboot
     this.load(made.name, { guest: false, why: 'a chord nobody owned' });
   }
 
@@ -175,6 +185,10 @@ export class Lobby {
     // Only if a sitting actually happened: opening a profile and walking away
     // without playing has nothing to send.
     if (!guest && this.needsSync) this.sync.run(db, name, { reason: 'session over' });
+    // And take the roster while nobody is waiting on us: retirements, new
+    // chords and renames from the other machine land here rather than sitting
+    // until this process next restarts. Costs a round trip in an empty room.
+    if (!guest) this.sync.syncRoster(this.roster);
     this.needsSync = false;
     this.closeAt = null;
     db.close();
