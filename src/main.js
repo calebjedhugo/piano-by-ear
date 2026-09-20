@@ -140,6 +140,18 @@ const audio = new Audio({ hardware });
 const phraseFiles = { mono: [MONO_PATH, HYMNS_PATH], poly: POLY_PATH };
 let currentPort = null;
 
+// Parse the corpus NOW, while nobody is waiting. PhraseBank keeps one copy per
+// process, so this is the only time anybody pays for it -- otherwise the first
+// login of the day pays it, between the chord and the click, which is the one
+// moment in the program where a wait is felt.
+{
+  const t0 = performance.now();
+  const store = { load: () => null, save: () => {} };
+  const mono = new PhraseBank({ store, composer: args.composer, path: phraseFiles.mono });
+  const poly = new PhraseBank({ store, composer: args.composer, path: phraseFiles.poly });
+  log(`corpus: ${mono.size} melodic + ${poly.size} polyphonic passages (${Math.round(performance.now() - t0)} ms)`);
+}
+
 /** Everything that belongs to one player, built when the chord opens them. */
 function openProfile(name) {
   const db = new Db(dbPath(name));
@@ -156,7 +168,7 @@ function openProfile(name) {
       new AdaptiveEngine({ range: hi - lo, fluentMs, pitchClassOffset: lo % 12, store: db.engineStore(which) }),
   });
   const { lo, hi } = range.current;
-  log(`${name}: ${phrases.size} melodic + ${poly.size} polyphonic passages, range ${lo}..${hi}`);
+  log(`${name}: range ${lo}..${hi}`);
   return { db, drill };
 }
 

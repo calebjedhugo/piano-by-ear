@@ -369,6 +369,18 @@ export class Db {
     return this.kv('device').load();
   }
 
+  /**
+   * A cheap fingerprint of what this copy holds. Compared against the value
+   * recorded at the last successful push to answer "have we written anything
+   * the pi has not got?" without opening a connection -- which is what lets a
+   * login skip the transfer entirely (src/sync.js).
+   */
+  localSignature() {
+    const a = this.db.prepare('SELECT COUNT(*) n, COALESCE(MAX(id), 0) m FROM sessions').get();
+    const b = this.db.prepare('SELECT COUNT(*) n, COALESCE(MAX(id), 0) m FROM attempts').get();
+    return `${a.n}:${a.m}:${b.n}:${b.m}`;
+  }
+
   sessionCount() {
     return this.db.prepare('SELECT COUNT(*) n FROM sessions').get().n;
   }

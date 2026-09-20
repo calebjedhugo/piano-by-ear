@@ -74,6 +74,25 @@ lock on the pi (`src/sync.js`, `Db.mergeFrom`). It runs when a profile opens
 and when it closes, which is now the same thing as a session ending. No network means you play on the local copy
 and the rows go home at the next sync -- that is the whole point.
 
+**A LOGIN IS INSTANT AND MUST STAY THAT WAY** (Caleb, 2026-09-19). It was 3 s
+here and 9 s on pianobox, all of it between the chord and the click, which is
+the one place in the program where a wait is felt. Now 31 ms. Three things
+hold it there, and breaking any one of them puts the seconds back:
+- **The corpus is parsed once per process** (`src/phrases.js` CORPUS), warmed
+  at boot by `main.js` while nobody is waiting. It is the same 20k phrases for
+  every player; only `stats` belongs to a profile. Was 0.5 s a login here,
+  3 s there.
+- **ssh is multiplexed** (`MUX` in `src/sync.js`). A sync makes several remote
+  calls and each used to pay its own 200-360 ms handshake.
+- **A sync that has nothing to do costs one round trip.** Each push writes a
+  random token to `<name>.rev` beside the database and records it locally; if
+  the pi still holds that token and `db.localSignature()` has not moved, both
+  sides are in step and nothing transfers. **The token cannot be `stat`:**
+  mtime is second-granular and a database that grew by one small session lands
+  in the same second at the same rounded size, so a stat fingerprint declared
+  "already in step" and silently skipped a real merge -- one machine lost the
+  other's sitting in testing. If only the pi moved, we pull and skip the push.
+
 **The kv store cannot be merged** (engine tiers, stage, the passage-length
 controller, the phrase schedule are running state, not events): it is taken
 whole from whichever side played last and the other side's is kept in

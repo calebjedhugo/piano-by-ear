@@ -38,6 +38,22 @@ const CHROMATIC_PENALTY = 0.3;
 // the next question), so phrases with such a rest are never asked.
 const MAX_REST_BEATS = 1;
 
+const CORPUS = new Map();
+
+/** Parse + analyse a corpus once per process, keyed by the files and filter. */
+function corpus(paths, composer) {
+  const key = `${paths.join('|')}::${composer ?? ''}`;
+  const hit = CORPUS.get(key);
+  if (hit) return hit;
+  const all = [].concat(...paths.map((f) => JSON.parse(readFileSync(f, 'utf8'))));
+  const phrases = (composer ? all.filter((p) => p.composer.toLowerCase().includes(composer.toLowerCase())) : all)
+    .map((p) => analyse(p))
+    .filter((p) => p.maxRest < MAX_REST_BEATS);
+  const built = { phrases, byId: new Map(phrases.map((p) => [p.id, p])) };
+  CORPUS.set(key, built);
+  return built;
+}
+
 export class PhraseBank {
   /**
    * @param {object} opts
@@ -46,11 +62,15 @@ export class PhraseBank {
    * @param {string|string[]} [opts.path]  corpus file(s) (default: the melodic corpus)
    */
   constructor({ store, composer, path = MONO_PATH }) {
-    const all = [].concat(...[].concat(path).map((f) => JSON.parse(readFileSync(f, 'utf8'))));
-    this.phrases = (composer ? all.filter((p) => p.composer.toLowerCase().includes(composer.toLowerCase())) : all)
-      .map((p) => analyse(p))
-      .filter((p) => p.maxRest < MAX_REST_BEATS);
-    this.byId = new Map(this.phrases.map((p) => [p.id, p]));
+    // THE CORPUS IS THE SAME FOR EVERYBODY. Only `stats` belongs to a player,
+    // so parsing and analysing 20k phrases again for every login was half a
+    // second here and three seconds on the downstairs machine -- paid at the
+    // worst moment, between the chord and the click. Analysed phrases are
+    // read-only (placement copies them; `place()` builds new notes), so one
+    // parse is shared by every profile this process ever opens.
+    const { phrases, byId } = corpus([].concat(path), composer);
+    this.phrases = phrases;
+    this.byId = byId;
     this.store = store;
     this.stats = store.load() || {};
     // Stats from before the schedule existed: give them the due date the

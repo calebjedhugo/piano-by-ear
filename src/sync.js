@@ -13,14 +13,27 @@
 // A per-profile lock on the Pi serialises the read-merge-write, so two
 // machines syncing the same profile at the same moment cannot interleave.
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const CONNECT_S = 3;
 const OP_MS = 20000;
 const LOCK_STALE_MS = 120000;
 
 const DEFAULTS = { enabled: true, host: 'chugo@hugopi', dir: 'piano-by-ear' };
+
+// ONE CONNECTION, NOT SIX. A sync used to pay a fresh ssh handshake for the
+// lock, the existence test, each transfer, the move and the unlock -- 200-360
+// ms apiece here and worse over the downstairs wifi, which was most of the
+// wait between a chord and the click. Multiplexed, the first call pays the
+// handshake and the rest are ~10 ms.
+const MUX = [
+  '-o', 'ControlMaster=auto',
+  '-o', `ControlPath=${join(tmpdir(), 'pbe-%r@%h-%p')}`,
+  '-o', 'ControlPersist=120',
+];
 
 /** Editable at ~/.piano-by-ear/sync.json -- a second machine may point elsewhere. */
 export function syncConfig(path) {
@@ -49,15 +62,33 @@ export class Sync {
   }
 
   ssh(command, { timeout = OP_MS } = {}) {
-    return execFileSync('ssh', ['-o', `ConnectTimeout=${CONNECT_S}`, '-o', 'BatchMode=yes', this.cfg.host, command], {
+    return execFileSync('ssh', ['-o', `ConnectTimeout=${CONNECT_S}`, '-o', 'BatchMode=yes', ...MUX, this.cfg.host, command], {
       timeout, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
     });
   }
 
   scp(from, to) {
-    execFileSync('scp', ['-q', '-o', `ConnectTimeout=${CONNECT_S}`, '-o', 'BatchMode=yes', from, to], {
+    execFileSync('scp', ['-q', '-o', `ConnectTimeout=${CONNECT_S}`, '-o', 'BatchMode=yes', ...MUX, from, to], {
       timeout: OP_MS, stdio: ['ignore', 'pipe', 'pipe'],
     });
+  }
+
+  /**
+   * WHICH VERSION of this profile the pi is holding, as a token written beside
+   * it by whoever last pushed. NOT mtime and size: `stat` is second-granular,
+   * and two pushes of a database that grew by one small session land in the
+   * same second at the same rounded size -- which made the fast path below
+   * declare "already in step" and silently skip a real merge. A caught that
+   * way would have lost B's sitting. A random token per push cannot collide.
+   * Returns { rev, exists }; a db with no token reads as changed, which is
+   * the safe direction.
+   */
+  fingerprint(name) {
+    const db = q(`${this.profiles}/${safe(name)}.db`);
+    const rev = q(`${this.profiles}/${safe(name)}.rev`);
+    const out = this.ssh(`test -f ${db} && { cat ${rev} 2>/dev/null || echo unknown; } || echo none`).trim();
+    if (out === 'none') return { rev: null, exists: false };
+    return { rev: out === 'unknown' ? null : out, exists: true };
   }
 
   /**
@@ -68,7 +99,7 @@ export class Sync {
   lock(name) {
     const dir = q(`${this.locks}/${safe(name)}`);
     const out = this.ssh(
-      `mkdir -p ${q(this.locks)} 2>/dev/null; ` +
+      `mkdir -p ${q(this.locks)} ${q(this.profiles)} 2>/dev/null; ` +
       `if mkdir ${dir} 2>/dev/null; then echo got; else ` +
       `age=$(( $(date +%s) - $(stat -c %Y ${dir} 2>/dev/null || date +%s) )); ` +
       `if [ "$age" -gt ${Math.round(LOCK_STALE_MS / 1000)} ]; then echo stale; else echo busy; fi; fi`,
@@ -92,31 +123,61 @@ export class Sync {
   run(db, name, { reason = '' } = {}) {
     if (!this.enabled) return { ok: false, reason: 'off' };
     const stamped = db.stamp(this.device);
+    const state = db.kv('sync');
+    const seen = state.load() ?? {};
     const pulled = join(this.tmpDir, `${name}.pull.db`);
     const pushed = join(this.tmpDir, `${name}.push.db`);
     const started = Date.now();
     let held = false;
     try {
+      // THE CHEAP QUESTION FIRST. Neither side moved since our last push --
+      // which is the ordinary case, one house, one player at a time -- and
+      // there is nothing to do but say so. One round trip instead of two
+      // transfers of three megabytes, and it is what makes a login instant.
+      const before = this.fingerprint(name);
+      const mine = db.localSignature();
+      if (before.rev && before.rev === seen.remote && mine === seen.local) {
+        this.log(`  sync${reason ? ` (${reason})` : ''}: already in step with the pi (${Date.now() - started}ms)`);
+        return { ok: true, counts: null, skipped: true };
+      }
+
       held = this.lock(name);
       if (!held) return { ok: false, reason: 'another machine is syncing this profile' };
       // scp on macOS speaks SFTP and does NOT run a remote shell, so its paths
       // are taken literally and must NOT be quoted; ssh runs a shell and its
       // paths must be. Mixing the two puts a file called 'Caleb'.db on the pi.
       const remote = `${this.profiles}/${safe(name)}.db`;
-      const exists = this.ssh(`test -f ${q(remote)} && echo yes || echo no`).trim() === 'yes';
       let counts = null;
-      if (exists) {
+      if (before.exists) {
         rmSync(pulled, { force: true });
         this.scp(`${this.cfg.host}:${remote}`, pulled);
         counts = db.mergeFrom(pulled, { log: this.log });
       }
+      const gained = counts ? Object.entries(counts).filter(([k, v]) => k !== 'kv' && v > 0) : [];
+      // If we contributed nothing and only took, the pi already holds
+      // everything we do: skip the push and half the transfer with it. That is
+      // the downstairs machine's ordinary login after a sitting upstairs.
+      const contributed = mine !== seen.local || stamped > 0 || !before.exists;
+      if (!contributed && before.rev) {
+        state.save({ remote: before.rev, local: db.localSignature() });
+        this.log(
+          `  sync${reason ? ` (${reason})` : ''}: pulled ${gained.map(([k, v]) => `${v} ${k}`).join(', ') || 'nothing new'}` +
+          `, nothing of ours to send (${Date.now() - started}ms)`,
+        );
+        return { ok: true, counts };
+      }
       db.snapshot(pushed);
-      this.ssh(`mkdir -p ${q(this.profiles)}`);
       this.scp(pushed, `${this.cfg.host}:${remote}.new`);
-      this.ssh(`mv ${q(`${remote}.new`)} ${q(remote)}`);
-      const moved = counts ? Object.entries(counts).filter(([k, v]) => k !== 'kv' && v > 0).map(([k, v]) => `${v} ${k}`).join(', ') : '';
+      // The lock call already made both directories: scp needs the destination
+      // to exist BEFORE it runs, which is why the mkdir cannot live here.
+      // The token and the file move together, so the pi never holds a database
+      // labelled with the previous push's token.
+      const token = randomUUID();
+      this.ssh(`mv ${q(`${remote}.new`)} ${q(remote)} && printf %s ${q(token)} > ${q(`${this.profiles}/${safe(name)}.rev`)}`);
+      state.save({ remote: token, local: db.localSignature() });
+      const moved = gained.map(([k, v]) => `${v} ${k}`).join(', ');
       this.log(
-        `  sync${reason ? ` (${reason})` : ''}: ${exists ? (moved ? `pulled ${moved}` : 'nothing new to pull') : 'first copy on the pi'}` +
+        `  sync${reason ? ` (${reason})` : ''}: ${!before.exists ? 'first copy on the pi' : (moved ? `pulled ${moved}` : 'nothing new to pull')}` +
         `${stamped ? `, ${stamped} rows claimed` : ''}, pushed (${Date.now() - started}ms)`,
       );
       return { ok: true, counts };
