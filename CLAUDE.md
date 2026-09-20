@@ -128,6 +128,28 @@ DEPLOYING ON SIMILAR HARDWARE (Bay Trail / `chtmax98090`), from that install:
   even through the ALSA plug layer `aplay` uses happily.
 - **`rtkit`** too, or PipeWire never gets realtime priority -- worth having
   where onset is graded to +-45-110 ms.
+- **PipeWire driving that card with mmap and small periods wedges the DSP**
+  (`sst: Busy wait failed, can't send this msg` flooding dmesg): `aplay` is
+  fine because it goes rw through the plug layer, and node-web-audio-api is
+  silent while every layer reports success. A wireplumber rule fixes it --
+  `api.alsa.disable-mmap = true`, `period-size 1024`, `periods 4`,
+  `headroom 8192`, `disable-batch = true`. A wedged DSP STAYS wedged: reboot
+  before concluding a fix did not work.
+
+THE COST OF THAT FIX, AND A REAL MEASUREMENT RISK: 1024 frames at 48 kHz is
+~21 ms a period, and it will not go lower without the DSP misbehaving.
+**Nothing in the drill compensates for output latency.** `onsetMs` is the
+player's key press, timestamped with `performance.now()` (no output delay),
+against the audio time the call was SCHEDULED at -- but the call is not
+audible until `ctx.outputLatency` later, so the player is graded late by
+exactly that much. On the mac that is 5 ms and invisible. On a box buffering
+21 ms x 4 it could approach the +-45 ms tolerance floor, which would make the
+same playing read as consistently LATE downstairs, depress the timing rungs
+and drag the session tempo floor -- attributed to him rather than to the
+buffer. Since profiles MERGE, both machines' rows land in one history.
+Measure `ctx.outputLatency` on any new machine before trusting its timing
+data. The saving grace is that every row carries `device`, so a bias can be
+found and corrected in analysis after the fact.
 
 `--keys lo..hi` trims what is decoded. **Only for a machine with one
 permanently attached controller**: a key outside the decoded range falls back
