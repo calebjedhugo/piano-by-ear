@@ -161,11 +161,16 @@ DEPLOYING ON SIMILAR HARDWARE (Bay Trail / `chtmax98090`), from that install:
   `headroom 8192`, `disable-batch = true`. A wedged DSP STAYS wedged: reboot
   before concluding a fix did not work.
 
-THE COST OF THAT FIX: 1024 frames at 48 kHz is ~21 ms a period, and it will
-not go lower without the DSP misbehaving. On pianobox that put `outputLatency`
-at **178 ms** -- the wireplumber headroom that makes the card audible at all
-is what sets it (0 -> 7.7 ms but silent, 2048 -> 50 ms silent, 8192 -> 178 ms
-and the only setting that reliably sounds).
+THE COST OF THAT FIX WAS 178 ms, AND IT WAS NEVER THE DSP'S FAULT. 1024
+frames at 48 kHz is ~21 ms a period; the wireplumber headroom that made the
+card audible at all is what set `outputLatency` (0 -> 7.7 ms but silent,
+2048 -> 50 ms silent, 8192 -> 178 ms and the only setting that reliably
+sounded). **Superseded on pianobox 2026-09-19 23:50: PipeWire is masked
+there and output latency is 10.0 ms.** Audio goes node-web-audio-api -> cpal
+-> ALSA `hw:chtmax98090` directly; raw hardware does 6 ms. Sessions on device
+`63fcc72e` before that timestamp were played at 178 ms, after it at 10 ms.
+The PipeWire notes above still apply to a fresh Bay Trail install that has
+not had that shim built.
 
 **LATENCY IS NOT COMPENSATED FOR, AND THAT IS DELIBERATE** (Caleb, 2026-09-19:
 "Latency occurs on acoustic instruments for various reasons. The performer
@@ -175,6 +180,22 @@ that way. A player adapts to an instrument's delay the way an organist does;
 building a correction would be modelling the room instead of the playing, and
 it would move the grading ruler. 178 ms is a HARDWARE fault to fix in
 hardware -- a USB audio adapter bypasses that DSP -- not a number to subtract.
+
+**AND NOTHING IN THE APP CHANGED WHEN THE 178 BECAME 10.** The fix is
+entirely machine-side. One repo-relevant reason it has to be: cpal 0.18
+(bundled in node-web-audio-api 2.2.0) negotiates ALSA buffer-first in powers
+of two, and `chtmax98090` returns EINVAL for anything that is not a multiple
+of 48 rather than rounding, so **`latencyHint` is silently ignored on that
+hardware** and cpal falls back to 864 frames. pianobox fixes the negotiation
+in an LD_PRELOAD interposer (`~/.local/lib/sst-buffer.so`, loaded by the
+systemd unit) that forces period 240 / buffer 480 and puts the audio thread
+on SCHED_FIFO. So **do not add `sinkId` or `latencyHint` logic to the app**
+for that box -- it would do nothing, and the shim already handles it.
+`src/audio.js` uses a plain `new AudioContext()`; `~/.asoundrc` there makes
+the codec the default device.
+
+**ZERO ERRORS IS NOT AUDIBILITY ON THAT CODEC.** Twice a clean ALSA/DSP log
+there has meant silence. Confirm by ear before calling an audio change good.
 
 `--keys lo..hi` trims what is decoded. **Only for a machine with one
 permanently attached controller**: a key outside the decoded range falls back
