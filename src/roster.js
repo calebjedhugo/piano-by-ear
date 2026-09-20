@@ -23,6 +23,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export const RETIRE_DAYS = 30;
+const NAME_MAX = 40; // comfortably inside the sync's 64-character limit
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const STEP = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 
@@ -107,7 +108,13 @@ export class Roster {
    */
   create(notes) {
     const chord = [...new Set(notes)].sort((a, b) => a - b).map(noteName);
+    // THE NAME MUST BE ONE THE SYNC WILL CARRY. src/sync.js refuses a profile
+    // name over 64 characters, and a swept forearm is a 21-note "chord" whose
+    // spelt-out name is longer than that -- which made a profile that worked
+    // locally and could never reach the pi, silently. Long clusters get named
+    // for their outer notes and their size instead.
     let name = chord.map((n) => n.replace('#', 's')).join('-');
+    if (name.length > NAME_MAX) name = `${chord[0]}-${chord[chord.length - 1]}-${chord.length}notes`.replace(/#/g, 's');
     if (this.get(name)) name = `${name}-${Date.now().toString(36).slice(-4)}`;
     const now = Date.now();
     const p = { name, chord, createdAt: now, updatedAt: now, lastPlayedAt: now, retiredAt: null, notes: chord.map(parseNote) };

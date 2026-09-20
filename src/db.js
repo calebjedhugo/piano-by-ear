@@ -40,7 +40,15 @@ const ATTEMPT_COLUMNS = {
 const JUDGMENT_COLUMNS = { passage_clean: 'INTEGER', learning: 'INTEGER' };
 /** A tri-state boolean for SQLite: undefined/null -> NULL, else 1/0. */
 const nb = (v) => (v === undefined || v === null ? null : v ? 1 : 0);
-const SESSION_COLUMNS = { passages: 'INTEGER NOT NULL DEFAULT 0' };
+// HOW LATE THE CALL ACTUALLY WAS, on the machine that graded this session.
+// `onsetMs` measures the player's press against the time the call was
+// SCHEDULED, not the time it became audible, so every note reads late by
+// ctx.outputLatency. That is 5 ms on the mac and was never worth a column;
+// it is 178 ms on the downstairs box, which is past the tolerance itself.
+// Recorded per session so the correction can be exact rather than inferred
+// from `device`, and so a machine's timing data can be told apart from a
+// player's timing. Nothing reads it yet: it changes no judgment.
+const SESSION_COLUMNS = { passages: 'INTEGER NOT NULL DEFAULT 0', out_latency_ms: 'REAL' };
 // pitch_clean: every graded note exactly right, whatever the timing and holds.
 // `clean` keeps its old meaning (pitch AND time) for continuity; the
 // controllers read pitch_clean (pitch and rhythm are separable skills:
@@ -175,7 +183,7 @@ export class Db {
       setKv: this.db.prepare(
         'INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
       ),
-      newSession: this.db.prepare('INSERT INTO sessions (started_at, bpm, anchor) VALUES (?, ?, ?) RETURNING id'),
+      newSession: this.db.prepare('INSERT INTO sessions (started_at, bpm, anchor, out_latency_ms) VALUES (?, ?, ?, ?) RETURNING id'),
       endSession: this.db.prepare('UPDATE sessions SET ended_at = ?, questions = ?, passages = ? WHERE id = ?'),
       lastBpm: this.db.prepare('SELECT bpm FROM sessions ORDER BY id DESC LIMIT 1'),
       recentPassageNotes: this.db.prepare(`
@@ -236,8 +244,8 @@ export class Db {
     return this.kv(name === 'engine' ? 'engine' : `engine:${name}`);
   }
 
-  newSession({ bpm, anchor }) {
-    return this.stmts.newSession.get(Date.now(), bpm, anchor).id;
+  newSession({ bpm, anchor, outLatencyMs = null }) {
+    return this.stmts.newSession.get(Date.now(), bpm, anchor, outLatencyMs).id;
   }
 
   endSession(id, { questions, passages }) {

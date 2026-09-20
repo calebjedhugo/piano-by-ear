@@ -98,6 +98,18 @@ export class Audio {
   }
 
   /**
+   * How long after it is scheduled a sound actually reaches the room. The
+   * player answers what he HEARS, but his key press is timestamped with no
+   * such delay, so this is how late every note of his reads (src/db.js
+   * SESSION_COLUMNS). Nothing corrects for it yet -- it is recorded so the
+   * size of the problem is on the record per session.
+   */
+  get outputLatencyMs() {
+    const l = this.ctx.outputLatency;
+    return Number.isFinite(l) ? l * 1000 : null;
+  }
+
+  /**
    * The TEACHER's voice (the call): the upright, scheduled on the clock.
    * Fallback: exact-harmonic partials (triangle
    * fundamental, a sine octave and double octave) with a soft onset, held at

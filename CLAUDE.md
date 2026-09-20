@@ -147,9 +147,26 @@ exactly that much. On the mac that is 5 ms and invisible. On a box buffering
 same playing read as consistently LATE downstairs, depress the timing rungs
 and drag the session tempo floor -- attributed to him rather than to the
 buffer. Since profiles MERGE, both machines' rows land in one history.
-Measure `ctx.outputLatency` on any new machine before trusting its timing
-data. The saving grace is that every row carries `device`, so a bias can be
-found and corrected in analysis after the fact.
+MEASURED ON pianobox: **178 ms**, and it is not tunable down. The wireplumber
+headroom that makes the card audible at all sets it -- 0 -> 7.7 ms but silent,
+2048 -> 50 ms silent, 8192 -> 178 ms and the only setting that reliably makes
+sound. 178 ms EXCEEDS the +-45-110 ms tolerance outright, so `in_time` there
+is not shifted, it is near-uniformly FALSE.
+
+**AND THE CONTAMINATION CROSSES MACHINES.** `sessionFloor()` reads
+`recentPassageNotes` from the MERGED history without regard to device, and
+scores a row `clean: correct && in_time` -- so a sitting downstairs drags the
+tempo floor for the next sitting UPSTAIRS, and the drill asks slower material
+on a machine whose own audio is fine. The round and the timing rungs go the
+same way. **`pitch_clean` is untouched** (pitch only), which means the
+progress metric, the passage-length controller and the polyphony level are
+all safe; it is the timing side and only the timing side.
+
+Until a USB audio adapter bypasses that DSP, treat pianobox timing data as
+NOT MEASURED rather than as evidence. Every session now records
+`sessions.out_latency_ms` (5 ms here, 178 ms there) so the correction can be
+exact rather than inferred from `device`; nothing reads it yet, because
+reading it would move the grading ruler mid-measurement.
 
 `--keys lo..hi` trims what is decoded. **Only for a machine with one
 permanently attached controller**: a key outside the decoded range falls back
