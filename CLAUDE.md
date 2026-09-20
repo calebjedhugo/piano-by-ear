@@ -109,6 +109,26 @@ is not paid until somebody plays. Salamander is already trimmed to 4 of 16
 velocity layers (`SALAMANDER_LAYERS`); velocity still varies continuously by
 gain, so the layers are timbre only.
 
+MEASURED ON `pianobox` (2026-09-19), the downstairs machine: Acer CB3-111,
+Celeron N2830, **1887 MB total RAM**, Debian 13, 88-key Keystation, Node
+22.23.2. Full 88-key load, lobby (no profile open): **peak RSS 568 MB**,
+599 MB steady after a reboot, 606-1074 MB available. **Sample decode takes
+~15 s there against ~1 s on the mac** -- so give it no systemd watchdog (the
+app does not sd_notify and anything short kills it mid-decode), and expect
+the synth to voice anything played in the first quarter minute after boot.
+
+DEPLOYING ON SIMILAR HARDWARE (Bay Trail / `chtmax98090`), from that install:
+- **`firmware-intel-sound` is not installed by default and nothing tells you
+  so.** Without the SST DSP blob every PCM open returns EBUSY, and each layer
+  renders that as a different wrong answer -- ALSA "invalid hwparams", cpal
+  "stream configuration is not supported", PipeWire "Device or resource
+  busy". The truth is only in dmesg: `intel_sst_acpi ... FW download fail -2`.
+- **PipeWire is mandatory on that codec, not a convenience.** The card takes
+  only S16_LE / 2ch / 48000 and has no UCM profile; cpal cannot negotiate it
+  even through the ALSA plug layer `aplay` uses happily.
+- **`rtkit`** too, or PipeWire never gets realtime priority -- worth having
+  where onset is graded to +-45-110 ms.
+
 `--keys lo..hi` trims what is decoded. **Only for a machine with one
 permanently attached controller**: a key outside the decoded range falls back
 to the synth mid-sitting, silently, which is exactly what a second keyboard
