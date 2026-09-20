@@ -572,7 +572,7 @@ export class Drill {
     this.bpm = this.bpmOverride ?? LEAD_IN_BPM;
     this.beat = 60 / this.bpm;
     this.toleranceMs = toleranceMsFor(this.bpm);
-    this.sessionId = this.db.newSession({ bpm: this.bpm, anchor, outLatencyMs: this.audio.outputLatencyMs });
+    this.sessionId = this.db.newSession({ bpm: this.bpm, anchor });
     this.questions = 0;
     this.plainQuestions = 0;
     this.echoEmpty = 0; // windows in a row the player left silent
