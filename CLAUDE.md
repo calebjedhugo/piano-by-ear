@@ -206,6 +206,49 @@ it changes nothing the drill asks for, only what is in memory to sound it.
 No MIDI device present at start is fine; `src/midi.js` polls every 2s and
 opens every input port.
 
+## DEPLOYING TO pianobox: A PUSH IS HALF A DEPLOY (2026-09-20)
+
+**YOU MUST pull on pianobox every time you push to the repo.** Nothing does
+it for you, deliberately -- **there is no auto-pull, by Caleb's ruling
+(2026-09-20): a machine that fetches code from the internet by itself is not
+wanted, his own repo included.** From the mac:
+
+```bash
+ssh pianobox 'cd ~/piano-by-ear && git pull --ff-only && systemctl --user restart piano-by-ear'
+```
+
+- **Check nobody is playing first** (`tail ~/.piano-by-ear/run.log`): the
+  restart kills a sitting, and the sitting's rows reach the pi only on close.
+- **If `package-lock.json` moved, stop and do it by hand.** Two of the three
+  deps are native (`@julusian/midi`, `node-web-audio-api`) and an unattended
+  install on a 2 GB Celeron with no working display is how that box becomes
+  an ssh rescue job.
+- The machine-side audio setup (`~/sst-shim/`, `~/.local/lib/sst-buffer.so`,
+  the systemd unit, `~/.asoundrc`) is NOT in this repo and a pull cannot
+  touch it. That is on purpose: the app is hardware-agnostic.
+
+WHO CAN REACH WHOM (measured 2026-09-20, this is not symmetric):
+
+| from -> to | mac | pianobox | hugopi |
+| --- | --- | --- | --- |
+| mac | -- | ssh yes | ssh yes |
+| pianobox | no | -- | ssh yes (profile sync) |
+| hugopi | no | **no -- cannot even resolve the name** | -- |
+
+**The pi holds the histories; it cannot drive either machine.** It is a place
+files are put and fetched, never a thing that reaches out. So a deploy to
+pianobox can only be driven from the mac, and any "have the pi push it" plan
+is a non-starter until pianobox has a name the pi can resolve.
+
+VERSION SKEW HAS ONE REAL TOOTH, and it is the sync fast path. The `.rev`
+token arrived in `797af88`; a machine older than that pushes a profile
+without writing one, so the other machine reads its own stale token, says
+"already in step with the pi", and skips the merge. **The sitting that
+follows is played against a stale floor.** Nothing is lost -- the next
+session's signature no longer matches, the full merge runs, and both sides
+land -- but keep the two machines on the same commit and the question never
+comes up.
+
 ## Layout
 
 - `src/main.js`   wiring, SIGINT shutdown (silent stop, close audio then DB).
