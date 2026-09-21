@@ -2573,7 +2573,13 @@ export class Drill {
       const m = mAcc(e);
       const other = e === lo ? hi : lo;
       if (m !== null && m >= DYAD_RUNG.high && hAcc >= DYAD_RUNG.high) { charged = 'progression'; continue; }
-      if (m !== null && m < hAcc) { trial(e); charged = charged === 'harmonic' ? 'harmonic' : 'melodic'; continue; }
+      // The pair he played IS the pair that was asked (a semitone below asked,
+      // a semitone above played: same sonority, wrong side of the anchor):
+      // the harmonic ear cannot be the culprit, whatever it predicted. That is
+      // a departure error and it is the melodic ear's. (2026-09-20, session
+      // 269 Q11: charged harmonic because the restarted harmonic engine still
+      // predicted 0.5 for everything.)
+      if (m !== null && (harmonicOk || m < hAcc)) { trial(e); charged = charged === 'harmonic' ? 'harmonic' : 'melodic'; continue; }
       charged = 'harmonic';
       harmonicMiss = harmonicMiss ?? { from: other.midi, missed: e.midi };
     }
