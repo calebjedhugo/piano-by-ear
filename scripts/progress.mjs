@@ -770,6 +770,42 @@ function section9() {
     return [day, ...voices.map((v) => pctN(list.filter((r) => r.voice === v).map(effCorrect)))];
   });
   printTable('Dyad/chord accuracy by voice, by day (voice 0 = bass/free; higher = tones above it)', header, rowsOut);
+  console.log('  (LEGACY rows above -- through 2026-09-20 the bottom note was NAMED and free: 282/282. Read the table below instead.)');
+
+  // THE DEPARTURE DYADS (2026-09-20): both notes measured from the anchor
+  // being left, the common tone required. Per RETRIEVAL, the unison excluded
+  // -- it is the row that made the legacy figure read 90% when the interval
+  // actually asked for was 75%.
+  if (hasColumn('attempts', 'regime')) {
+    const reg = db.prepare(`
+      SELECT ts, kind, regime, contains_anchor, correct FROM attempts
+      WHERE regime IS NOT NULL AND graded = 1 AND ts >= ? ORDER BY ts ASC`).all(cutoff);
+    if (reg.length) {
+      const byDay = groupBy(reg, (r) => localDay(r.ts));
+      const out = [...byDay.keys()].sort().map((day) => {
+        const l = byDay.get(day);
+        const retrievals = l.filter((r) => !r.contains_anchor && (r.kind === 'dyad' || r.kind === 'dyad discrimination'));
+        const dep = retrievals.filter((r) => r.regime === 'departure');
+        const two = retrievals.filter((r) => r.regime === 'twohand');
+        const unison = l.filter((r) => r.contains_anchor);
+        const placing = l.filter((r) => r.regime === 'placing' && !r.contains_anchor);
+        return [day, pctN(dep.map((r) => r.correct)), pctN(two.map((r) => r.correct)), pctN(unison.map((r) => r.correct)), pctN(placing.map((r) => r.correct))];
+      });
+      printTable('Departure dyads, per retrieval, by day', ['day', 'departure (rungs 1-2)', 'two-hand (rung 3)', 'common tone struck', 'placing'], out);
+    }
+  }
+  if (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sonorities'").get()) {
+    const son = db.prepare('SELECT ts, regime, harmonic_ok, charged FROM sonorities WHERE ts >= ? AND regime <> ? ORDER BY ts').all(cutoff, 'passage');
+    if (son.length) {
+      const byDay = groupBy(son, (r) => localDay(r.ts));
+      const out = [...byDay.keys()].sort().map((day) => {
+        const l = byDay.get(day);
+        const n = (c) => l.filter((r) => r.charged === c).length;
+        return [day, String(l.length), pctN(l.map((r) => r.harmonic_ok)), String(n('melodic')), String(n('harmonic')), String(n('progression')), String(n('unison'))];
+      });
+      printTable('Sonorities (the pair he played), by day', ['day', 'n', 'span heard', 'charged melodic', 'harmonic', 'progression', 'common tone missing'], out);
+    }
+  }
 
   // Passage voices: duo/chorale/poly passages (>1 distinct voice within the
   // question) -- shows the high-voice bias (top voice right, bass never

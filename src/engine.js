@@ -100,10 +100,10 @@ function contextBucket(semitones) {
   return 'dissonant';
 }
 
-function freshState() {
+function freshState(minTiers = MIN_TIERS) {
   return {
     version: SCHEMA_VERSION,
-    tiersUnlocked: MIN_TIERS,
+    tiersUnlocked: minTiers,
     overall: { ewma: 0.75, n: 0 },
     attemptsSinceTierChange: 0,
     intervals: {},
@@ -123,13 +123,21 @@ export class AdaptiveEngine {
    * @param {number} opts.pitchClassOffset   pitch class of index 0 (MIDI 21 = A = 9)
    * @param {{load: () => object|null, save: (state: object) => void}} opts.store
    */
-  constructor({ range, fluentMs, pitchClassOffset = 0, store }) {
+  constructor({ range, fluentMs, pitchClassOffset = 0, store, minTiers = MIN_TIERS, unsigned = false }) {
     this.range = range;
     this.fluentMs = fluentMs;
     this.pcOffset = pitchClassOffset;
     this.store = store;
+    // THE HARMONIC ENGINE IS UNSIGNED: its skills are SIZES (a third is a third
+    // whichever note was already under a hand), so every key it holds is +w
+    // and the frontier gate below counts |w| rather than waiting for a -w that
+    // can never arrive. That wait is why the harmonic ladder never moved in
+    // the profile's first sixteen days (278 trials, zero tier changes).
+    this.unsigned = unsigned;
+    this.minTiers = minTiers;
     const loaded = store.load();
-    this.state = loaded && loaded.version === SCHEMA_VERSION ? loaded : freshState();
+    this.state = loaded && loaded.version === SCHEMA_VERSION ? loaded : freshState(minTiers);
+    if (this.state.tiersUnlocked < minTiers) this.state.tiersUnlocked = minTiers;
     if (!this.state.cells) this.state.cells = {};
     if (!this.state.height) this.state.height = { n: 0, acc: 0.5 };
     if (!('focus' in this.state)) this.state.focus = null;
@@ -250,7 +258,11 @@ export class AdaptiveEngine {
    */
   cellKeysFor(interval, anchorIndex, prevIndex, scope = 'interval') {
     const iKey = AdaptiveEngine.key(interval);
-    if (scope === 'passage' || scope === 'round') return [`${iKey}|src:${scope}`];
+    // Every scope but the isolated probe is its own cell family and nothing
+    // else: 'passage', 'round', and the dyad rungs 'departure' (both notes
+    // measured from the anchor being left) and 'twohand' (each hand from its
+    // own). None of them moves the tier ladder or the parent stats.
+    if (scope !== 'interval') return [`${iKey}|src:${scope}`];
     const target = anchorIndex + interval;
     const keys = [`${iKey}|${colorOf(anchorIndex + this.pcOffset)}${colorOf(target + this.pcOffset)}`];
     if (prevIndex !== null && prevIndex !== undefined) {
@@ -562,7 +574,7 @@ export class AdaptiveEngine {
     const tiersBefore = this.state.tiersUnlocked;
     let newlyMastered = false;
 
-    if (scope === 'passage' || scope === 'round') {
+    if (scope !== 'interval') {
       this.updateCells(cells, !missed);
       // A near miss inside a phrase is the same category boundary as one in
       // isolation, and it is where most of them happen.
@@ -599,13 +611,15 @@ export class AdaptiveEngine {
     const { ewma } = this.state.overall;
     if (ewma > TARGET_HIGH && this.state.tiersUnlocked < TIER_WIDTHS.length) {
       const frontierWidth = TIER_WIDTHS[this.state.tiersUnlocked - 1];
-      const seen = [frontierWidth, -frontierWidth].every((i) => this.peekStats(i).n >= 3);
+      const seen = this.unsigned
+        ? this.peekStats(frontierWidth).n + this.peekStats(-frontierWidth).n >= 3
+        : [frontierWidth, -frontierWidth].every((i) => this.peekStats(i).n >= 3);
       if (seen) {
         this.state.tiersUnlocked += 1;
         this.state.attemptsSinceTierChange = 0;
         this.state.overall.ewma = 0.78;
       }
-    } else if (ewma < TARGET_LOW && this.state.tiersUnlocked > MIN_TIERS) {
+    } else if (ewma < TARGET_LOW && this.state.tiersUnlocked > this.minTiers) {
       this.state.tiersUnlocked -= 1;
       this.state.attemptsSinceTierChange = 0;
       this.state.overall.ewma = 0.75;

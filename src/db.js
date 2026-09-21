@@ -34,6 +34,17 @@ const ATTEMPT_COLUMNS = {
   // difference between a player who catches his own note and one who never
   // notices is most of what separates a musician from a typist.
   self_corrected: 'INTEGER',
+  // WHICH RULE THE NOTE WAS MEASURED UNDER (2026-09-20), for the dyad kinds:
+  //   'departure'  both notes of the dyad from the anchor being LEFT
+  //   'twohand'    each hand from its own anchor (the dyad before it)
+  //   'placing'    the other hand's first note, from the anchor
+  //   NULL         a legacy dyad row: the bottom note was NAMED and free, and
+  //                `anchor` on the upper note's row is the bass, not a note
+  //                he departed from. Never re-scored; read the two apart.
+  regime: 'TEXT',
+  // 1 when this note IS the anchor it was measured from -- the common tone,
+  // required and graded as a unison, reported to no engine.
+  contains_anchor: 'INTEGER',
 };
 // passage_clean: the window follows clean passages too (sampled): false alarms vs hits.
 // learning: one of the first windows, before the player has ever pressed in one -- not evidence.
@@ -59,7 +70,7 @@ const PASSAGE_COLUMNS = { pitch_clean: 'INTEGER', self_corrected: 'INTEGER' };
 // events): it is taken whole from whichever side played last, and the other
 // side's copy is kept in kv_archive rather than dropped. See src/sync.js.
 const SYNC_COLUMNS = { device: 'TEXT', origin_id: 'INTEGER' };
-const SYNCED_TABLES = ['sessions', 'attempts', 'passages', 'windows', 'judgments'];
+const SYNCED_TABLES = ['sessions', 'attempts', 'passages', 'windows', 'judgments', 'sonorities'];
 // kv keys that are about THIS MACHINE and never travel with a profile.
 const LOCAL_KEYS = new Set(['device', 'sync']);
 
@@ -153,6 +164,47 @@ export class Db {
         guessed INTEGER NOT NULL,
         hit INTEGER
       );
+      -- A SONORITY: two notes asked at one onset, as a PAIR (2026-09-20). An
+      -- attempts row is one note with one reference; the harmonic interval is
+      -- a property of the pair and lives here, one row per two-note group in
+      -- a dyad, placing or duo passage. The verdict is on the pair he PLAYED:
+      -- span_played is the interval between his two notes, whatever was asked
+      -- of either. charged says which ear a wrong note was debited to --
+      -- 'melodic' or 'harmonic' by whichever predicted it worse, 'progression'
+      -- when both predicted it fine (recorded, charged to nothing: the
+      -- voice-leading object item 4 will be designed from), NULL when
+      -- nothing was wrong or the row is recorded only (passages).
+      -- prev_span_*: the sonority before this one (same question, or the
+      -- dyad question just before), so a resolution can be read as one.
+      CREATE TABLE IF NOT EXISTS sonorities (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES sessions(id),
+        question INTEGER,
+        ts INTEGER NOT NULL,
+        kind TEXT,
+        regime TEXT,
+        position INTEGER,
+        lo_expected INTEGER NOT NULL,
+        hi_expected INTEGER NOT NULL,
+        lo_played INTEGER,
+        hi_played INTEGER,
+        lo_from INTEGER,
+        hi_from INTEGER,
+        lo_ok INTEGER,
+        hi_ok INTEGER,
+        span_expected INTEGER NOT NULL,
+        span_played INTEGER,
+        harmonic_ok INTEGER,
+        contains_anchor INTEGER,
+        charged TEXT,
+        melodic_acc_lo REAL,
+        melodic_acc_hi REAL,
+        harmonic_acc REAL,
+        prev_span_expected INTEGER,
+        prev_span_played INTEGER,
+        key TEXT
+      );
+      CREATE INDEX IF NOT EXISTS sonorities_session ON sonorities(session_id);
     `);
     this.migrate('attempts', ATTEMPT_COLUMNS);
     this.migrate('sessions', SESSION_COLUMNS);
@@ -184,8 +236,9 @@ export class Db {
         ORDER BY id DESC LIMIT ?`),
       attempt: this.db.prepare(`
         INSERT INTO attempts (session_id, ts, anchor, target, played, velocity, correct, first_attempt, onset_ms,
-                              question, kind, phrase_id, position, graded, in_time, beat_ms, credit, stage, height_err, voice, behind, key)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
+                              question, kind, phrase_id, position, graded, in_time, beat_ms, credit, stage, height_err, voice, behind, key,
+                              regime, contains_anchor)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
       recentIsolated: this.db.prepare(`
         SELECT anchor, target, CASE WHEN velocity > 0 THEN played ELSE NULL END played, stage FROM attempts
         WHERE graded = 1 AND kind IN ('interval', 'discrimination', 'remediation', 'echo') ORDER BY id DESC LIMIT ?`),
@@ -199,6 +252,11 @@ export class Db {
                               intervals, direction, near, exact_interval, first_error, recovered, backfilled, pitch_clean,
                               self_corrected)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+      sonority: this.db.prepare(`
+        INSERT INTO sonorities (session_id, question, ts, kind, regime, position, lo_expected, hi_expected, lo_played, hi_played,
+                                lo_from, hi_from, lo_ok, hi_ok, span_expected, span_played, harmonic_ok, contains_anchor, charged,
+                                melodic_acc_lo, melodic_acc_hi, harmonic_acc, prev_span_expected, prev_span_played, key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
       passageHistory: this.db.prepare('SELECT * FROM passages WHERE phrase_id = ? ORDER BY ts DESC LIMIT ?'),
       passageCount: this.db.prepare('SELECT COUNT(*) n FROM passages'),
       passageAttempts: this.db.prepare(`
@@ -206,6 +264,28 @@ export class Db {
                a.velocity, a.correct, a.in_time
         FROM attempts a WHERE a.phrase_id IS NOT NULL ORDER BY a.id`),
     };
+    // THE HARMONIC ENGINE STARTS OVER (2026-09-20, once per profile). Its 278
+    // trials scored the upper note of a dyad against a NAMED bass -- a melodic
+    // interval from a note under the hand, not a sonority -- and its ladder
+    // never moved once. The new dyads grade the pair he played; a controller
+    // steering on the old state would be steering on the wrong thing. The
+    // state is set aside, not deleted, the way a merge sets aside a kv.
+    this.runOnce('harmonic-restart-2026-09-20', () => {
+      const row = this.db.prepare("SELECT value FROM kv WHERE key = 'engine:harmonic'").get();
+      if (!row) return;
+      const device = (() => { try { return JSON.parse(this.db.prepare("SELECT value FROM kv WHERE key = 'device'").get()?.value ?? 'null'); } catch { return null; } })();
+      this.db.prepare('INSERT INTO kv_archive (ts, device, key, value) VALUES (?, ?, ?, ?)').run(Date.now(), device, 'engine:harmonic', row.value);
+      this.db.prepare("DELETE FROM kv WHERE key = 'engine:harmonic'").run();
+    });
+  }
+
+  /** A one-time migration, remembered in kv so it never runs twice on a profile. */
+  runOnce(name, fn) {
+    const done = this.kv('migrations').load() || {};
+    if (done[name]) return;
+    fn();
+    done[name] = Date.now();
+    this.kv('migrations').save(done);
   }
 
   migrate(table, columns) {
@@ -263,8 +343,19 @@ export class Db {
       a.correct ? 1 : 0, a.firstAttempt ? 1 : 0, a.onsetMs ?? null,
       a.question ?? null, a.kind ?? null, a.phraseId ?? null, a.position ?? null,
       a.graded ? 1 : 0, nb(a.inTime), a.beatMs ?? null, nb(a.credit), a.stage ?? null, nb(a.heightErr), a.voice ?? null, a.behind ?? null,
-      a.key ?? null,
+      a.key ?? null, a.regime ?? null, nb(a.containsAnchor),
     ).id;
+  }
+
+  /** One two-note onset group, judged as a pair (see the table comment). */
+  sonority(s) {
+    this.stmts.sonority.run(
+      s.sessionId, s.question ?? null, Date.now(), s.kind ?? null, s.regime ?? null, s.position ?? null,
+      s.loExpected, s.hiExpected, s.loPlayed ?? null, s.hiPlayed ?? null, s.loFrom ?? null, s.hiFrom ?? null,
+      nb(s.loOk), nb(s.hiOk), s.spanExpected, s.spanPlayed ?? null, nb(s.harmonicOk), nb(s.containsAnchor), s.charged ?? null,
+      s.melodicAccLo ?? null, s.melodicAccHi ?? null, s.harmonicAcc ?? null, s.prevSpanExpected ?? null, s.prevSpanPlayed ?? null,
+      s.key ?? null,
+    );
   }
 
   /** The last isolated first attempts, newest first, for the stage (src/stage.js). */
@@ -408,6 +499,7 @@ export class Db {
     this.db.exec(`ATTACH DATABASE '${quoted}' AS r`);
     const counts = {};
     try {
+      const remoteCols = (table) => new Set(this.db.prepare(`PRAGMA r.table_info(${table})`).all().map((r) => r.name).concat(['device', 'origin_id']));
       const theirDevice = (() => {
         const row = this.db.prepare("SELECT value FROM r.kv WHERE key = 'device'").get();
         try { return JSON.parse(row.value); } catch { return null; }
@@ -441,8 +533,12 @@ export class Db {
         }
         counts.sessions = added;
 
-        for (const table of SYNCED_TABLES.filter((t) => t !== 'sessions')) {
-          const tcols = this.columnsOf(table);
+        // A copy pushed by an older build may not have every table yet: skip
+        // what is not there rather than throwing mid-merge (the rows it does
+        // hold still come across, and ours push back with the table intact).
+        const remoteTables = new Set(this.db.prepare("SELECT name FROM r.sqlite_master WHERE type = 'table'").all().map((r) => r.name));
+        for (const table of SYNCED_TABLES.filter((t) => t !== 'sessions' && remoteTables.has(t))) {
+          const tcols = this.columnsOf(table).filter((c) => remoteCols(table).has(c));
           const ins = this.db.prepare(`INSERT INTO ${table} (${tcols.join(', ')}) VALUES (${tcols.map(() => '?').join(', ')})`);
           const have = new Set(
             this.db.prepare(`SELECT device, origin_id FROM ${table} WHERE device IS NOT NULL`).all().map((r) => `${r.device}:${r.origin_id}`),

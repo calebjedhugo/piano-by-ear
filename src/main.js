@@ -164,8 +164,11 @@ function openProfile(name) {
   const drill = new Drill({
     audio, db, range, phrases, poly, log, bpmOverride,
     onSessionEnd: () => lobby.afterSession(),
+    // The harmonic engine is UNSIGNED (its skills are sizes) and opens at
+    // three tiers -- seconds AND thirds, which is what "start narrow" means
+    // (src/engine.js, the constructor comment).
     makeEngine: (lo, hi, fluentMs, which) =>
-      new AdaptiveEngine({ range: hi - lo, fluentMs, pitchClassOffset: lo % 12, store: db.engineStore(which) }),
+      new AdaptiveEngine({ range: hi - lo, fluentMs, pitchClassOffset: lo % 12, store: db.engineStore(which), ...(which === 'harmonic' ? { minTiers: 3, unsigned: true } : {}) }),
   });
   const { lo, hi } = range.current;
   log(`${name}: range ${lo}..${hi}`);

@@ -343,6 +343,23 @@ const POLY = {
 const CHORD_SHAPES = [[4, 7], [3, 7], [3, 8], [4, 9], [4, 7, 10]];
 // Passage TEXTURE only: the dyads left this ladder on 2026-09-12 (dyadsOpen).
 const LEVEL_NAMES = ['melody only', 'two voices', 'four-part chorales', 'both hands'];
+// THE DYAD RUNGS (Caleb, 2026-09-20; see dyadSlot). A dyad is a DEPARTURE from
+// the anchor: both notes are measured from the note being left, and the
+// bottom note is no longer named for the player. Three rungs, in order:
+//   1  contains the anchor -- one retrieval; the common tone is REQUIRED and
+//      graded as a unison (a row, never an engine skill)
+//   2  does not contain it -- two retrievals from the anchor being left
+//   3  two hands to two hands -- each hand from its own anchor, the dyad
+//      before it; only ever served right after a dyad, chained
+// A per-RETRIEVAL band (the unison is logged but never in the denominator):
+// promote above `high`, demote below `low`, after `cooldown` retrievals on
+// the current rung. Per retrieval, not per question: two retrievals at 0.84
+// come out clean 71% by question, which is the passage-length arithmetic
+// again -- the skill is the note, the length is multiplication.
+// It is a DIET, not a gate: which dyad the slot serves next, never whether
+// duo passages are served (the placing puts a departure in front of every
+// one of those anyway).
+const DYAD_RUNG = { high: 0.85, low: 0.65, cooldown: 8, alpha: 0.15, lowerShare: 0.4 };
 
 export class Drill {
   /**
@@ -374,6 +391,7 @@ export class Drill {
     this.carryStore = db.kv('carry');
     this.stageStore = db.kv('stage');
     this.roundsStore = db.kv('rounds'); // one record per run: the round's evidence is scoped away from the ladder
+    this.rungStore = db.kv('dyadRung'); // the dyad rung controller (DYAD_RUNG)
     this.len = this.lenStore.load() || {};
     this.state = 'IDLE';
     this.clockOffset = performance.now() / 1000 - audio.now;
@@ -605,6 +623,14 @@ export class Drill {
     this.passagesInARow = 0;
     this.anchor = anchor;
     this.prevAnchor = null;
+    // TWO ANCHORS, after a dyad in which both notes were struck: [lower,
+    // upper], what he PLAYED (the hand is where the hand is). Null after any
+    // single-line answer -- the anchor is a monophonic idea and collapses to
+    // the top note as it always did. Read by the two-hand rung and by a duo
+    // passage's first group (each voice from its own hand).
+    this.hands = null;
+    this.chainDyad = false; // serve a two-hand dyad next, off the hands just set
+    this.prevSonority = null; // { question, spanExpected, spanPlayed } -- so a resolution reads as one
     this.lastInputAt = performance.now();
     this.lastPlayedAt = this.audio.now;
     this.syncClock(1);
@@ -804,18 +830,26 @@ export class Drill {
    * it is exactly what would unplace the pivot.
    */
   placingQuestion(target) {
+    // BOTH HANDS DOWN AT ONCE, and both count: the pivot is the common tone,
+    // required and graded as a unison; the other hand's note is a departure
+    // from it. It used to be free, and free is what taught him the bottom
+    // note of a dyad is optional (190 of 366 dyads answered with one note).
+    const a = this.anchor;
+    const [lo, hi] = target < a ? [target, a] : [a, target];
     return {
       kind: 'placing',
       dyad: true,
+      pair: true,
+      regime: 'placing',
       placing: true,
       keepAnchor: true,
       optionalAnchor: true,
       notes: [
-        { midi: this.anchor, b: 0, dur: 2, voice: 0, free: true },
-        { midi: target, b: 0, dur: 2, voice: 1, harmonicRef: this.anchor },
+        { midi: lo, b: 0, dur: 2, voice: 0, from: a, unison: lo === a },
+        { midi: hi, b: 0, dur: 2, voice: 1, from: a, unison: hi === a },
       ],
       meter: 4,
-      label: `placing: ${name(this.anchor)} + ? (${signed(target - this.anchor)} together) -- the other hand's first note`,
+      label: `placing: ${name(a)} + ? (${signed(target - a)} together, keep ${name(a)}) -- the other hand's first note`,
     };
   }
 
@@ -1031,15 +1065,181 @@ export class Drill {
     return null;
   }
 
+  /**
+   * A DYAD IS A DEPARTURE FROM THE ANCHOR (Caleb, 2026-09-20). The anchor is
+   * the last note he played and it is a monophonic idea; a dyad is the moment
+   * of leaving it, and BOTH notes are measured from the note being left. The
+   * bottom note is no longer named for him: it used to be, and free, and the
+   * named note was right 282 times in 282 -- a row, not a test -- while in
+   * 190 of 366 dyads he never played it at all and was scored anyway. So the
+   * "dyad" number was a melodic interval wearing a label (84% against 80%
+   * for a plain interval), and the rung it claimed to be did not exist.
+   *
+   * Rung 1 (`containingDyad`): the dyad contains the anchor. One retrieval;
+   * the common tone is REQUIRED, graded as a unison -- the first voice-leading
+   * skill, a voice staying put, which is also the percept behind his worst
+   * harmonic event (two voices arriving on one pitch). It is recorded as a
+   * row and reported to no engine: a unison is not a width.
+   * Rung 2 (`departingDyad`): neither note is the anchor. Two retrievals.
+   * Rung 3 (`twohandDyad`): each hand from its own anchor, the dyad before.
+   *
+   * The harmonic SPAN (the dyad's own width, unfolded -- a tenth is not a
+   * third; wide cold dyads were 9/9 while a melodic tenth is his weakest
+   * band) is chosen by the harmonic engine's ladder, which opens at seconds
+   * and thirds. The DEPARTURE distances are melodic intervals and are not
+   * capped: the melodic engine already rates them, and capping a floor is the
+   * 09-12 mistake. Below DIATONIC_TIERS both notes sit in the block key.
+   *
+   * This one (`dyadQuestion`) is the rung-1 shape on the anchor, kept for the
+   * recovery walk's retry and transfer -- easy exemplars first, then the hard
+   * case, which is the walk's stated rationale.
+   */
   dyadQuestion(kind, target) {
-    return {
-      kind,
-      dyad: true,
-      optionalAnchor: true,
-      notes: [{ midi: this.anchor, b: 0, dur: 2, voice: 0, free: true }, { midi: target, b: 0, dur: 2, voice: 1 }],
-      meter: 4,
-      label: `${kind}: ${name(this.anchor)} + ? (${signed(target - this.anchor)} together)`,
-    };
+    return this.pairNotes(kind, this.anchor, this.anchor, this.anchor, target, 'departure');
+  }
+
+  /** Build a two-note question, each note framed from the anchor named for it. */
+  pairNotes(kind, fromLo, fromHi, lo, hi, regime) {
+    if (lo > hi) { [lo, hi] = [hi, lo]; [fromLo, fromHi] = [fromHi, fromLo]; }
+    const notes = [
+      { midi: lo, b: 0, dur: 2, voice: 0, from: fromLo, unison: lo === fromLo },
+      { midi: hi, b: 0, dur: 2, voice: 1, from: fromHi, unison: hi === fromHi },
+    ];
+    const contains = notes.some((n) => n.unison);
+    let label;
+    if (regime === 'twohand') label = `${kind}: each hand: ${name(fromLo)} -> ? ${name(fromHi)} -> ? (${signed(lo - fromLo)}, ${signed(hi - fromHi)} together)`;
+    else if (contains) label = `${kind}: ${name(fromLo)} + ? (${signed((lo === fromLo ? hi : lo) - fromLo)} together, keep ${name(fromLo)})`;
+    else label = `${kind}: from ${name(fromLo)}: ? + ? (${signed(lo - fromLo)}, ${signed(hi - fromLo)} together)`;
+    return { kind, dyad: true, pair: true, regime, contains, optionalAnchor: true, notes, meter: 4, label };
+  }
+
+  /** The dyad rung controller's state (DYAD_RUNG). */
+  rungState() {
+    const st = this.rungStore.load();
+    return st || { rung: 1, ewma: { 1: 0.75, 2: 0.75, 3: 0.75 }, n: { 1: 0, 2: 0, 3: 0 }, since: 0 };
+  }
+
+  /** One retrieval on a rung (never the unison), and the move it may cause. */
+  noteRungRetrieval(rung, ok) {
+    const st = this.rungState();
+    st.ewma[rung] = st.ewma[rung] * (1 - DYAD_RUNG.alpha) + (ok ? DYAD_RUNG.alpha : 0);
+    st.n[rung] = (st.n[rung] || 0) + 1;
+    st.since += 1;
+    if (rung === st.rung && st.since >= DYAD_RUNG.cooldown) {
+      const names = { 1: 'a dyad on the note you are on', 2: 'a dyad away from the note you are on', 3: 'each hand moving from its own note' };
+      if (st.ewma[rung] > DYAD_RUNG.high && st.rung < 3) {
+        st.rung += 1; st.since = 0; st.ewma[st.rung] = 0.78;
+        this.log(`  dyads: up to rung ${st.rung} -- ${names[st.rung]}`);
+      } else if (st.ewma[rung] < DYAD_RUNG.low && st.rung > 1) {
+        st.rung -= 1; st.since = 0; st.ewma[st.rung] = 0.75;
+        this.log(`  dyads: back to rung ${st.rung} -- ${names[st.rung]}`);
+      }
+    }
+    this.rungStore.save(st);
+  }
+
+  /** Signed departure distances the melodic ladder allows, plus the two steps (always). */
+  departureWidths() {
+    const w = new Set([1, 2]);
+    for (const x of TIER_WIDTHS.slice(0, this.engine.state.tiersUnlocked)) w.add(x);
+    return w;
+  }
+
+  /** May this note be a dyad note right now: on the keyboard, in the stage's window, and in the key while the level demands it. */
+  dyadNoteOk(midi) {
+    const w = this.win;
+    if (midi < this.lo || midi > this.hi || midi < w.lo || midi > w.hi) return false;
+    if (this.entryLevel() && this.block && !diatonicIn(midi, this.block.key)) return false;
+    return true;
+  }
+
+  /** Diatonic notes are preferred where the level does not require them. */
+  dyadLean(midi) {
+    return this.block && diatonicIn(midi, this.block.key) ? DIATONIC_LEAN : 1;
+  }
+
+  pickWeighted(cands) {
+    if (cands.length === 0) return null;
+    const total = cands.reduce((t, c) => t + c.w, 0);
+    let roll = Math.random() * total;
+    for (const c of cands) { roll -= c.w; if (roll <= 0) return c; }
+    return cands[cands.length - 1];
+  }
+
+  /**
+   * The dyad slot: which rung, then the span from the harmonic ladder, then
+   * the shape. Rung 3 is never served here -- it needs two hands down, so it
+   * is chained after a rung-1/2 dyad (finalizeQuestion, `chainDyad`). The
+   * current rung mostly; a lower one sometimes, so it is a diet and not a
+   * cliff.
+   */
+  dyadSlot(a) {
+    const st = this.rungState();
+    let rung = Math.min(st.rung, 2);
+    if (rung === 2 && Math.random() < DYAD_RUNG.lowerShare) rung = 1;
+    const spanHi = Math.min(this.idx(this.hi), a + 12);
+    if (a + 1 > spanHi) return null;
+    const span = this.harmonic.nextTargetIndex(a, null, { bounds: { lo: a + 1, hi: spanHi } }) - a;
+    if (span <= 0) return null;
+    const kind = this.harmonic.servedQueue ? 'dyad discrimination' : 'dyad';
+    return (rung === 2 ? this.departingDyad(kind, span) : null) ?? this.containingDyad(kind, span);
+  }
+
+  /** Rung 1: the anchor and one note a span away, above or below it. */
+  containingDyad(kind, span) {
+    const a = this.anchor;
+    const cands = [a + span, a - span].filter((m) => this.dyadNoteOk(m)).map((m) => ({ m, w: this.dyadLean(m) }));
+    const pick = this.pickWeighted(cands);
+    if (!pick) return null;
+    return this.pairNotes(kind, a, a, a, pick.m, 'departure');
+  }
+
+  /** Rung 2: two notes a span apart, neither the anchor, both departures the melodic ladder allows. */
+  departingDyad(kind, span) {
+    const a = this.anchor;
+    const ai = this.idx(a);
+    const widths = this.departureWidths();
+    const now = Date.now();
+    const cands = [];
+    for (const d1 of [...widths].flatMap((w) => [w, -w])) {
+      const d2 = d1 + span;
+      if (d2 === 0 || !widths.has(Math.abs(d2))) continue;
+      const lo = a + d1;
+      const hi = a + d2;
+      if (!this.dyadNoteOk(lo) || !this.dyadNoteOk(hi)) continue;
+      const w = this.engine.weight(d1, ai, now, null) * this.engine.weight(d2, ai, now, null) * this.dyadLean(lo) * this.dyadLean(hi);
+      cands.push({ lo, hi, w });
+    }
+    const pick = this.pickWeighted(cands);
+    if (!pick) return null;
+    return this.pairNotes(kind, a, a, pick.lo, pick.hi, 'departure');
+  }
+
+  /** Rung 3: from two hands, each moves (or holds) to a new dyad a span apart. */
+  twohandDyad() {
+    const [L, U] = this.hands;
+    const li = this.idx(L);
+    const spanHi = Math.min(this.idx(this.hi), li + 12);
+    if (li + 1 > spanHi) return null;
+    const span = this.harmonic.nextTargetIndex(li, null, { bounds: { lo: li + 1, hi: spanHi } }) - li;
+    if (span <= 0) return null;
+    const widths = this.departureWidths();
+    const now = Date.now();
+    const cands = [];
+    for (const dL of [0, ...[...widths].flatMap((w) => [w, -w])]) {
+      const lo = L + dL;
+      const hi = lo + span;
+      const dU = hi - U;
+      if (dL === 0 && dU === 0) continue; // nothing moved: not a question
+      if (dU !== 0 && !widths.has(Math.abs(dU))) continue;
+      if (!this.dyadNoteOk(lo) || !this.dyadNoteOk(hi)) continue;
+      const wl = dL === 0 ? 1 : this.engine.weight(dL, li, now, null);
+      const wu = dU === 0 ? 1 : this.engine.weight(dU, this.idx(U), now, null);
+      cands.push({ lo, hi, w: wl * wu * this.dyadLean(lo) * this.dyadLean(hi) });
+    }
+    const pick = this.pickWeighted(cands);
+    if (!pick) return null;
+    return this.pairNotes('dyad', L, U, pick.lo, pick.hi, 'twohand');
   }
 
   /** A chord shape above the anchor as a fixed bass; every note above it graded. */
@@ -1179,11 +1379,20 @@ export class Drill {
     const ivs = [pair.a, pair.b].map((iv) => (ok(iv) ? iv : -iv)).filter(ok);
     if (ivs.length < 2) return null;
     const notes = [];
-    if (harmonic) ivs.forEach((iv, i) => notes.push({ midi: a, b: i * 2, dur: 2, voice: 0, free: i === 0 }, { midi: a + iv, b: i * 2, dur: 2, voice: 1 }));
+    // Harmonic: the first dyad is a departure from the anchor (both notes
+    // from it, the anchor itself a required unison); the second is a two-hand
+    // step -- the bass holds (a unison from its own hand), the top moves from
+    // the note it was just on. buildGroups frames voice 1 from its previous
+    // note on its own; the common tones are marked so they are graded.
+    if (harmonic) ivs.forEach((iv, i) => notes.push(
+      { midi: a, b: i * 2, dur: 2, voice: 0, unison: true, from: a, regime: i === 0 ? 'departure' : 'twohand' },
+      { midi: a + iv, b: i * 2, dur: 2, voice: 1, from: i === 0 ? a : undefined, regime: i === 0 ? 'departure' : 'twohand' },
+    ));
     else ivs.forEach((iv, i) => notes.push({ midi: a, b: i * 2, dur: 1, voice: 0, free: i === 0 }, { midi: a + iv, b: i * 2 + 1, dur: 1, voice: 0 }));
     return {
       kind: 'exposure',
       exposure: true,
+      pair: harmonic,
       optionalAnchor: true,
       notes,
       meter: 4,
@@ -1462,7 +1671,8 @@ export class Drill {
       const p = this.placing;
       this.placing = null;
       if (!p.landed) {
-        this.log(`  (placing missed: the passage is dropped -- ${p.dyad ? 'the other hand was never there' : 'the hand never got to the note it starts on'})`);
+        this.log(`  (placing missed: the ${p.kind === 'retry' ? 'retry' : 'passage'} is dropped -- ${p.dyad ? 'the other hand was never there' : 'the hand never got to the note it starts on'})`);
+        if (p.kind === 'retry') this.retry = null; // no verdict, no try spent: as a missed re-anchor
       } else if (this.fits(p.picked)) {
         // A melodic placing MOVED the anchor onto the pivot, so the passage
         // now begins under the hand and the octave in the label is stale.
@@ -1472,6 +1682,13 @@ export class Drill {
         if (p.suffix) q.label += p.suffix;
         return q;
       }
+    }
+    // THE TWO-HAND RUNG can only be asked while two hands are down: right
+    // after a dyad he struck with both, before anything moves either anchor.
+    if (this.chainDyad) {
+      this.chainDyad = false;
+      const q = this.hands ? this.twohandDyad() : null;
+      if (q) return q;
     }
     // THE WALK OUT OF A HARMONIC MISS, before anything else can intervene.
     if (this.recovery) {
@@ -1515,7 +1732,10 @@ export class Drill {
           this.reanchor = { target: pivot, forRetry: true, served: true };
           return this.reanchorQuestion(pivot);
         }
-        return this.passageQuestion('retry', this.retry.placed);
+        // ...and a duo retry gets its OTHER hand placed too, the same way a
+        // first asking does: the hand keeps the anchor, and the drill asks him
+        // to move rather than assuming a hand is where it is not (09-13).
+        return this.serveWithPlacement('retry', this.retry.placed);
       }
       this.log('  (retry dropped: the phrase no longer fits the keyboard)');
       this.retry = null;
@@ -1529,7 +1749,9 @@ export class Drill {
       const q = this.pairQuestion(pair);
       if (q) return q;
     }
-    const dyadPair = top && dyads ? this.harmonic.takeExposure() : null;
+    // The harmonic exposure is a departure and then a two-hand step in one
+    // call -- the two-hand rung's shape -- so it waits for that rung.
+    const dyadPair = top && dyads && this.rungState().rung >= 3 ? this.harmonic.takeExposure() : null;
     if (dyadPair) {
       const q = this.pairQuestion(dyadPair, { harmonic: true });
       if (q) return q;
@@ -1592,9 +1814,8 @@ export class Drill {
         const q = this.chordQuestion();
         if (q) return q;
       }
-      // Fixed bass: the anchor stays the bottom note while dyads are new.
-      const target = this.harmonic.nextTargetIndex(a, null, { bounds: { lo: a + 1, hi: this.idx(this.hi) } }) + this.lo;
-      return this.dyadQuestion(this.harmonic.servedQueue ? 'dyad discrimination' : 'dyad', target);
+      const q = this.dyadSlot(a);
+      if (q) return q;
     }
     const w = this.win;
     const key = this.block.key;
@@ -1777,7 +1998,7 @@ export class Drill {
         g = { b: n.b, notes: [], at: null, acceptFrom: null, gapMs: null };
         groups.push(g);
       }
-      g.notes.push({ midi: n.midi, dur: n.dur, voice: n.voice, free: Boolean(n.free), silent: Boolean(n.silent), harmonicRef: n.harmonicRef ?? null, done: false, played: null, melodicFrom: null, melodicPrev: null, harmonicFrom: null, graded: false });
+      g.notes.push({ midi: n.midi, dur: n.dur, voice: n.voice, free: Boolean(n.free), silent: Boolean(n.silent), harmonicRef: n.harmonicRef ?? null, from: n.from ?? null, unison: Boolean(n.unison), regime: n.regime ?? null, done: false, played: null, melodicFrom: null, melodicPrev: null, harmonicFrom: null, graded: false });
     }
     const lastInVoice = new Map(); // voice -> [prev, prevPrev] midis
     // A keyed passage is heard from the note under the hand: EVERY voice's
@@ -1789,6 +2010,12 @@ export class Drill {
         if (!lastInVoice.has(n.voice) && !n.free) lastInVoice.set(n.voice, [this.anchor, this.prevAnchor]);
       }
     }
+    // EACH HAND FROM ITS OWN ANCHOR: a voice whose first note is the note a
+    // hand is already on (the placing just put it there) is a unison from that
+    // hand, not a leap from the pivot hand's note -- which is what it was
+    // graded as until 2026-09-20, doubly: once by the placing, once here.
+    const hands = this.hands && this.q?.kind !== 'retry' ? this.hands : null;
+    const seenVoice = new Set();
     // The echo ask-back's first note is found again from the playback's last
     // note (the anchor): graded, on the stage's rung, like every other.
     if (this.q?.echoOf) lastInVoice.set(0, [this.anchor, this.prevAnchor]);
@@ -1797,7 +2024,14 @@ export class Drill {
       const bass = Math.min(...g.notes.map((e) => e.midi));
       for (const e of g.notes) {
         const hist = lastInVoice.get(e.voice) || [];
-        if (hist.length > 0) {
+        const firstOfVoice = !seenVoice.has(e.voice);
+        seenVoice.add(e.voice);
+        if (e.from !== null) {
+          e.melodicFrom = e.from; // a dyad note: from the anchor named for it
+        } else if (firstOfVoice && !e.free && hands && hands.includes(e.midi)) {
+          e.melodicFrom = e.midi; // the note this hand is on: a unison from its own anchor
+          e.unison = true;
+        } else if (hist.length > 0) {
           e.melodicFrom = hist[0];
           e.melodicPrev = hist.length > 1 ? hist[1] : (e.free || gi > 0 ? null : this.prevAnchor);
         }
@@ -1806,7 +2040,11 @@ export class Drill {
         // for is usually BELOW the anchor (the left hand).
         if (e.harmonicRef !== null) e.harmonicFrom = e.harmonicRef;
         else if (g.notes.length > 1 && e.midi !== bass) e.harmonicFrom = bass;
-        e.graded = !e.free && ((e.melodicFrom !== null && e.melodicFrom !== e.midi) || e.harmonicFrom !== null);
+        // A unison is graded only where a note says so (the common tone of a
+        // dyad, a hand's first note in a passage): a row, never an engine
+        // width. A repeated note inside a line stays as it was -- deferred,
+        // not forgotten (2026-09-18: do not move the ruler mid-measurement).
+        e.graded = !e.free && ((e.melodicFrom !== null && (e.melodicFrom !== e.midi || e.unison)) || e.harmonicFrom !== null);
         lastInVoice.set(e.voice, [e.midi, hist[0] ?? null]);
       }
       g.index = gi;
@@ -2093,6 +2331,7 @@ export class Drill {
       if (next && atAudio >= next.acceptFrom && pending(next).some((e) => !e.free && this.matches(e, note))) {
         for (const e of pending(g)) if (!e.free) this.gradeNote(g, e, note, velocity, null, false, { abandoned: true });
         for (const e of g.notes) e.done = true;
+        this.closeGroup(g);
         this.gi += 1;
         g = next;
         exp = pending(g).find((e) => this.matches(e, note));
@@ -2116,6 +2355,7 @@ export class Drill {
           return;
         }
         for (const e of g.notes) e.done = true;
+        this.closeGroup(g);
         this.gi += 1;
         g = this.groups[this.gi];
         exp = pending(g).find((e) => this.matches(e, note));
@@ -2134,6 +2374,7 @@ export class Drill {
     exp.played = note;
     if (pending(g).every((e) => e.free)) {
       for (const e of g.notes) e.done = true;
+      this.closeGroup(g);
       this.gi += 1;
       if (this.gi >= this.groups.length) this.completeQuestion(atAudio);
     }
@@ -2196,7 +2437,11 @@ export class Drill {
       // octave on its own.
       if (q.wide && !correct && played !== null && Math.abs(played - exp.midi) === 12) { heightErr = true; credit = true; }
     }
-    if (exp.graded && !q.navigation) {
+    // A PAIR QUESTION (a dyad, a placing, the harmonic exposure) is judged
+    // when its group closes (judgeSonority): two notes carry two degrees of
+    // freedom and a wrong one is charged to ONE ear, never both. Here only
+    // the row is written.
+    if (exp.graded && !q.navigation && !q.pair) {
       if (exp.melodicFrom !== null && exp.melodicFrom !== exp.midi) {
         const raw = exp.midi - exp.melodicFrom;
         const iv = q.wide || Math.abs(raw) > 12 ? simpleOf(raw) : raw; // the ladder knows simple intervals only
@@ -2238,6 +2483,7 @@ export class Drill {
       credit: isolated || q.prime ? credit : null, stage: isolated || q.prime ? this.stage.current : null, heightErr: q.wide ? heightErr : null,
       voice: exp.voice ?? null, behind: this.behind,
       key: this.block ? keyName(this.block.key) : null,
+      regime: exp.regime ?? q.regime ?? null, containsAnchor: q.pair ? exp.unison : null,
     });
     exp.rowId = rowId; // so a re-attack can mark this note caught
     // Remember this key press so its release can be graded for duration.
@@ -2259,12 +2505,122 @@ export class Drill {
       this.log(`  missed ${name(exp.midi)}${chord}`);
       return;
     }
-    const why = correct ? '' : ` (${exp.melodicFrom !== null ? signed(exp.midi - exp.melodicFrom) : exp.harmonicFrom !== null ? `+${exp.midi - exp.harmonicFrom} above bass` : 'anchor'})`;
+    const why = correct ? '' : ` (${exp.unison ? 'the note you were on' : exp.melodicFrom !== null ? signed(exp.midi - exp.melodicFrom) : exp.harmonicFrom !== null ? `+${exp.midi - exp.harmonicFrom} above bass` : 'anchor'})`;
     const mark = correct ? 'correct' : credit ? `~ ${name(note)} wanted` : `x ${name(note)} wanted`;
     const creditNote = !correct && credit ? (heightErr ? ' -- right note, wrong octave' : this.stage.current === 'contour' || this.stage.current === 'echo' ? ' -- right direction' : ' -- close') : '';
     this.log(
       `  ${mark} ${name(exp.midi)}${why}${chord}, onset ${onsetMs >= 0 ? '+' : ''}${onsetMs.toFixed(0)}ms${correct && !inTime ? (onsetMs < 0 ? ' EARLY' : ' LATE') : ''}${creditNote}`,
     );
+  }
+
+  /** A group is done, however it ended: judge a pair, or record one. */
+  closeGroup(g) {
+    if (g.closed) return;
+    g.closed = true;
+    const notes = g.notes.filter((e) => !e.silent);
+    if (notes.length !== 2) return;
+    if (this.q.pair) this.judgeSonority(g, notes);
+    else if (this.q.phrase) this.recordSonority(g, notes);
+  }
+
+  /**
+   * TWO NOTES, TWO DEGREES OF FREEDOM, ONE CHARGE PER WRONG NOTE. The pair he
+   * PLAYED is the sonority (span_played: the interval between his two notes,
+   * whatever was asked of either); the harmonic verdict is on that, folded
+   * to the simple interval. A wrong note is debited to whichever ear
+   * predicted it worse -- the melodic engine's estimate for the departure
+   * that note was asked to make, or the harmonic engine's for the span --
+   * and the other ear gets no trial for it. When both predicted it fine
+   * (>= DYAD_RUNG.high) it is a PROGRESSION miss: recorded, charged to
+   * nothing, the voice-leading object that harmonic-motion scoring will be
+   * designed from. A common tone that was not struck is the question's miss
+   * and no ear's: a row.
+   *
+   * The convergence data is what rules out "harmonic reported, never
+   * charged": arriving on an octave is made of steps he plays at 80% in
+   * isolation and fails 60-86% of the time. Under that rule the harmonic
+   * ladder would never learn his worst event.
+   *
+   * The recovery walk follows the charge: a harmonic miss walks; a melodic
+   * one does not (the melodic remediation queue stays closed to dyads).
+   */
+  judgeSonority(g, notes) {
+    const q = this.q;
+    const [lo, hi] = notes[0].midi < notes[1].midi ? notes : [notes[1], notes[0]];
+    const regime = lo.regime ?? q.regime ?? 'departure';
+    const melodicScope = regime === 'twohand' ? 'twohand' : 'departure';
+    const plain = q.kind === 'dyad' || q.kind === 'dyad discrimination';
+    const harmonicScope = plain ? 'interval' : 'passage'; // only the slot's own dyads move the span ladder
+    const spanExpected = hi.midi - lo.midi;
+    const both = lo.played !== null && hi.played !== null;
+    const spanPlayed = both ? Math.abs(hi.played - lo.played) : null;
+    const harmonicOk = both && simpleOf(spanPlayed) === simpleOf(spanExpected);
+    const ok = (e) => e.played === e.midi;
+    const hAcc = this.harmonic.predictedAcc(simpleOf(spanExpected), this.idx(lo.midi), null);
+    const mAcc = (e) => (e.unison || e.melodicFrom === null ? null : this.engine.predictedAcc(simpleOf(e.midi - e.melodicFrom), this.idx(e.melodicFrom), null));
+    const trial = (e) => {
+      // one melodic trial for this note at the rung's scope: asked, missed or not, resolved
+      const iv = simpleOf(e.midi - e.melodicFrom);
+      this.engine.ask(iv, this.idx(e.melodicFrom), null, { scope: melodicScope });
+      if (!ok(e)) this.engine.reportMiss(this.idx(e.melodicFrom), e.played === null ? this.idx(e.melodicFrom) : this.idx(e.played), { confuse: true });
+      this.engine.reportResolved(null);
+    };
+    let charged = null;
+    let harmonicMiss = null; // { from, missed }
+    for (const e of [lo, hi]) {
+      if (ok(e)) { if (!e.unison) trial(e); continue; }
+      if (e.unison) { charged = charged ?? 'unison'; continue; } // the note he was on, not struck: no ear
+      const m = mAcc(e);
+      const other = e === lo ? hi : lo;
+      if (m !== null && m >= DYAD_RUNG.high && hAcc >= DYAD_RUNG.high) { charged = 'progression'; continue; }
+      if (m !== null && m < hAcc) { trial(e); charged = charged === 'harmonic' ? 'harmonic' : 'melodic'; continue; }
+      charged = 'harmonic';
+      harmonicMiss = harmonicMiss ?? { from: other.midi, missed: e.midi };
+    }
+    if (harmonicMiss) {
+      this.harmonic.ask(simpleOf(spanExpected), this.idx(lo.midi), null, { scope: harmonicScope });
+      this.harmonic.reportMiss(this.idx(lo.midi), this.idx(lo.midi) + (spanPlayed ?? 0), { confuse: spanPlayed !== null });
+      this.harmonic.reportResolved(null);
+      this.queueRecovery(harmonicMiss.from, harmonicMiss.missed);
+    } else if (ok(lo) && ok(hi)) {
+      this.harmonic.ask(simpleOf(spanExpected), this.idx(lo.midi), null, { scope: harmonicScope });
+      this.harmonic.reportResolved(null);
+    }
+    // The rung controller reads the slot's own dyads, per retrieval, never the unison.
+    if (plain) for (const e of [lo, hi]) if (!e.unison) this.noteRungRetrieval(regime === 'twohand' ? 3 : q.contains ? 1 : 2, ok(e));
+    const prev = this.prevSonority && (this.prevSonority.question === this.questions || (this.prevSonority.question === this.questions - 1 && q.dyad)) ? this.prevSonority : null;
+    this.db.sonority({
+      sessionId: this.sessionId, question: this.questions, kind: q.kind, regime, position: g.index,
+      loExpected: lo.midi, hiExpected: hi.midi, loPlayed: lo.played, hiPlayed: hi.played, loFrom: lo.melodicFrom, hiFrom: hi.melodicFrom,
+      loOk: ok(lo), hiOk: ok(hi), spanExpected, spanPlayed, harmonicOk, containsAnchor: lo.unison || hi.unison, charged,
+      melodicAccLo: mAcc(lo), melodicAccHi: mAcc(hi), harmonicAcc: hAcc,
+      prevSpanExpected: prev?.spanExpected ?? null, prevSpanPlayed: prev?.spanPlayed ?? null,
+      key: this.block ? keyName(this.block.key) : null,
+    });
+    this.prevSonority = { question: this.questions, spanExpected, spanPlayed };
+    const heard = harmonicOk ? 'heard' : spanPlayed === null ? 'one note only' : `played as a ${intervalName(spanPlayed)}`;
+    const ear = charged === null ? '' : charged === 'progression' ? ' -- neither ear predicts it: a progression miss, recorded' : charged === 'unison' ? ' -- the common tone was not played' : ` -- charged to the ${charged} ear`;
+    this.log(`  sonority: ${intervalName(spanExpected)} ${heard}${ear}`);
+  }
+
+  /** A two-note group inside a passage: recorded as a pair, charged to nothing here (the notes were). */
+  recordSonority(g, notes) {
+    const q = this.q;
+    const [lo, hi] = notes[0].midi < notes[1].midi ? notes : [notes[1], notes[0]];
+    const spanExpected = hi.midi - lo.midi;
+    const both = lo.played !== null && hi.played !== null;
+    const spanPlayed = both ? Math.abs(hi.played - lo.played) : null;
+    const prev = this.prevSonority?.question === this.questions ? this.prevSonority : null;
+    this.db.sonority({
+      sessionId: this.sessionId, question: this.questions, kind: q.kind, regime: 'passage', position: g.index,
+      loExpected: lo.midi, hiExpected: hi.midi, loPlayed: lo.played, hiPlayed: hi.played, loFrom: lo.melodicFrom, hiFrom: hi.melodicFrom,
+      loOk: lo.free ? null : lo.played === lo.midi, hiOk: hi.free ? null : hi.played === hi.midi,
+      spanExpected, spanPlayed, harmonicOk: both ? simpleOf(spanPlayed) === simpleOf(spanExpected) : null,
+      containsAnchor: lo.unison || hi.unison, charged: null,
+      prevSpanExpected: prev?.spanExpected ?? null, prevSpanPlayed: prev?.spanPlayed ?? null,
+      key: this.block ? keyName(this.block.key) : null,
+    });
+    this.prevSonority = { question: this.questions, spanExpected, spanPlayed };
   }
 
   stageMoved() {
@@ -2289,6 +2645,7 @@ export class Drill {
         }
         e.done = true;
       }
+      this.closeGroup(g);
     }
     this.gi = this.groups.length;
     if (missed > 0) this.pitchClean = false;
@@ -2309,6 +2666,12 @@ export class Drill {
       const played = grp.notes.filter((e) => e.played !== null).map((e) => e.played);
       return Math.max(...(played.length ? played : grp.notes.map((e) => e.midi)));
     };
+    // TWO HANDS DOWN: a dyad he struck with both notes leaves two anchors,
+    // what he played, lower and upper. Anything else leaves one.
+    if (n > 0) {
+      const struck = this.groups[n - 1].notes.filter((e) => !e.silent && e.played !== null).map((e) => e.played);
+      this.hands = this.q.dyad && !this.q.chord && struck.length === 2 ? [Math.min(...struck), Math.max(...struck)] : null;
+    }
     if (n > 0 && !this.q.keepAnchor) {
       this.prevAnchor = n >= 2 ? top(this.groups[n - 2]) : this.anchor;
       // THE ANCHOR IS THE NOTE UNDER THE HAND. It used to be clamped into the
@@ -2416,6 +2779,8 @@ export class Drill {
       if (q.placing && this.placing) this.placing.landed = this.pitchClean;
       const timing = this.timing.notes && !this.timeClean ? ` (timing ${this.timing.inTime}/${this.timing.notes})` : '';
       if (timing) this.log(`  ${this.pitchClean ? 'right' : 'wrong'} notes${timing}`);
+      // Rung 3 follows a clean departure with both hands still down.
+      if (q.kind === 'dyad' && q.regime === 'departure' && this.pitchClean && this.hands && this.rungState().rung >= 3) this.chainDyad = true;
     }
     this.nextQ = this.makeQuestion();
   }
@@ -2635,5 +3000,12 @@ export function name(midi) {
 }
 function signed(n) {
   return n > 0 ? `+${n}` : `${n}`;
+}
+const INTERVAL_NAMES = ['unison', 'm2', 'M2', 'm3', 'M3', 'P4', 'tritone', 'P5', 'm6', 'M6', 'm7', 'M7', 'octave'];
+function intervalName(semitones) {
+  const w = Math.abs(semitones);
+  if (w <= 12) return INTERVAL_NAMES[w];
+  const simple = simpleOf(w);
+  return `${INTERVAL_NAMES[simple]} + 8ve${w - simple > 12 ? 's' : ''}`;
 }
 export { TIER_WIDTHS, WARMUP_QUESTIONS };

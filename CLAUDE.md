@@ -118,6 +118,85 @@ only keep one of the names.
 Config: `~/.piano-by-ear/sync.json` (`{enabled, host, dir}`), machine identity
 `~/.piano-by-ear/device-id`.
 
+## A DYAD IS A DEPARTURE FROM THE ANCHOR (2026-09-20)
+
+Caleb's definition: **the anchor is the last note I played, and it only
+applies to monophonic music. A dyad has no anchor: it is scored as two
+intervals from the anchor we are leaving. After it, each hand has its own
+anchor.** When each hand plays several notes the anchor concept dissolves
+and scoring becomes harmonic motion -- NOT designed, reserved for his ear;
+`sonorities` records what it will be designed from.
+
+WHY. The bottom note of a dyad used to be NAMED for him and free, and the
+named note was right **282 times in 282** across dyad, placing and chord -- a
+row, not a test. In **190 of 366 dyads he never played it** and the question
+was scored anyway (123 marked correct). The reported 90% counted those rows;
+the interval actually asked for was 75%, and the plain dyad at 84% was
+statistically a plain melodic interval (80%). The rung did not exist, and the
+app had trained the habit he then noticed: "the app has trained me to have
+the bottom note under my hand already. I was using muscle memory."
+
+THE RUNGS (`DYAD_RUNG`, `dyadSlot`, kv `dyadRung`):
+1. **contains the anchor** -- one retrieval; **the common tone is REQUIRED
+   and graded as a unison**: a row (`attempts.contains_anchor`), never an
+   engine width. A one-note answer is a miss ("the common tone was not
+   played"). This flips the 190 half-played dyads from passes to fails,
+   measured FORWARD only -- never re-score the legacy rows.
+2. **does not contain it** -- two retrievals from the anchor being left.
+3. **two hands to two hands** -- each hand from its own anchor. Only ever
+   served CHAINED right after a dyad he struck with both notes (`this.hands`,
+   `chainDyad`): two anchors exist only while two hands are down, and any
+   single-line answer collapses them to the top note as it always did.
+
+A per-RETRIEVAL band (85/65, cooldown 8; the unison is never in the
+denominator), a DIET not a gate: it decides which dyad the slot serves next,
+never whether duo passages are served. The harmonic engine picks the SPAN
+(the dyad's own width, unfolded -- a tenth is not a third; wide cold dyads
+were 9/9 while a melodic tenth is his weakest band); it is UNSIGNED now and
+opens at seconds AND thirds (`minTiers: 3` -- "start narrow like they have"
+was seconds only, and its ladder had never moved: 278 trials, zero tier
+changes, because plain dyads were built upward only and promotion waited for
+a `-w` that could never arrive). The departure distances are melodic
+intervals the melodic engine already rates and are NOT capped (09-12: a
+floor is never a target). Below DIATONIC_TIERS both notes sit in the key.
+"Hand" is VOICE BY REGISTER: MIDI carries no hand.
+
+TWO NOTES, TWO DEGREES OF FREEDOM, ONE CHARGE PER WRONG NOTE
+(`judgeSonority`). A pair question (dyad, placing, harmonic exposure) is
+judged when its group closes, on the pair he PLAYED. A wrong note is debited
+to whichever ear predicted it worse -- the melodic engine's estimate for
+that note's departure or the harmonic engine's for the span -- and the
+other ear gets no trial for it. Both predicting it fine (>= 0.85) is a
+PROGRESSION miss: recorded, charged to nothing. **The recovery walk follows
+the charge**: a harmonic miss walks, a melodic one does not, and the melodic
+remediation queue stays closed to dyads. "Reported, never charged" was
+proposed and is WRONG: arriving on an octave is made of steps he plays at
+80% and fails 60-86% of the time; under that rule the harmonic ladder would
+never learn his worst event. Evidence goes to the melodic engine at scopes
+`departure` / `twohand` (cells only, never the tier ladder, so the dyad gate
+cannot feed itself); to the harmonic engine at ISOLATED scope from the
+slot's own dyads only (retry, transfer, placing and exposure: passage scope).
+The harmonic engine's old state is ARCHIVED to `kv_archive` once per profile
+(`Db.runOnce`, kv `migrations`): it measured the wrong thing. It restarts at
+three tiers, so the chord gate (>= 2) stays open.
+
+THE PLACING is rung 1 by shape and stays what it was: passage-scope
+evidence, off the rung controller (the corpus picks its widths, 23% sixths).
+Both hands are REQUIRED now; a duo passage's first group is then two unisons
+from two hands (`buildGroups`, `this.hands`) -- it used to grade the placed
+bass note AGAIN as a leap from the pivot, a note that hand never travels (65
+rows). A duo RETRY gets its other hand placed too (09-13 already required
+it). A missed placing before a retry drops the retry, as a missed re-anchor
+does. The harmonic pair exposure is a departure then a two-hand step in one
+call, so it waits for rung 3. Chords are untouched (the anchor is still free
+there): they are not dyads, and the spec did not reach them.
+
+WHAT THE DATA CANNOT SAY: how hard the rung will be. Every historical dyad
+named the bottom note, so no retrieval of it was ever recorded; the one
+proxy (cold-anchor dyads, 57%) was withdrawn as confounded by remediation.
+Measure forward. 7-4 -> 1-3 has occurred ZERO times in the duo data (outer-
+voice chorale extractions rarely hold the tritone): a corpus question, later.
+
 ## MEMORY, FOR SMALL MACHINES (2026-09-19)
 
 The sampled pianos decode every kept layer into memory at startup. Measured
@@ -383,8 +462,11 @@ comes up.
   is correct -- which is what the retry has always said: "constant practice
   until correct is what the evidence backs".
   KINDS: prime | interval | gesture | discrimination | exposure | remediation |
-  dyad | chord | passage | retry | variant | round | echo | reanchor | placing
-  | recovery | dyad retry.
+  dyad | dyad discrimination | chord | passage | retry | variant | round |
+  echo | reanchor | placing | recovery | dyad retry | dyad transfer. Question
+  flags: `pair` (judged as a pair at group close), `regime` (departure |
+  twohand | placing), `contains`; note flags `from` (the anchor a note is
+  measured from), `unison` (a required common tone), `regime`.
   PLACING (`placingPlan`/`serveWithPlacement`). TWO CASES, and the second was
   missed until 2026-09-15. (a) A MELODIC PLACING when the passage does not
   begin under the hand AT ALL: `PhraseBank` offers each phrase at octave 0 and
@@ -412,9 +494,11 @@ comes up.
   THE RE-ANCHOR: a call assuming the hand is where it isn't. (buildGroups had
   already made a duo's first bass note GRADED -- 09-11, "ungraded yet fatal" --
   but nothing ever ASKED for it.) A dyad, not a melodic ask, because what has
-  to be placed is two hands DOWN AT ONCE, and `keepAnchor` stops
+  to be placed is two hands DOWN AT ONCE -- and since 09-20 BOTH ARE
+  REQUIRED, the pivot as a graded unison (it was free, and free is what
+  taught him the bottom note is optional); `keepAnchor` stops
   completeQuestion moving the anchor to the note just played (which is exactly
-  what would unplace the pivot). The target is the LOWEST entry among the
+  what would unplace the pivot), and the landed pair becomes `this.hands`. The target is the LOWEST entry among the
   voices the pivot does not cover, and it is usually BELOW the anchor, so
   buildGroups honours an explicit `harmonicRef` instead of the group's bass
   and gradeNote takes the harmonic interval BY SIZE, folded (a sixth is a
@@ -646,10 +730,12 @@ comes up.
   times at 8%. Gates moved: the dyad/chord slot, the harmonic remediation
   drain, the harmonic remediation queue after a passage miss, and the
   harmonic pair-focus exposure.
-  Dyads keep the anchor as a FIXED BASS; every 9th
+  DYADS ARE DEPARTURES (2026-09-20, the section above): the anchor is no
+  longer a named free bass. Every 9th
   plain slot is a `chord` from CHORD_SHAPES once harmonic tiers >= 2 (dom7
   at >= 5); each chord tone is framed for the harmonic engine as it is
-  graded (`q.chord`), never pre-asked. THE CHORD GATE IS 2, NOT 3, AND THE
+  graded (`q.chord`), never pre-asked; the chord's bass is still the free
+  anchor -- chords were outside the 09-20 spec. THE CHORD GATE IS 2, NOT 3, AND THE
   REASON IS THE POINT OF THE FEATURE: TWO NOTES ARE AMBIGUOUS AND THREE ARE
   NOT. E-C is a m6 that could be C major, Am7 or F6; E-G-C is C major in
   first inversion and nothing else. Function appears at three notes, so
@@ -703,7 +789,11 @@ comes up.
   question: the effort signature, reported by kind in progress.mjs. A round's lead is never shorter than the previous
   answer's lag + 1, and a call is never scheduled at a time already past.
 - `src/engine.js` AdaptiveEngine (ear-training port), instantiated twice:
-  melodic (kv `engine`) and harmonic (kv `engine:harmonic`). TIER_WIDTHS is
+  melodic (kv `engine`) and harmonic (kv `engine:harmonic`; `unsigned: true`
+  -- its skills are sizes, the frontier gate counts |w| -- and `minTiers: 3`,
+  seconds and thirds open from the start). Any scope other than `interval`
+  is cells only: `passage`, `round`, and the dyad rungs `departure` and
+  `twohand`. TIER_WIDTHS is
   SIMPLE INTERVALS ONLY (12 tiers; `simpleOf()` folds compounds; a loaded
   state with more tiers is clamped). IT IS ORDERED BY HOW HARD THE INTERVAL
   IS TO PLAY, NOT TO NAME (2026-09-14): `[2, 1, 3, 4, 5, 7, 12, 9, 8, 10, 11, 6]`
@@ -945,9 +1035,17 @@ comes up.
   AND time, `pitch_clean` = pitch, backfilled from exact = notes),
   `judgments` (HISTORICAL: the judge window, removed 2026-09-11; nothing
   writes it); `attempts.voice`
-  for per-voice dyad/chord accuracy. kv: `engine`, `engine:harmonic`, `poly`,
+  for per-voice dyad/chord accuracy; `attempts.regime` / `contains_anchor`
+  (09-20: which rule a dyad note was measured under; NULL = a legacy row
+  whose `anchor` is the named bass, not a note departed from -- read the two
+  apart, never re-score); `sonorities` (09-20: one row per two-note onset
+  group in a dyad, placing or duo passage, judged as the PAIR he played:
+  span_expected/played, harmonic_ok, which ear was `charged`, both engines'
+  predicted accuracies, and the previous sonority so a resolution reads as
+  one; synced like the other event tables). kv: `engine`, `engine:harmonic`
+  (restarted 09-20, the old state in `kv_archive`), `dyadRung`, `poly`,
   `passageLen`, `phraseStats`, `polyStats`, `ranges`, `carry`, `stage`,
-  `rounds`. `backfillPassages()` builds `passages`
+  `rounds`, `migrations` (what `Db.runOnce` has already done). `backfillPassages()` builds `passages`
   from `attempts` once when the table is empty (main.js calls it at startup)
   so history exists from day one; attempts carry no voice, so backfilled
   polyphonic rows have contour zeroed.
