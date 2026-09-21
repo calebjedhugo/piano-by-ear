@@ -28,6 +28,7 @@ import { RangeTracker } from './range.js';
 import { AdaptiveEngine } from './engine.js';
 import { Drill } from './drill.js';
 import { Lobby } from './lobby.js';
+import { VolumeFader } from './volume.js';
 import { Roster, RETIRE_DAYS } from './roster.js';
 import { Sync, syncConfig } from './sync.js';
 import { deviceId } from './device.js';
@@ -191,10 +192,12 @@ const lobby = new Lobby({
   log,
 });
 
+const volume = new VolumeFader({ path: join(DATA, 'volume.json'), audio, log });
 const midi = new Midi({
   match: args.port,
   onNoteOn: (e) => lobby.onNoteOn(e),
   onNoteOff: (e) => lobby.onNoteOff(e),
+  onControl: (e) => volume.onControl(e),
   onPort: (portName, connected) => {
     if (connected) {
       currentPort = portName;
