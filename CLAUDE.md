@@ -285,11 +285,11 @@ it changes nothing the drill asks for, only what is in memory to sound it.
 No MIDI device present at start is fine; `src/midi.js` polls every 2s and
 opens every input port.
 
-**THE VOLUME IS A FADER ON THE KEYBOARD** (`src/volume.js`, 2026-09-20).
-Sweep any fader or knob min -> max (both ends within 8 s) and it becomes the
-volume fader, kept in `~/.piano-by-ear/volume.json` across restarts; sweep
-another to re-bind. It drives the app's master gain (square law), never the
-codec mixer, so it is the same on every machine. CC 64 can never be it.
+**THE VOLUME IS CC 7** (`src/volume.js`, 2026-09-20): the Keystation's
+fader reports as MIDI's own volume controller and Caleb wants it FIXED, not
+learned. It drives the app's master gain (square law), never the codec
+mixer, so it is the same on every machine; the last position is kept in
+`~/.piano-by-ear/volume.json` across restarts.
 
 ## DEPLOYING TO pianobox: A PUSH IS HALF A DEPLOY (2026-09-20)
 
