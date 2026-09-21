@@ -43,7 +43,6 @@ export const POOLS = {
 const TIMEOUT_MS = { echo: 30000, contour: 25000, sizing: 25000, exact: 10000 };
 const WINDOW_SEMITONES = 19; // an octave and a half of keyboard for the lower stages
 const EXACT_WINDOW_SEMITONES = 40; // even at the top, targets stay within this of the middle (the walk reached C7)
-const ANCHOR_SOUNDED_TIERS = 3; // at exact, the anchor still sounds until this many tiers are open
 
 export class Stage {
   /**
@@ -116,11 +115,6 @@ export class Stage {
 
   get timeoutMs() {
     return TIMEOUT_MS[this.current];
-  }
-
-  /** Does the call sound the anchor as well as the target? */
-  soundsAnchor(tiersUnlocked) {
-    return this.current !== 'exact' || tiersUnlocked <= ANCHOR_SOUNDED_TIERS;
   }
 
   /** The keyboard window questions stay inside, for the lower stages. */

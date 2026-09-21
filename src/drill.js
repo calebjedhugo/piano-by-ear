@@ -51,9 +51,10 @@
 //              and nothing else.
 //   interval:  call = the target on the downbeat (the anchor is the note you
 //              just played; it stays in the question, silent, a beat before).
-//              At the lower stages, and until three tiers are open, the anchor
-//              is sounded too (src/stage.js): the task is then relative, which
-//              is where a beginner starts; it fades as the ladder climbs.
+//              THE ANCHOR IS NEVER SOUNDED FIRST, at any stage or tier. A
+//              beginner who wants to hear it plays it himself -- it is under
+//              his hand and free in the question -- so the scaffold is
+//              self-served and fades on its own (2026-09-21).
 //              A secure simple interval is sometimes asked an OCTAVE WIDER:
 //              the skill is still the simple interval, the octave is judged
 //              apart (a compound interval is not a skill of its own).
@@ -740,15 +741,13 @@ export class Drill {
    * already on, SOUNDED and free, then the note the next call needs, a beat
    * later, graded. Nothing is played that he is not asked to play back.
    *
-   * The shape is `intervalQuestion`'s sounded-anchor branch, which only
-   * players below the exact stage ever hear -- so at the top of the ladder it
-   * is the ONLY sequential two-note call whose first note sounds (a dyad's
-   * two notes are simultaneous; a gesture's and an interval's anchor is
-   * silent; a passage is four notes at minimum). That makes it legible as
-   * "corrections are done, we are about to try again" without a cue, which is
-   * Caleb's design and the reason for the unison. Below the exact stage the
-   * signal is not distinctive -- every interval question looks like this --
-   * and that is accepted: beginners are not running long corrective loops.
+   * This is the ONLY call in the program whose first note sounds before a
+   * graded one (a dyad's two notes are simultaneous; an interval's and a
+   * gesture's anchor is silent at every stage; a passage is four notes at
+   * minimum). That makes it legible as "corrections are done, we are about
+   * to try again" without a cue, which is Caleb's design and the reason for
+   * the unison -- and since 2026-09-21 the signal is distinctive for every
+   * player, not just the ones at the top of the ladder.
    *
    * NAVIGATION, NOT EVIDENCE (`navigation`): he is handed the target by ear
    * and asked to match it, and it fires most often on the phrases he is
@@ -772,7 +771,6 @@ export class Drill {
 
   /** Notes are { midi, b, dur, voice, free, silent }. */
   intervalQuestion(kind, target, { wide = false } = {}) {
-    const sounded = this.stage.soundsAnchor(this.engine.state.tiersUnlocked);
     const iv = target - this.anchor;
     const label = wide ? `${signed(simpleOf(iv))} +8ve` : signed(iv);
     return {
@@ -782,11 +780,9 @@ export class Drill {
       // The anchor is the note you just played, so the call sounds only the
       // target, on the downbeat. The anchor stays in the question, a beat
       // before it: the target's melodic context for grading and the free note
-      // you may echo or skip when you answer. At the lower stages it sounds,
-      // and then it takes the downbeat itself with the target a beat later.
-      notes: sounded
-        ? [{ midi: this.anchor, b: 0, dur: 1, voice: 0, free: true }, { midi: target, b: 1, dur: 1, voice: 0 }]
-        : [{ midi: this.anchor, b: -1, dur: 1, voice: 0, free: true, silent: true }, { midi: target, b: 0, dur: 1, voice: 0 }],
+      // you may echo or skip when you answer. IT IS NEVER SOUNDED, at any
+      // stage or tier (2026-09-21) -- see the header note.
+      notes: [{ midi: this.anchor, b: -1, dur: 1, voice: 0, free: true, silent: true }, { midi: target, b: 0, dur: 1, voice: 0 }],
       meter: 4,
       label: `${kind === 'interval' ? '' : `${kind}: `}${name(this.anchor)} -> ? (${label})`,
     };

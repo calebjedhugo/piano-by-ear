@@ -197,6 +197,45 @@ proxy (cold-anchor dyads, 57%) was withdrawn as confounded by remediation.
 Measure forward. 7-4 -> 1-3 has occurred ZERO times in the duo data (outer-
 voice chorale extractions rarely hold the tritone): a corpus question, later.
 
+## THE ANCHOR IS NEVER SOUNDED BEFORE THE GRADED NOTE (2026-09-21)
+
+An interval call plays the TARGET only. The anchor sits in the question a
+beat earlier, silent and free, as melodic context for grading and as a note
+you may echo or skip. There is no longer a stage or tier at which the call
+sounds it first (`soundsAnchor()` and ANCHOR_SOUNDED_TIERS are gone).
+
+Caleb: "I just want to get rid of it when it's sounding before every
+question." The scaffold existed below the exact stage and until three tiers
+were open.
+
+THE NUMBERS SAID KEEP IT. William's beginner data is the cleanest natural
+experiment the app has produced -- same session, same exact grading, widths
+of 1 and 2 semitones only, and the branch flipping question to question as
+tiers crossed 3: sounded 78% (23), silent 47% (15); by width 78/38 at a
+semitone and 79/57 at a tone. Liz leans the same way on 9. Caleb's own 534
+sounded vs 1857 silent are a wash width for width, and he had not heard one
+in 40 sessions. The one confound runs AGAINST the scaffold (tiers drop after
+misses, so sounded questions follow bad runs).
+
+WE REMOVED IT ANYWAY, and the reason the number was higher is the reason:
+with both notes sounding the task is comparing two audible pitches; with
+only the target you must retrieve the one you are holding and measure from
+it. That is the skill. The gap between the two numbers is the size of the
+crutch, not the size of the help -- the same shape as the echo stage (looked
+fine, was a dead end) and as passage length being a ceiling, not a target.
+EXPECT WILLIAM'S SECONDS TO FALL ABOUT 25 POINTS. That is the real level.
+
+The scaffold did not disappear with the branch: the anchor is the note under
+the player's hand and it is free in the question, so a beginner who needs to
+hear it plays it himself, when he wants it, without the call spending a beat
+every time. Self-served, and it fades on its own.
+
+STILL SOUNDED: the re-anchor (`reanchorQuestion`), which is navigation, not
+evidence -- and it is now the ONLY call in the program whose first note
+sounds before a graded one. That is what makes "corrections are done, we are
+about to try again" legible, for every player rather than just the advanced
+ones. Caleb: "the way it's used for the advanced rungs is fine."
+
 ## MEMORY, FOR SMALL MACHINES (2026-09-19)
 
 The sampled pianos decode every kept layer into memory at startup. Measured
@@ -918,9 +957,8 @@ comes up.
   profile starts at exact and drops one rung per reassessment once 8
   answers are in (hysteresis HYSTERESIS below each bar). Per stage: POOLS
   (steps first, fifth/octave as the first leaps), TIMEOUT_MS, a
-  keyboard `window()` of an octave and a half, `soundsAnchor()` (below
-  exact, or while tiers <= 3). `stageMoved()` in drill.js logs the move
-  and persists kv `stage`.
+  keyboard `window()` of an octave and a half. `stageMoved()` in drill.js
+  logs the move and persists kv `stage`.
 - `src/rungs.js`  THE RUNGS BENEATH EXACT PITCH: direction (contour), near
   (within a semitone: sizing), recovered (a later exact note after the first
   wrong one), exact. A passage still passes or fails on exact pitch ONLY --
