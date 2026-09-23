@@ -863,8 +863,12 @@ comes up.
   answer's lag + 1, and a call is never scheduled at a time already past.
 - `src/engine.js` AdaptiveEngine (ear-training port), instantiated twice:
   melodic (kv `engine`) and harmonic (kv `engine:harmonic`; `unsigned: true`
-  -- its skills are sizes, the frontier gate counts |w| -- and `minTiers: 3`,
-  seconds and thirds open from the start). Any scope other than `interval`
+  -- its skills are sizes, the frontier gate counts |w| -- `minTiers: 3`,
+  seconds and thirds open from the start, and `timed: false` -- MASTERY ON
+  ACCURACY ALONE, because a dyad records no response time: until 2026-09-22
+  mastery required a fluent rt, so NOTHING harmonic could be mastered, the
+  99% seconds kept full weight, and the failing m3 got ~24% of dyads, never
+  enough to learn it or to lift the ladder past 85% to the M3; now ~60%). Any scope other than `interval`
   is cells only: `passage`, `round`, and the dyad rungs `departure` and
   `twohand`. TIER_WIDTHS is
   SIMPLE INTERVALS ONLY (12 tiers; `simpleOf()` folds compounds; a loaded

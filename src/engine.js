@@ -123,7 +123,7 @@ export class AdaptiveEngine {
    * @param {number} opts.pitchClassOffset   pitch class of index 0 (MIDI 21 = A = 9)
    * @param {{load: () => object|null, save: (state: object) => void}} opts.store
    */
-  constructor({ range, fluentMs, pitchClassOffset = 0, store, minTiers = MIN_TIERS, unsigned = false }) {
+  constructor({ range, fluentMs, pitchClassOffset = 0, store, minTiers = MIN_TIERS, unsigned = false, timed = true }) {
     this.range = range;
     this.fluentMs = fluentMs;
     this.pcOffset = pitchClassOffset;
@@ -134,6 +134,14 @@ export class AdaptiveEngine {
     // can never arrive. That wait is why the harmonic ladder never moved in
     // the profile's first sixteen days (278 trials, zero tier changes).
     this.unsigned = unsigned;
+    // AN UNTIMED ENGINE MASTERS ON ACCURACY ALONE. A dyad answer records no
+    // response time, so on the harmonic engine `rt` is null for every width
+    // and, while mastery demanded a fluent rt, NOTHING could ever be
+    // mastered: the m2 at 99% (n=14) and M2 at 99.9% (n=17) kept full ZPD
+    // weight, crowded out the m3 he was failing (served about once per
+    // hundred questions), and held the ladder under the 85% that opens the M3.
+    // Found 2026-09-22 from "why am I still only getting m2 and M2?"
+    this.timed = timed;
     this.minTiers = minTiers;
     const loaded = store.load();
     this.state = loaded && loaded.version === SCHEMA_VERSION ? loaded : freshState(minTiers);
@@ -248,7 +256,7 @@ export class AdaptiveEngine {
   }
 
   isMastered(s, predictedAcc) {
-    return s.n >= 3 && predictedAcc >= MASTERED_ACC && s.rt !== null && s.rt <= this.fluentMs;
+    return s.n >= 3 && predictedAcc >= MASTERED_ACC && (!this.timed || (s.rt !== null && s.rt <= this.fluentMs));
   }
 
   /**

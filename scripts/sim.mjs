@@ -30,7 +30,7 @@ range.setPort('Keystation Pro 88');
 const phrases = new PhraseBank({ store: db.kv('phraseStats'), path: [MONO_PATH, HYMNS_PATH] });
 const poly = new PhraseBank({ store: db.kv('polyStats'), path: POLY_PATH });
 const drill = new Drill({ audio, db, range, phrases: nophrases ? null : phrases, poly: nophrases ? null : poly, log, bpmOverride: Number(bpm),
-  makeEngine: (lo, hi, fluentMs, which) => new AdaptiveEngine({ range: hi - lo, fluentMs, pitchClassOffset: lo % 12, store: db.engineStore(which), ...(which === 'harmonic' ? { minTiers: 3, unsigned: true } : {}) }) });
+  makeEngine: (lo, hi, fluentMs, which) => new AdaptiveEngine({ range: hi - lo, fluentMs, pitchClassOffset: lo % 12, store: db.engineStore(which), ...(which === 'harmonic' ? { minTiers: 3, unsigned: true, timed: false } : {}) }) });
 
 const rnd = (n) => Math.floor(Math.random() * n);
 function answerFor(anchor, target) {
