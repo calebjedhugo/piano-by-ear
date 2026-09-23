@@ -236,6 +236,32 @@ sounds before a graded one. That is what makes "corrections are done, we are
 about to try again" legible, for every player rather than just the advanced
 ones. Caleb: "the way it's used for the advanced rungs is fine."
 
+## THE LEVEL IS JUDGED PER NOTE, NOT PER PASSAGE (2026-09-22)
+
+The polyphony level (mono -> duo -> chorale -> poly) is promoted and demoted
+on the NOTES of the last 12 first-asked passages of its kind, pooled (sum
+exact / sum graded): promote >= 85%, demote < 65% -- the dyad rungs' band.
+It used to read the PASSAGE VERDICT (>= 70% clean / < 30%).
+
+WHY: TWO CONTROLLERS WERE READING ONE GAUGE. The length controller grows a
+kind on 2 clean in a row and shrinks it on 3 misses in a row, which settles
+where p^2 = (1-p)^3, about 43% of passages clean -- by design, at any level
+he can play at all (mono since 09-19 at his working lengths: 39/48/35%). So
+the level's clean rate was the length controller's setpoint plus noise: a 30%
+floor over 12 passages is crossed by chance about one window in six, and 70%
+is unreachable. The same flaw as 09-19 (a controller steering by a number
+another controller sets).
+
+THE CASE: demoted to mono 2026-09-21 20:47 on 3/12 clean -- and those 12
+were 80% right note for note (49/61), above his duo average since 09-19
+(77%) and inside the band. Duo per note at 4-7 notes: 83/85/70/75%; mono at
+the same lengths 83/91/81/76%. "The skill is the note, the length is
+multiplication" (the dyad rung's rule) now governs the level too.
+
+NOT CHANGED, on Caleb's call ("let's see what happens first"): a returning
+level resumes its kind's length where it was left (duo came back at 7 notes,
+where he is 0 for 4 since 09-19). Watch it before resetting it.
+
 ## MEMORY, FOR SMALL MACHINES (2026-09-19)
 
 The sampled pianos decode every kept layer into memory at startup. Measured
@@ -751,9 +777,11 @@ comes up.
   POLYPHONY LEVEL (`polyLevel()`, kv `poly`): level 0 -> 1 is earned from
   interval confidence (POLY.melodicTiersForDyads tiers AND
   POLY.masteredForDyads mastered), not passages; higher levels from the
-  last 12 passages of the level's kind (>= 70% / < 30%) plus tier gates.
-  Demotion 1 -> 0 on duo passages < 30% holds the gate closed for
-  POLY_DEMOTE_HOLD_MS. THE LEVEL IS RE-READ AFTER EVERY FIRST-ASKED PASSAGE
+  NOTES of the last 12 first-asked passages of the level's kind, pooled
+  (>= 85% / < 65%, the dyad rungs' band) plus tier gates -- PER NOTE SINCE
+  2026-09-22, see "THE LEVEL IS JUDGED PER NOTE" above. History rows without
+  `exact`/`notes` (older) never vote. Demotion 1 -> 0 holds the gate closed
+  for POLY_DEMOTE_HOLD_MS. THE LEVEL IS RE-READ AFTER EVERY FIRST-ASKED PASSAGE
   (`recordPolyOutcome`), not only at `startSession`: the row that fills the
   12-passage window usually lands mid-sitting, and 2026-09-12's 33-minute
   session (267 questions) ran to the end on duo at 0% clean because the

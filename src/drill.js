@@ -320,8 +320,15 @@ const CARRY_MS = 30 * 60 * 1000;
 export const POLY_KINDS = ['mono', 'duo', 'chorale', 'poly'];
 const POLY = {
   window: 12, // passages of a level's kind judged for promotion/demotion
-  promoteRate: 0.7,
-  demoteRate: 0.3,
+  // PER NOTE, not per passage (2026-09-22): the level is judged on the notes
+  // of the window's first askings pooled -- sum exact / sum graded -- in the
+  // dyad rungs' band. A passage verdict cannot judge texture: the length
+  // controller (grow on 2 clean in a row, shrink on 3 misses) holds the
+  // clean rate near 43% BY DESIGN at every level, so a 30% floor was noise
+  // around its setpoint and a 70% bar was unreachable. The window that
+  // demoted Caleb on 2026-09-21 was 3/12 clean and 80% of its notes right.
+  promoteNote: 0.85,
+  demoteNote: 0.65,
   melodicTiersForDyads: 6, // melodic tiers unlocked before dyads begin (through the M6)
   masteredForDyads: 6, // ...and this many intervals mastered: dyads wait for interval confidence, not passages
   harmonicTiersForChorale: 4, // harmonic tiers unlocked before four-part chords
@@ -481,10 +488,12 @@ export class Drill {
   // --- polyphony level -----------------------------------------------------
 
   /**
-   * The level is earned, never set. Promotion needs the last POLY.window
-   * passages of the current level's kind at least 70% clean (plus, for the
-   * first steps, enough tiers unlocked on the relevant engine); demotion
-   * follows a run under 30%. Lower kinds keep being asked at every level.
+   * The level is earned, never set. Promotion needs the NOTES of the last
+   * POLY.window first-asked passages of the current level's kind at least
+   * 85% right, pooled (plus, for the first steps, enough tiers unlocked on
+   * the relevant engine); demotion follows a window under 65%. Per note,
+   * because length is the length controller's to set: see POLY. Lower kinds
+   * keep being asked at every level.
    * The FIRST step (dyads) is the exception: it waits on interval confidence
    * (tiers open and intervals mastered), not on melodic passages -- a dyad
    * is an interval played together, not a phrase.
@@ -492,17 +501,22 @@ export class Drill {
   polyLevel() {
     const st = this.polyStore.load() || { level: 0, history: [] };
     if (!this.poly) return { ...st, level: 0 };
-    const recent = (kind) => st.history.filter((h) => h.kind === kind).slice(-POLY.window);
-    const rate = (rows) => (rows.length ? rows.filter((h) => h.clean).length / rows.length : 0);
+    // Rows from before 2026-09-22 carry only a passage verdict; they cannot
+    // vote on a per-note rule, so they are not in the window at all.
+    const recent = (kind) => st.history.filter((h) => h.kind === kind && h.notes > 0).slice(-POLY.window);
+    const rate = (rows) => {
+      const notes = rows.reduce((t, h) => t + h.notes, 0);
+      return notes ? rows.reduce((t, h) => t + h.exact, 0) / notes : 0;
+    };
     let level = st.level || 0;
     const cur = recent(POLY_KINDS[level]);
     if (level === 0) {
       const held = st.demotedAt && Date.now() - st.demotedAt < POLY_DEMOTE_HOLD_MS;
       if (!held && this.engine.state.tiersUnlocked >= POLY.melodicTiersForDyads && this.engine.masteredCount() >= POLY.masteredForDyads) level = 1;
-    } else if (cur.length >= POLY.window && rate(cur) >= POLY.promoteRate && level < POLY_KINDS.length - 1) {
+    } else if (cur.length >= POLY.window && rate(cur) >= POLY.promoteNote && level < POLY_KINDS.length - 1) {
       const gate = level === 1 ? this.harmonic.state.tiersUnlocked >= POLY.harmonicTiersForChorale : true;
       if (gate) level += 1;
-    } else if (level > 0 && cur.length >= POLY.window && rate(cur) < POLY.demoteRate) {
+    } else if (level > 0 && cur.length >= POLY.window && rate(cur) < POLY.demoteNote) {
       level -= 1;
       st.demotedAt = Date.now();
     }
@@ -535,9 +549,9 @@ export class Drill {
       && this.engine.masteredCount() >= POLY.masteredForDyads;
   }
 
-  recordPolyOutcome(kind, clean) {
+  recordPolyOutcome(kind, clean, exact, notes) {
     const st = this.polyState;
-    st.history.push({ kind, clean, ts: Date.now() });
+    st.history.push({ kind, clean, exact, notes, ts: Date.now() });
     if (st.history.length > POLY.historyMax) st.history.splice(0, st.history.length - POLY.historyMax);
     this.polyStore.save(st);
     // THE LEVEL IS RE-READ HERE, not only at startSession. A sitting can run
@@ -2759,7 +2773,7 @@ export class Drill {
         const first = q.kind === 'passage';
         if (first) {
           bank.record(q.phrase.id, this.pitchClean);
-          this.recordPolyOutcome(q.phrase.kind, this.pitchClean);
+          this.recordPolyOutcome(q.phrase.kind, this.pitchClean, rungs.exact, rungs.notes);
           this.updatePassageLength(q.phrase.kind, this.pitchClean, q.phrase.notes.length);
         }
         const verdict = this.retryVerdict(q, rungs, bank);
