@@ -863,6 +863,40 @@ export class Drill {
     };
   }
 
+  /**
+   * PUT THE HAND THERE, after a missed placing. Every note sounded and asked
+   * back, nothing graded for any ladder (navigation): for a dyad placing the
+   * other hand's note ALONE, then both hands together, so the pair is under
+   * the hands when the passage starts (and `hands` is set from what he
+   * struck); for a melodic one, the re-anchor shape to the note the passage
+   * starts on. `placing` marks it so its landing is read like the first try.
+   */
+  placeHandQuestion(p) {
+    if (!p.dyad) {
+      const q = this.reanchorQuestion(p.target);
+      q.kind = 'place hand';
+      q.placing = true;
+      q.label = `place hand: ${name(this.anchor)} -> ${name(p.target)} -- the note the passage starts on`;
+      return q;
+    }
+    const a = this.anchor;
+    const [lo, hi] = p.target < a ? [p.target, a] : [a, p.target];
+    return {
+      kind: 'place hand',
+      navigation: true,
+      dyad: true,
+      placing: true,
+      keepAnchor: true,
+      notes: [
+        { midi: p.target, b: 0, dur: 1, voice: p.target === lo ? 0 : 1, from: a },
+        { midi: lo, b: 1, dur: 2, voice: 0, from: a, unison: lo === a },
+        { midi: hi, b: 1, dur: 2, voice: 1, from: a, unison: hi === a },
+      ],
+      meter: 4,
+      label: `place hand: ${name(p.target)}, then ${name(lo)} + ${name(hi)} together -- the other hand's first note`,
+    };
+  }
+
   /** The note a placing dyad should put the other hand on: the lowest entry
    *  among the voices the pivot does not cover (the hand with travelling to
    *  do). Null when there is nothing to place. */
@@ -1678,16 +1712,34 @@ export class Drill {
     if (this.chain) return this.chainQuestion();
     // The passage its placing dyad was served for, immediately: nothing may
     // come between the hand being placed and the call that needs it there.
-    // A MISSED PLACING DROPS IT, with no verdict and no try spent, exactly as
-    // a missed re-anchor drops a retry. Caleb, on the passage that followed
-    // the one he missed: "I didn't stand a chance because my left hand wasn't
-    // in position." A passage he cannot reach is not practice, it is a
-    // failure being recorded.
+    // Caleb, on the passage that followed the one he missed: "I didn't stand
+    // a chance because my left hand wasn't in position." A passage he cannot
+    // reach is not practice, it is a failure being recorded.
+    //
+    // A MISSED PLACING NO LONGER DROPS IT (2026-09-24): it PLACES THE HAND.
+    // The cold attempt stays exactly as it was -- asked, graded, charged to
+    // the harmonic ear -- and then the note he missed is sounded alone for
+    // him to match (navigation, like the re-anchor), and the passage is
+    // served. Dropping cost 11 of 23 duo passages on 09-24, nearly half the
+    // session's passage slots, to a gate harder than anything his ladder had
+    // opened (compound sixths; tier 4 = M3), and a miss with no answer after
+    // it teaches almost nothing (Kornell, Hays & Bjork 2009; Metcalfe 2017).
+    // A passage is practised whole once the hand is there (Naylor & Briggs
+    // 1963). Only a missed MATCH still drops it: that one he could not reach.
     if (this.placing) {
       const p = this.placing;
       this.placing = null;
+      if (!p.landed && !p.matched) {
+        p.matched = true;
+        this.placing = p;
+        // The match IS the correction: a walk queued by the miss would land
+        // after the passage, measured from a hand that has moved on.
+        this.recovery = null;
+        this.log(`  (placing missed: match the ${p.dyad ? 'other hand\'s note' : 'note it starts on'}, then the ${p.kind === 'retry' ? 'retry' : 'passage'})`);
+        return this.placeHandQuestion(p);
+      }
       if (!p.landed) {
-        this.log(`  (placing missed: the ${p.kind === 'retry' ? 'retry' : 'passage'} is dropped -- ${p.dyad ? 'the other hand was never there' : 'the hand never got to the note it starts on'})`);
+        this.log(`  (placing missed twice: the ${p.kind === 'retry' ? 'retry' : 'passage'} is dropped -- ${p.dyad ? 'the other hand was never there' : 'the hand never got to the note it starts on'})`);
         if (p.kind === 'retry') this.retry = null; // no verdict, no try spent: as a missed re-anchor
       } else if (this.fits(p.picked)) {
         // A melodic placing MOVED the anchor onto the pivot, so the passage
@@ -2752,6 +2804,11 @@ export class Drill {
       this.log('  (recovery dropped: back to the drill)');
     }
     if (q.chain && this.chain) this.stepChain();
+    // Did the hand get there? Read for EVERY placing question. It used to be
+    // read only in the dyad branch below, so a melodic placing (the passage
+    // starting away from the hand) never counted as landed and always
+    // dropped its passage, even when he played the note.
+    if (q.placing && this.placing) this.placing.landed = this.pitchClean;
     if (!q.correction) this.streak = this.pitchClean ? this.streak + 1 : 0;
     if (q.phrase) this.passagesInARow += 1;
     else if (!q.correction && !q.window) this.passagesInARow = 0;
@@ -2807,7 +2864,6 @@ export class Drill {
       // the ones you nailed.
       this.openWindow(q);
     } else if (q.kind === 'gesture' || q.dyad) {
-      if (q.placing && this.placing) this.placing.landed = this.pitchClean;
       const timing = this.timing.notes && !this.timeClean ? ` (timing ${this.timing.inTime}/${this.timing.notes})` : '';
       if (timing) this.log(`  ${this.pitchClean ? 'right' : 'wrong'} notes${timing}`);
       // Rung 3 follows a clean departure with both hands still down.

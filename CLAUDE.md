@@ -218,8 +218,8 @@ Both hands are REQUIRED now; a duo passage's first group is then two unisons
 from two hands (`buildGroups`, `this.hands`) -- it used to grade the placed
 bass note AGAIN as a leap from the pivot, a note that hand never travels (65
 rows). A duo RETRY gets its other hand placed too (09-13 already required
-it). A missed placing before a retry drops the retry, as a missed re-anchor
-does. The harmonic pair exposure is a departure then a two-hand step in one
+it). A missed placing before a retry places the hand and serves the retry
+(since 2026-09-24; see below). The harmonic pair exposure is a departure then a two-hand step in one
 call, so it waits for rung 3. Chords are untouched (the anchor is still free
 there): they are not dyads, and the spec did not reach them.
 
@@ -573,7 +573,8 @@ comes up.
   until correct is what the evidence backs".
   KINDS: prime | interval | gesture | discrimination | exposure | remediation |
   dyad | dyad discrimination | chord | passage | retry | variant | round |
-  echo | reanchor | placing | recovery | dyad retry | dyad transfer. Question
+  echo | reanchor | placing | place hand | recovery | dyad retry | dyad
+  transfer. Question
   flags: `pair` (judged as a pair at group close), `regime` (departure |
   twohand | placing), `contains`; note flags `from` (the anchor a note is
   measured from), `unison` (a required common tone), `regime`.
@@ -617,11 +618,23 @@ comes up.
   Across the poly corpus these placings are 23% sixths (+8 1794, +9 1460 of
   13971), so this is also the harmonic sixth dose that opening chords failed
   to deliver (+8 was n=2 lifetime on 09-13). Served EVERY time for now --
-  Caleb: "err on the program being easier for now". A MISSED PLACING DROPS THE
-  PASSAGE, with no verdict and no try spent, exactly as a missed re-anchor
-  drops a retry -- Caleb, 09-14, on the passage that followed one he missed:
-  "I didn't stand a chance because my left hand wasn't in position." A passage
-  he cannot reach is not practice, it is a failure being recorded. It cannot
+  Caleb: "err on the program being easier for now". A MISSED PLACING PLACES
+  THE HAND (2026-09-24; it used to DROP the passage). The cold try stays
+  graded and charged; then `placeHandQuestion` (kind 'place hand',
+  navigation, no ladder sees it) sounds the missed note ALONE, then both
+  hands together, and the passage is served. Only a missed MATCH drops it.
+  Why: dropping cost 11 of 23 duo passages on 09-24, half the session's
+  passage slots, to a gate harder than anything his harmonic ladder had
+  opened (compound sixths vs tier 4 = M3), and a miss with no answer after it
+  teaches almost nothing (Kornell, Hays & Bjork 2009; Metcalfe 2017) -- the
+  09-14 concern ("I didn't stand a chance because my left hand wasn't in
+  position") is met by PLACING the hand, not by dropping. Caleb agreed after
+  being "on the fence": held back if he can't reach the notes, vs "no good
+  reason not to build polyphony just because I can't pick out a large
+  interval cold". The match clears any queued recovery walk (it would land
+  stale, after the passage). ALSO FIXED: `landed` was read only for dyad
+  placings, so a MELODIC placing always dropped its passage even when he
+  played the note (latent: none since 09-21). It cannot
   ping-pong: a missed dyad resets `streak` to 0, so another passage has to be
   earned again. Not in KEYED_KINDS (no block question spent) and not an
   isolatedKind (the tier ladder never sees it). It is drained at the TOP of
