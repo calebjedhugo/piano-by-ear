@@ -529,8 +529,11 @@ comes up.
   both pitch classes -- consonant triad, else seventh, else diminished; a
   tritone comes back as V7, a sixth as the triad it inverts) and the ear is
   WALKED there, every step a plain melodic ask: (1) the note that was missed,
-  alone; (2) a chord tone, the biggest leap the ladder has opened that still
-  leaves the other note reachable; (3) the other note of the dyad; (4) the
+  alone; (2) a THIRD chord tone -- never either dyad note in another octave
+  (until 2026-09-24 the octave always won "biggest leap": 19 of 20 real walks
+  laid out no chord, and both wrong-octave retries played that exact note) --
+  the biggest leap the ladder has opened that still leaves the other note
+  reachable; (3) the other note of the dyad; (4) the
   same two notes together; (5) THE SAME INTERVAL ELSEWHERE IN THE SAME KEY
   (`transferBass`), on a different degree, both notes diatonic. By (4) the
   chord has been laid out in time rather than sounded at once -- "a sparsely
@@ -644,7 +647,13 @@ comes up.
   on"; a missed re-anchor DROPS the retry with no verdict, no try spent and no
   rest (its failed first asking already set the phrase due tomorrow); (2) when
   the anchor leaves the stage window. THE ANCHOR IS THE NOTE UNDER THE HAND
-  AND IS NO LONGER CLAMPED BEHIND HIS BACK: clampAnchor is now a pure
+  -- THE LAST NOTE HE ACTUALLY PLAYED, and if he played nothing it does not
+  move. Until 2026-09-24 an unplayed group fell back to its WRITTEN notes, so
+  an unanswered question or a passage he stopped short of finishing moved
+  the anchor to a note he never touched: ~140 times in his history, the next
+  question 52-62% right against 77%. Caleb had been chasing it "for weeks but
+  was always too disoriented to reason about it in the moment". AND IS NO
+  LONGER CLAMPED BEHIND HIS BACK: clampAnchor is now a pure
   calculation and the drill ASKS him to move, because that is the only thing
   that actually puts him there. A missed re-anchor of kind (2) falls back to
   moving the anchor, so the walk cannot run off the end and it never asks

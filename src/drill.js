@@ -980,13 +980,19 @@ export class Drill {
   }
 
   /** The chord tone to pass through: the biggest leap the ladder has opened
-   *  that still leaves the other note of the dyad reachable. */
+   *  that still leaves the other note of the dyad reachable -- and a THIRD
+   *  tone of the chord, never either of the dyad's own notes in another
+   *  octave. The octave of the missed note always won "biggest leap" (G4 ->
+   *  G3 -> E4 for E4-G4), so the walk laid out no chord at all, only the
+   *  missed note in the wrong register -- and both wrong-octave retries on
+   *  record played exactly that note (E4+G3, then C4+E3; 2026-09-22/23). */
   recoveryTone() {
     const r = this.recovery;
     const widths = this.primeWidths();
+    const pc = (m) => ((m % 12) + 12) % 12;
     let best = null;
     for (let midi = this.lo; midi <= this.hi; midi += 1) {
-      if (midi === this.anchor || midi === r.a || midi === r.t) continue;
+      if (midi === this.anchor || pc(midi) === pc(r.a) || pc(midi) === pc(r.t)) continue;
       if (!r.chord.includes(((midi % 12) + 12) % 12)) continue;
       const out = Math.abs(midi - this.anchor);
       const back = Math.abs(r.a - midi);
@@ -2678,18 +2684,27 @@ export class Drill {
     // highest note you PLAYED in the last group, right or wrong (the written
     // note only if you played nothing there).
     const n = this.groups.length;
-    const top = (grp) => {
-      const played = grp.notes.filter((e) => e.played !== null).map((e) => e.played);
-      return Math.max(...(played.length ? played : grp.notes.map((e) => e.midi)));
-    };
+    // ONLY NOTES HE PLAYED. The top of a group used to fall back to the
+    // WRITTEN notes when he played none of them, so an unanswered question
+    // moved the anchor onto the note he had been asked for and never touched,
+    // and the next call was measured from it while his hand was still where it
+    // had been. 42 questions in his history (15 after the 09-13 ruling below),
+    // 52% right against 77% -- it is what wrecked the round of 2026-09-24
+    // (two calls in a row from notes he never played, 5 of 6 missed). Caleb:
+    // "I've been chasing that for weeks but was always too disoriented to
+    // reason about it in the moment."
+    const top = (grp) => Math.max(...grp.notes.filter((e) => e.played !== null).map((e) => e.played));
+    const reached = this.groups.filter((g) => g.notes.some((e) => e.played !== null));
     // TWO HANDS DOWN: a dyad he struck with both notes leaves two anchors,
     // what he played, lower and upper. Anything else leaves one.
     if (n > 0) {
       const struck = this.groups[n - 1].notes.filter((e) => !e.silent && e.played !== null).map((e) => e.played);
       this.hands = this.q.dyad && !this.q.chord && struck.length === 2 ? [Math.min(...struck), Math.max(...struck)] : null;
     }
-    if (n > 0 && !this.q.keepAnchor) {
-      this.prevAnchor = n >= 2 ? top(this.groups[n - 2]) : this.anchor;
+    // Nothing played at all: the hand has not moved, and neither does the anchor.
+    if (reached.length > 0 && !this.q.keepAnchor) {
+      const k = reached.length;
+      this.prevAnchor = k >= 2 ? top(reached[k - 2]) : this.anchor;
       // THE ANCHOR IS THE NOTE UNDER THE HAND. It used to be clamped into the
       // stage's window here, which kept target selection in range and quietly
       // broke that: the call would then be built from a note he was not on,
@@ -2699,7 +2714,7 @@ export class Drill {
       // passage opened on B5 -- correctly placed, still lost). Now the hand
       // keeps the anchor and the drill ASKS him to move, which is the only
       // thing that actually puts him there.
-      const hand = top(this.groups[n - 1]);
+      const hand = top(reached[k - 1]);
       const inWindow = this.clampAnchor(hand);
       this.anchor = hand;
       if (inWindow !== hand) this.reanchor = { target: inWindow, forRetry: false, served: false };

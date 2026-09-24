@@ -9,6 +9,9 @@
 //            a beat later: the player who stops and catches his own mistake.
 // ECHOSILENT=1 the player has nothing to make up: he never fills an echo
 //            window. (William. The session used to die on it.)
+// TRUNC=x    how often the player stops before the last note of a passage
+//            (the anchor must be the last note he PLAYED, not the last one
+//            written -- a full skip outside a round just ends the session).
 // JUDGE=x    how often the player offers a note in the judgment window (half
 //            of those name a real miss, a third name the wrong note he
 //            actually played, the rest are wild).
@@ -81,7 +84,8 @@ while (drill.state === 'QUESTION' && drill.questions <= Number(maxQ)) {
   const beat = drill.beat;
   const groups = drill.groups;
   let prevPlayed = null;
-  for (const g of groups) {
+  const trunc = groups.length >= 3 && Math.random() < Number(process.env.TRUNC ?? 0);
+  for (const g of (trunc ? groups.slice(0, -1) : groups)) {
     const at = t0 + (g.b + 1) * beat;
     for (const e of g.notes) {
       if (e.free && e.silent) continue;
