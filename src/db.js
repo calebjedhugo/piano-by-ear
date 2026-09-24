@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { summarizeRungs } from './rungs.js';
+import { deltaSql } from './delta.js';
 
 const ATTEMPT_COLUMNS = {
   question: 'INTEGER',
@@ -70,9 +71,9 @@ const PASSAGE_COLUMNS = { pitch_clean: 'INTEGER', self_corrected: 'INTEGER' };
 // events): it is taken whole from whichever side played last, and the other
 // side's copy is kept in kv_archive rather than dropped. See src/sync.js.
 const SYNC_COLUMNS = { device: 'TEXT', origin_id: 'INTEGER' };
-const SYNCED_TABLES = ['sessions', 'attempts', 'passages', 'windows', 'judgments', 'sonorities'];
+export const SYNCED_TABLES = ['sessions', 'attempts', 'passages', 'windows', 'judgments', 'sonorities'];
 // kv keys that are about THIS MACHINE and never travel with a profile.
-const LOCAL_KEYS = new Set(['device', 'sync']);
+export const LOCAL_KEYS = new Set(['device', 'sync']);
 
 export class Db {
   constructor(path) {
@@ -481,6 +482,52 @@ export class Db {
     return this.db.prepare('SELECT MAX(COALESCE(ended_at, started_at)) t FROM sessions').get().t ?? 0;
   }
 
+  /**
+   * THE WATERMARKS: per synced table and device, the highest origin_id this
+   * copy holds. Everything past them is what this copy lacks (src/delta.js).
+   */
+  watermarks() {
+    const out = [];
+    for (const t of SYNCED_TABLES) {
+      for (const r of this.db.prepare(`SELECT device, MAX(origin_id) mx FROM ${t} WHERE device IS NOT NULL GROUP BY device`).all()) {
+        out.push({ t, device: r.device, mx: r.mx });
+      }
+    }
+    return out;
+  }
+
+  /** This copy's synced tables as the pi needs them to catch its schema up. */
+  syncSchema() {
+    return SYNCED_TABLES.map((table) => ({
+      table,
+      sql: this.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table).sql,
+      cols: this.db.prepare(`PRAGMA table_info(${table})`).all().filter((c) => c.name !== 'id').map((c) => ({ name: c.name, type: c.type, dflt: c.dflt_value })),
+    }));
+  }
+
+  /**
+   * Write the rows the other side lacks -- everything past its watermarks --
+   * into a small database at `path`, with the kv (minus this machine's own
+   * keys) and when this copy last played. The pi builds its half with the
+   * same SQL. Returns rows written per table, sessions counting only NEW ones
+   * (the rest ride along so the receiver can remap session ids).
+   */
+  writeDelta(path, marks) {
+    rmSync(path, { force: true });
+    this.db.exec(`ATTACH DATABASE '${path.replace(/'/g, "''")}' AS o`);
+    try {
+      this.db.exec(deltaSql({ marks, tables: SYNCED_TABLES, skipKeys: [...LOCAL_KEYS] }));
+      const counts = {};
+      for (const t of SYNCED_TABLES) counts[t] = this.db.prepare(`SELECT COUNT(*) n FROM o.${t}`).get().n;
+      const seen = new Map(marks.filter((m) => m.t === 'sessions').map((m) => [m.device, m.mx]));
+      counts.sessions = this.db.prepare('SELECT device, origin_id FROM o.sessions').all()
+        .filter((r) => r.origin_id > (seen.get(r.device) ?? 0)).length;
+      return counts;
+    } finally {
+      this.db.exec('DETACH DATABASE o');
+    }
+  }
+
   /** A consistent single-file copy while the drill is still open on it (no WAL to chase). */
   snapshot(path) {
     rmSync(path, { force: true });
@@ -569,7 +616,12 @@ export class Db {
 
       // The kv is not a log and cannot be merged: the side that played last
       // holds the controller state, and the other side's is archived whole.
-      const theirLast = this.db.prepare('SELECT MAX(COALESCE(ended_at, started_at)) t FROM r.sessions').get().t ?? 0;
+      // A DELTA holds only the sessions it carries, so it says when its side
+      // last played in `meta`; a whole copy (the first sync) is read directly.
+      const hasMeta = this.db.prepare("SELECT 1 FROM r.sqlite_master WHERE type = 'table' AND name = 'meta'").get();
+      const theirLast = (hasMeta
+        ? this.db.prepare('SELECT last_played t FROM r.meta').get()?.t
+        : this.db.prepare('SELECT MAX(COALESCE(ended_at, started_at)) t FROM r.sessions').get().t) ?? 0;
       const mineLast = this.db.prepare(
         'SELECT MAX(COALESCE(ended_at, started_at)) t FROM sessions WHERE device IS NULL OR device = ?',
       ).get(this.deviceOfRecord)?.t ?? 0;

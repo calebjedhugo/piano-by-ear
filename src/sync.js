@@ -1,8 +1,11 @@
 // THE PI IS THE SOURCE OF TRUTH, and the local copy is what plays when it is
 // not there. A sync is a MERGE in both directions, never a file overwrite:
-// pull the Pi's copy of this profile, fold its rows into ours (src/db.js
-// mergeFrom), push the union back. Two computers and a laptop that played a
-// week with no network all converge on the same history, in any order.
+// take the rows the Pi has that we lack and fold them into ours (src/db.js
+// mergeFrom), then send the rows we have that it lacks and let the Pi fold
+// them into its copy. ROWS, NOT FILES (src/delta.js): each side reports its
+// watermarks and only what lies past them travels. Two computers and a
+// laptop that played a week with no network all converge on the same
+// history, in any order.
 //
 // It runs at the two moments a profile's history changes hands: when the
 // profile is opened (a chord) and when a session ends. Everything here fails
@@ -17,6 +20,8 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
+import { SYNCED_TABLES, LOCAL_KEYS } from './db.js';
+import { deltaSql, marksSql, applySql, schemaDdl, parseReport, COLUMNS_SQL, lit } from './delta.js';
 
 const CONNECT_S = 3;
 const OP_MS = 20000;
@@ -61,10 +66,15 @@ export class Sync {
     return this.cfg.enabled !== false;
   }
 
-  ssh(command, { timeout = OP_MS } = {}) {
+  ssh(command, { timeout = OP_MS, input = null } = {}) {
     return execFileSync('ssh', ['-o', `ConnectTimeout=${CONNECT_S}`, '-o', 'BatchMode=yes', ...MUX, this.cfg.host, command], {
-      timeout, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      timeout, encoding: 'utf8', stdio: [input === null ? 'ignore' : 'pipe', 'pipe', 'pipe'], ...(input === null ? {} : { input }),
     });
+  }
+
+  /** Run a SQL script against a database on the pi with its sqlite3 CLI; stops at the first error. */
+  sqlite(dbPath, script, { prefix = '' } = {}) {
+    return this.ssh(`${prefix}sqlite3 -bail ${q(dbPath)}`, { input: `.timeout 5000\n.mode tabs\n${script}\n` });
   }
 
   scp(from, to) {
@@ -125,19 +135,21 @@ export class Sync {
     const stamped = db.stamp(this.device);
     const state = db.kv('sync');
     const seen = state.load() ?? {};
+    const tag = randomUUID();
     const pulled = join(this.tmpDir, `${name}.pull.db`);
     const pushed = join(this.tmpDir, `${name}.push.db`);
     const started = Date.now();
+    const label = `  sync${reason ? ` (${reason})` : ''}`;
     let held = false;
     try {
       // THE CHEAP QUESTION FIRST. Neither side moved since our last push --
       // which is the ordinary case, one house, one player at a time -- and
-      // there is nothing to do but say so. One round trip instead of two
-      // transfers of three megabytes, and it is what makes a login instant.
+      // there is nothing to do but say so. One round trip, and it is what
+      // makes a login instant.
       const before = this.fingerprint(name);
       const mine = db.localSignature();
       if (before.rev && before.rev === seen.remote && mine === seen.local) {
-        this.log(`  sync${reason ? ` (${reason})` : ''}: already in step with the pi (${Date.now() - started}ms)`);
+        this.log(`${label}: already in step with the pi (${Date.now() - started}ms)`);
         return { ok: true, counts: null, skipped: true };
       }
 
@@ -147,43 +159,90 @@ export class Sync {
       // are taken literally and must NOT be quoted; ssh runs a shell and its
       // paths must be. Mixing the two puts a file called 'Caleb'.db on the pi.
       const remote = `${this.profiles}/${safe(name)}.db`;
+      const rev = `${this.profiles}/${safe(name)}.rev`;
+
+      // THE FIRST COPY is the one whole-file transfer there will ever be.
+      if (!before.exists) {
+        db.snapshot(pushed);
+        this.scp(pushed, `${this.cfg.host}:${remote}.new`);
+        const token = randomUUID();
+        this.ssh(`mv ${q(`${remote}.new`)} ${q(remote)} && printf %s ${q(token)} > ${q(rev)}`);
+        state.save({ remote: token, local: db.localSignature() });
+        this.log(`${label}: first copy on the pi${stamped ? `, ${stamped} rows claimed` : ''} (${Date.now() - started}ms)`);
+        return { ok: true, counts: null };
+      }
+
+      // WHAT THE PI HOLDS: its columns (so our push can bring its schema up
+      // to ours) and its watermarks. And, unless it has not moved since our
+      // own last push, the rows past OUR watermarks, built on the pi into a
+      // small file we then fetch. Two round trips, since the second needs
+      // to know which tables exist.
+      const report = parseReport(this.sqlite(remote, COLUMNS_SQL));
+      const tables = SYNCED_TABLES.filter((t) => report.cols.has(t));
+      const pullNeeded = !(before.rev && before.rev === seen.remote);
+      const tmp = `${this.cfg.dir}/tmp`;
+      const out = `${tmp}/${safe(name)}.${tag}.pull.db`;
+      const script = [
+        marksSql(tables),
+        ...(pullNeeded ? [`ATTACH ${lit(out)} AS o;`, deltaSql({ marks: db.watermarks(), tables }), 'DETACH o;'] : []),
+      ].join('\n');
+      // Stale deltas from a sync that died half way are swept on the way in.
+      const theirs = parseReport(this.sqlite(remote, script, {
+        prefix: `mkdir -p ${q(tmp)} && find ${q(tmp)} -name '*.db' -mmin +10 -delete; `,
+      }));
       let counts = null;
-      if (before.exists) {
+      if (pullNeeded) {
         rmSync(pulled, { force: true });
-        this.scp(`${this.cfg.host}:${remote}`, pulled);
+        this.scp(`${this.cfg.host}:${out}`, pulled);
+        this.ssh(`rm -f ${q(out)}`);
         counts = db.mergeFrom(pulled, { log: this.log });
       }
       const gained = counts ? Object.entries(counts).filter(([k, v]) => k !== 'kv' && v > 0) : [];
-      // If we contributed nothing and only took, the pi already holds
-      // everything we do: skip the push and half the transfer with it. That is
-      // the downstairs machine's ordinary login after a sitting upstairs.
-      const contributed = mine !== seen.local || stamped > 0 || !before.exists;
-      if (!contributed && before.rev) {
+      const took = gained.map(([k, v]) => `${v} ${k}`).join(', ');
+
+      // WHAT WE HOLD THAT THE PI DOES NOT. Nothing -- the downstairs
+      // machine's ordinary login after a sitting upstairs -- and there is
+      // nothing to send and no new version to announce.
+      const sent = db.writeDelta(pushed, theirs.marks);
+      const rows = Object.values(sent).reduce((a, b) => a + b, 0);
+      if (rows === 0) {
         state.save({ remote: before.rev, local: db.localSignature() });
-        this.log(
-          `  sync${reason ? ` (${reason})` : ''}: pulled ${gained.map(([k, v]) => `${v} ${k}`).join(', ') || 'nothing new'}` +
-          `, nothing of ours to send (${Date.now() - started}ms)`,
-        );
+        this.log(`${label}: ${pullNeeded ? `pulled ${took || 'nothing new'}` : 'the pi had nothing new'}, nothing of ours to send (${Date.now() - started}ms)`);
         return { ok: true, counts };
       }
-      db.snapshot(pushed);
-      this.scp(pushed, `${this.cfg.host}:${remote}.new`);
-      // The lock call already made both directories: scp needs the destination
-      // to exist BEFORE it runs, which is why the mkdir cannot live here.
-      // The token and the file move together, so the pi never holds a database
-      // labelled with the previous push's token.
+      const up = `${tmp}/${safe(name)}.${tag}.push.db`;
+      this.scp(pushed, `${this.cfg.host}:${up}`);
+      // The pi folds it in, in one transaction. THE TOKEN MOVES FIRST: if the
+      // connection dies after the rows commit, a stale token would let the
+      // other machine's fast path skip them; a new token over unchanged rows
+      // only costs it a pull that finds nothing. Wrong in the safe direction.
       const token = randomUUID();
-      this.ssh(`mv ${q(`${remote}.new`)} ${q(remote)} && printf %s ${q(token)} > ${q(`${this.profiles}/${safe(name)}.rev`)}`);
+      const apply = [
+        `ATTACH ${lit(up)} AS d;`,
+        'BEGIN;',
+        applySql({
+          tables: tables.concat(SYNCED_TABLES.filter((t) => !tables.includes(t))),
+          cols: Object.fromEntries(db.syncSchema().map((x) => [x.table, x.cols.map((c) => c.name)])),
+          ddl: schemaDdl(db.syncSchema(), report.cols),
+          keepKeys: [...LOCAL_KEYS],
+        }),
+        'COMMIT;',
+        'DETACH d;',
+      ].join('\n');
+      const applied = parseReport(this.ssh(
+        `printf %s ${q(token)} > ${q(rev)} && sqlite3 -bail ${q(remote)} && rm -f ${q(up)}`,
+        { input: `.timeout 5000\n.mode tabs\n${apply}\n` },
+      )).added;
       state.save({ remote: token, local: db.localSignature() });
-      const moved = gained.map(([k, v]) => `${v} ${k}`).join(', ');
+      const gave = Object.entries(applied).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(', ');
       this.log(
-        `  sync${reason ? ` (${reason})` : ''}: ${!before.exists ? 'first copy on the pi' : (moved ? `pulled ${moved}` : 'nothing new to pull')}` +
-        `${stamped ? `, ${stamped} rows claimed` : ''}, pushed (${Date.now() - started}ms)`,
+        `${label}: ${pullNeeded ? `pulled ${took || 'nothing new'}` : 'the pi had nothing new'}` +
+        `${stamped ? `, ${stamped} rows claimed` : ''}, sent ${gave || 'nothing new'} (${Date.now() - started}ms)`,
       );
       return { ok: true, counts };
     } catch (err) {
       const why = short(err);
-      this.log(`  sync${reason ? ` (${reason})` : ''}: skipped -- ${why} (playing on the local copy)`);
+      this.log(`${label}: skipped -- ${why} (playing on the local copy)`);
       return { ok: false, reason: why };
     } finally {
       if (held) this.unlock(name);
@@ -244,7 +303,11 @@ export class Sync {
 /** The first line of an ssh failure, in words that mean something in the log. */
 function short(err) {
   const msg = String(err?.message ?? err);
-  return /Connection|timed out|ETIMEDOUT|Could not resolve|No route|refused/i.test(msg) ? 'the pi is not reachable' : msg.split('\n')[0];
+  if (/Connection|timed out|ETIMEDOUT|Could not resolve|No route|refused/i.test(msg)) return 'the pi is not reachable';
+  // A remote command that ran and failed: its own words (sqlite3's error,
+  // say), not the ssh command line that carried it.
+  const said = String(err?.stderr ?? '').split('\n').map((l) => l.trim()).find(Boolean);
+  return said ? `the pi said: ${said}` : msg.split('\n')[0];
 }
 
 /** Profile names come from roster.js and are already tame; belt and braces. */

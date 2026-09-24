@@ -76,7 +76,7 @@ Two computers (upstairs, downstairs) and a laptop that travels with the
 25-key all write to the same profiles, so a profile CANNOT be a file one
 machine overwrites with another: the event tables carry `(device, origin_id)`
 and a sync inserts what is missing in both directions, under a per-profile
-lock on the pi (`src/sync.js`, `Db.mergeFrom`). It runs when a profile opens
+lock on the pi (`src/sync.js`, `src/delta.js`, `Db.mergeFrom`). It runs when a profile opens
 and when it closes, which is now the same thing as a session ending. No network means you play on the local copy
 and the rows go home at the next sync -- that is the whole point.
 
@@ -98,6 +98,38 @@ hold it there, and breaking any one of them puts the seconds back:
   in the same second at the same rounded size, so a stat fingerprint declared
   "already in step" and silently skipped a real merge -- one machine lost the
   other's sitting in testing. If only the pi moved, we pull and skip the push.
+
+**A SYNC SENDS ROWS, NOT FILES (2026-09-23; `src/delta.js`).** It used to
+copy the whole database both ways on every sync: 3.7 MB at 19 days, ~75 MB a
+year, against a 20 s transfer limit -- pianobox's wifi would have crossed it
+within months and its sessions would SILENTLY have stopped reaching the pi.
+Now each side reports its WATERMARKS (per table and device, the highest
+`origin_id` it holds) and only the rows past them travel: a day of sessions is
+~240 KB (~106 KB of it the kv, which goes whole), whatever the history's size.
+- **The pi runs the sqlite3 CLI (3.40), not this program** (its Node 18 has no
+  `node:sqlite`). So the pi's half is plain SQL built in `delta.js`: it builds
+  the pull delta and folds in the push delta (insert where `(device,
+  origin_id)` is missing, session ids remapped through a temp `smap`, kv
+  replaced by the sender's -- exactly what the whole-file push did). This side
+  builds its push with THE SAME SQL (`Db.writeDelta`) and merges the pull with
+  `Db.mergeFrom`, which reads `meta.last_played` to decide the kv.
+- **Why watermarks are enough:** origin ids are the recording machine's own
+  row ids, which only grow; synced rows are NEVER deleted or updated after a
+  sync (sync runs only once a session has ended); every transfer sends
+  everything past the receiver's watermark. So every copy holds an unbroken
+  run of each device's rows. **Adding a DELETE, or an UPDATE of a row after it
+  can have synced, breaks this** -- the other copies would never see it.
+- **The pi's schema catches up on push** (`schemaDdl`): a missing table is
+  created with its merge index, a missing column added. Never dropped.
+- **The version token is written BEFORE the rows commit**, so a connection
+  lost mid-push errs toward a needless pull, never a missed one.
+- The first copy of a profile on the pi is the only whole-file transfer.
+- Tested 2026-09-23 against the real pi (isolated dir) with the Mac's copy, a
+  brand-new machine and simulated sessions both ways: all three copies
+  identical row for row, a forced failure retried with no duplicates, a
+  dropped table and column rebuilt. Harmless leftover: older files carry an
+  all-NULL `sessions.out_latency_ms` (the reverted 09-19 latency column) that
+  fresh profiles do not.
 
 **The kv store cannot be merged** (engine tiers, stage, the passage-length
 controller, the phrase schedule are running state, not events): it is taken
