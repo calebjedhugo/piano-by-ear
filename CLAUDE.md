@@ -390,6 +390,10 @@ mixer, so it is the same on every machine; the last position is kept in
 
 ## DEPLOYING TO pianobox: A PUSH IS HALF A DEPLOY (2026-09-20)
 
+**pianobox DIED 2026-09-23 (no longer powers on). There is no second machine
+to deploy to right now; a push is a whole deploy again.** The rule below
+applies to whatever replaces it.
+
 **YOU MUST pull on pianobox every time you push to the repo.** Nothing does
 it for you, deliberately -- **there is no auto-pull, by Caleb's ruling
 (2026-09-20): a machine that fetches code from the internet by itself is not
