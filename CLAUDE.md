@@ -193,6 +193,16 @@ intervals the melodic engine already rates and are NOT capped (09-12: a
 floor is never a target). Below DIATONIC_TIERS both notes sit in the key.
 "Hand" is VOICE BY REGISTER: MIDI carries no hand.
 
+A WIDE DYAD IS ASKED BEFORE IT IS NEEDED (2026-09-24, `DYAD_WIDE_RATE`).
+Every duo/chorale opens with a placing 12-24 semitones wide, and that was the
+ONLY compound harmonic question in the drill (0 of 586 dyads, 0 of 260
+chords; 337 compound placings at 64% vs 100% within an octave). A secure span
+is now asked an octave wider 1/3 of the time, up to two octaves (engine
+`wideMax: 12`, `wideRate`), credited on the simple span. The 09-20 "wide cold
+dyads were 9/9" was nine trials; superseded. Caleb's double place-hand misses
+on 09-24 were all EXACTLY a fifth below his wrong note ("I was calculating
+instead of listening") -- watch for that signature.
+
 TWO NOTES, TWO DEGREES OF FREEDOM, ONE CHARGE PER WRONG NOTE
 (`judgeSonority`). A pair question (dyad, placing, harmonic exposure) is
 judged when its group closes, on the pair he PLAYED. A wrong note is debited

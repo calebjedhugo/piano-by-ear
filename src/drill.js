@@ -368,6 +368,18 @@ const LEVEL_NAMES = ['melody only', 'two voices', 'four-part chorales', 'both ha
 // duo passages are served (the placing puts a departure in front of every
 // one of those anyway).
 const DYAD_RUNG = { high: 0.85, low: 0.65, cooldown: 8, alpha: 0.15, lowerShare: 0.4 };
+// A WIDE DYAD IS ASKED BEFORE IT IS NEEDED (2026-09-24). Every duo and
+// chorale opens with a placing -- keep the note you are on, put the other
+// hand 12 to 24 semitones below -- and until now that was the ONLY compound
+// harmonic question in the drill: 0 of 586 dyads and 0 of 260 chords were
+// wider than an octave, against 337 compound placings at 64% (100% within an
+// octave). The melodic engine has always asked a secure interval an octave
+// wider now and then; dyads never did. So a secure span is asked an octave
+// wider this often (up to two octaves: placings reach 24). Credited on the
+// simple span like every dyad (judgeSonority folds it); an octave-only miss
+// is harmonicOk and charged to the departure, as it already was. The 09-20
+// note "wide cold dyads were 9/9" was nine trials; 337 placings supersede it.
+const DYAD_WIDE_RATE = 1 / 3;
 
 export class Drill {
   /**
@@ -1225,9 +1237,10 @@ export class Drill {
     const st = this.rungState();
     let rung = Math.min(st.rung, 2);
     if (rung === 2 && Math.random() < DYAD_RUNG.lowerShare) rung = 1;
-    const spanHi = Math.min(this.idx(this.hi), a + 12);
+    // The pool is simple spans, so the wider bound only admits the wide ask (DYAD_WIDE_RATE).
+    const spanHi = Math.min(this.idx(this.hi), a + 24);
     if (a + 1 > spanHi) return null;
-    const span = this.harmonic.nextTargetIndex(a, null, { bounds: { lo: a + 1, hi: spanHi } }) - a;
+    const span = this.harmonic.nextTargetIndex(a, null, { bounds: { lo: a + 1, hi: spanHi }, allowWide: true, wideMax: 12, wideRate: DYAD_WIDE_RATE }) - a;
     if (span <= 0) return null;
     const kind = this.harmonic.servedQueue ? 'dyad discrimination' : 'dyad';
     return (rung === 2 ? this.departingDyad(kind, span) : null) ?? this.containingDyad(kind, span);

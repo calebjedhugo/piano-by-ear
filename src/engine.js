@@ -395,8 +395,10 @@ export class AdaptiveEngine {
    * @param {number} [opts.extraTiers] tiers beyond the unlocked ones (a round's escalation)
    * @param {(targetIndex:number) => number} [opts.lean]  weight multiplier per candidate target (diatonic lean)
    * @param {string} [opts.scope]      evidence scope for the ask ('interval' | 'round')
+   * @param {number} [opts.wideMax]    widest simple interval that may be asked wide
+   * @param {number} [opts.wideRate]   how often, instead of the height-driven rate
    */
-  nextTargetIndex(anchorIndex, prevIndex = this.prevAnchorIndex, { allowWide = false, pool: poolOverride = null, bounds = null, extraTiers = 0, lean = null, only = null, scope = 'interval' } = {}) {
+  nextTargetIndex(anchorIndex, prevIndex = this.prevAnchorIndex, { allowWide = false, pool: poolOverride = null, bounds = null, extraTiers = 0, lean = null, only = null, scope = 'interval', wideMax = WIDE_MAX_SIMPLE, wideRate = null } = {}) {
     this.servedQueue = false;
     this.lastWide = false;
     const inBounds = (t) => !bounds || (t >= bounds.lo && t <= bounds.hi);
@@ -459,10 +461,10 @@ export class AdaptiveEngine {
     }
     // A secure simple interval is sometimes asked an octave wider: the skill
     // stays the simple interval; the octave is judged apart (reportHeight).
-    if (allowWide && this.state.tiersUnlocked >= WIDE_MIN_TIERS && Math.abs(interval) <= WIDE_MAX_SIMPLE) {
+    if (allowWide && this.state.tiersUnlocked >= WIDE_MIN_TIERS && Math.abs(interval) <= wideMax) {
       const wide = interval + (interval < 0 ? -12 : 12);
       const s = this.peekStats(interval);
-      const rate = this.state.height.acc >= 0.8 && this.state.height.n >= 6 ? WIDE_GOOD_RATE : WIDE_BASE_RATE;
+      const rate = wideRate ?? (this.state.height.acc >= 0.8 && this.state.height.n >= 6 ? WIDE_GOOD_RATE : WIDE_BASE_RATE);
       if (s.n >= 3 && s.acc >= 0.8 && this.feasible(anchorIndex, wide) && inBounds(anchorIndex + wide) && Math.random() < rate) {
         this.lastWide = true;
         this.ask(interval, anchorIndex, prevIndex, { scope });
