@@ -621,8 +621,11 @@ comes up.
   Caleb: "err on the program being easier for now". A MISSED PLACING PLACES
   THE HAND (2026-09-24; it used to DROP the passage). The cold try stays
   graded and charged; then `placeHandQuestion` (kind 'place hand',
-  navigation, no ladder sees it) sounds the missed note ALONE, then both
-  hands together, and the passage is served. Only a missed MATCH drops it.
+  navigation, no ladder sees it) sounds the missed note ALONE; once it lands
+  both hands are down (the pivot never left) and `handsAfter` records them,
+  and the passage is served. Only a missed MATCH drops it. (For its first day
+  it also asked both hands together a beat later -- a re-strike of the note
+  he was holding: twice he matched the bass and was marked "missed".)
   Why: dropping cost 11 of 23 duo passages on 09-24, half the session's
   passage slots, to a gate harder than anything his harmonic ladder had
   opened (compound sixths vs tier 4 = M3), and a miss with no answer after it
@@ -634,7 +637,21 @@ comes up.
   interval cold". The match clears any queued recovery walk (it would land
   stale, after the passage). ALSO FIXED: `landed` was read only for dyad
   placings, so a MELODIC placing always dropped its passage even when he
-  played the note (latent: none since 09-21). It cannot
+  played the note (latent: none since 09-21).
+  THE FIRST CHORALE RUNG IS ONE CHORD, BY ACCIDENT (2026-09-24). LEN counts
+  NOTES and starts chorales at 4, and 668 of the corpus's 684 four-note
+  chorale excerpts are a single chord: placing gives bass + soprano, he finds
+  the inner voices, the correction plays the one he missed, the retry asks
+  the chord again. Caleb liked it before he knew what it was ("teaching me to
+  hear the voicing of three-note chords"). First day: 1/8 clean, 39% of
+  notes, inner voices 4/14; 4 of 5 unplayed notes were an OCTAVE DOUBLING
+  (a doubled triad fuses into three notes -- the ear is right, the drill
+  asks for the doubling) and 5 of 9 wrong notes were another note of the same
+  chord (right pitch, wrong voice). It grows by itself as LEN grows: a chord,
+  then a chord and a moving voice, then two chords. KEEP IT. ON A RETRY a
+  voice's first note is free only if the voice goes on, or a placing put it
+  under a hand: before, a one-chord retry graded NOTHING (6 of 6 "nailed on
+  try 2" with zero notes asked). It cannot
   ping-pong: a missed dyad resets `streak` to 0, so another passage has to be
   earned again. Not in KEYED_KINDS (no block question spent) and not an
   isolatedKind (the tier ladder never sees it). It is drained at the TOP of

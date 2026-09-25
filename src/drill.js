@@ -864,12 +864,15 @@ export class Drill {
   }
 
   /**
-   * PUT THE HAND THERE, after a missed placing. Every note sounded and asked
-   * back, nothing graded for any ladder (navigation): for a dyad placing the
-   * other hand's note ALONE, then both hands together, so the pair is under
-   * the hands when the passage starts (and `hands` is set from what he
-   * struck); for a melodic one, the re-anchor shape to the note the passage
-   * starts on. `placing` marks it so its landing is read like the first try.
+   * PUT THE HAND THERE, after a missed placing. Sounded and asked back,
+   * graded for no ladder (navigation): for a dyad placing, the other hand's
+   * note ALONE -- the pivot is already under the other hand, so once this
+   * lands both are down, and `handsAfter` records them. It used to ask both
+   * together a beat later as well, which meant re-striking the note he was
+   * already holding: twice on 2026-09-24 he matched the bass and was marked
+   * "missed" for not striking it again, and the passage was dropped. For a
+   * melodic placing, the re-anchor shape to the note the passage starts on.
+   * `placing` marks it so its landing is read like the first try.
    */
   placeHandQuestion(p) {
     if (!p.dyad) {
@@ -880,20 +883,15 @@ export class Drill {
       return q;
     }
     const a = this.anchor;
-    const [lo, hi] = p.target < a ? [p.target, a] : [a, p.target];
     return {
       kind: 'place hand',
       navigation: true,
-      dyad: true,
       placing: true,
       keepAnchor: true,
-      notes: [
-        { midi: p.target, b: 0, dur: 1, voice: p.target === lo ? 0 : 1, from: a },
-        { midi: lo, b: 1, dur: 2, voice: 0, from: a, unison: lo === a },
-        { midi: hi, b: 1, dur: 2, voice: 1, from: a, unison: hi === a },
-      ],
+      handsAfter: [Math.min(a, p.target), Math.max(a, p.target)],
+      notes: [{ midi: p.target, b: 0, dur: 2, voice: 0, from: a }],
       meter: 4,
-      label: `place hand: ${name(p.target)}, then ${name(lo)} + ${name(hi)} together -- the other hand's first note`,
+      label: `place hand: ${name(p.target)} (keep ${name(a)}) -- the other hand's first note`,
     };
   }
 
@@ -1501,13 +1499,23 @@ export class Drill {
     // the anchor). Placed on the anchor, it stays free. On a RETRY every
     // voice's first note was just heard: free, so a fumbled start costs
     // nothing and the correction is about the notes that were missed.
+    // BUT ONLY FOR A VOICE THAT GOES ON. A voice of ONE note is not a line
+    // with a start to fumble -- it is the content -- and a chorale of four
+    // notes is one chord (668 of the corpus's 684), all four of them firsts:
+    // the retry graded NOTHING and every one of them "nailed on try 2" with
+    // zero notes asked (6 of 6 on 2026-09-24). A one-note voice stays free on
+    // a retry only if a placing already put it under a hand.
+    const perVoice = new Map();
+    for (const [, , , voice] of notes) perVoice.set(voice, (perVoice.get(voice) ?? 0) + 1);
+    const underHand = new Set([this.anchor, ...(this.hands ?? [])]);
     const seen = new Set();
     const placed = notes.map(([midi, off, dur, voice], i) => {
       const firstInVoice = !seen.has(voice);
       seen.add(voice);
+      const freeOnRetry = kind === 'retry' && firstInVoice && (perVoice.get(voice) > 1 || underHand.has(midi));
       // The pivot is the note under your hand, in a key or not (PhraseBank
       // places it there): free, as it always was.
-      return { midi, b: pickup + off, dur, voice, free: i === phrase.pivot || (kind === 'retry' && firstInVoice) };
+      return { midi, b: pickup + off, dur, voice, free: i === phrase.pivot || freeOnRetry };
     });
     const pivotMidi = notes[phrase.pivot][0];
     const remetered = plan ? `, re-metered (${plan.meter} per beat)` : '';
@@ -2752,6 +2760,8 @@ export class Drill {
     if (n > 0) {
       const struck = this.groups[n - 1].notes.filter((e) => !e.silent && e.played !== null).map((e) => e.played);
       this.hands = this.q.dyad && !this.q.chord && struck.length === 2 ? [Math.min(...struck), Math.max(...struck)] : null;
+      // A place-hand asks for one note, but leaves two hands down.
+      if (this.q.handsAfter) this.hands = this.q.handsAfter;
     }
     // Nothing played at all: the hand has not moved, and neither does the anchor.
     if (reached.length > 0 && !this.q.keepAnchor) {
