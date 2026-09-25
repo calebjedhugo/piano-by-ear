@@ -109,7 +109,7 @@ export class PhraseBank {
    * too quick. The old speed filter hid 38% of the corpus at a fast session
    * tempo, which is exactly backwards.
    */
-  pick(anchor, lo, hi, { engine, harmonic = null, kind = 'mono', maxNotes, minNotes = 0, exclude, key = null }) {
+  pick(anchor, lo, hi, { engine, harmonic = null, kind = 'mono', maxNotes, minNotes = 0, exclude, key = null, lean = null }) {
     const now = Date.now();
     const memo = (eng) => {
       const m = new Map();
@@ -185,6 +185,7 @@ export class PhraseBank {
         else if (st && st.dueAt) w *= DUE_BOOST; // due for review
         const lastNote = phrase.notes[phrase.pivot][0] + phrase.lastRel + shift;
         w *= engine.centerPull(anchor - lo, lastNote - lo);
+        if (lean) w *= lean(phrase);
         candidates.push({ phrase, shift });
         weights.push(w);
       }

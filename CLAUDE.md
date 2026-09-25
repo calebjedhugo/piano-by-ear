@@ -198,10 +198,27 @@ Every duo/chorale opens with a placing 12-24 semitones wide, and that was the
 ONLY compound harmonic question in the drill (0 of 586 dyads, 0 of 260
 chords; 337 compound placings at 64% vs 100% within an octave). A secure span
 is now asked an octave wider 1/3 of the time, up to two octaves (engine
-`wideMax: 12`, `wideRate`), credited on the simple span. The 09-20 "wide cold
-dyads were 9/9" was nine trials; superseded. Caleb's double place-hand misses
-on 09-24 were all EXACTLY a fifth below his wrong note ("I was calculating
-instead of listening") -- watch for that signature.
+`wideMax: 12`, `wideRate`). The 09-20 "wide cold dyads were 9/9" was nine
+trials; superseded. Caleb's double place-hand misses on 09-24 were all
+EXACTLY a fifth below his wrong note ("I was calculating instead of
+listening") -- watch for that signature.
+
+A WIDE SPAN IS ITS OWN SKILL, AND THE SKILL IS A REFLEX (`WIDE`, kv
+`wideDyads`). NOT credited to the simple span or the harmonic engine
+(Deutsch: interval class is not a first-order percept; Rogala 2017: harmonic
+intervals are heard by distance). REFLEX = right AND started within 2 beats
+(Logan 1988: retrieval, not the algorithm; his data: dyads 93% right within 2
+beats vs 67% at 3-4; placings 85% vs 47% at 8+). Cold wide dyads and placings
+feed it; wide dyads stay out of the rung controller. Uses:
+- B: duo/chorale weighted by its placing span's reflex (`floor` 0.15; within
+  an octave = 1). A preference, never a gate.
+- C: a player who has NEVER reached duo (`poly.reached`) waits for 65% reflex
+  over the last 12. An ENTRY gate: never demotes.
+- A: a placing missed twice on a first asking records a failed passage (all
+  its graded notes missed) -- it used to record nothing, so a player who
+  could not place sat at duo forever.
+DECLARED MEASURE (09-24, do not move it): placings started within 2 beats
+(7%) and placing accuracy (64%) should rise; duo per-note should not fall.
 
 TWO NOTES, TWO DEGREES OF FREEDOM, ONE CHARGE PER WRONG NOTE
 (`judgeSonority`). A pair question (dyad, placing, harmonic exposure) is
@@ -1204,7 +1221,7 @@ comes up.
   span_expected/played, harmonic_ok, which ear was `charged`, both engines'
   predicted accuracies, and the previous sonority so a resolution reads as
   one; synced like the other event tables). kv: `engine`, `engine:harmonic`
-  (restarted 09-20, the old state in `kv_archive`), `dyadRung`, `poly`,
+  (restarted 09-20, the old state in `kv_archive`), `dyadRung`, `wideDyads`, `poly`,
   `passageLen`, `phraseStats`, `polyStats`, `ranges`, `carry`, `stage`,
   `rounds`, `migrations` (what `Db.runOnce` has already done). `backfillPassages()` builds `passages`
   from `attempts` once when the table is empty (main.js calls it at startup)

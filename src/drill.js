@@ -380,6 +380,25 @@ const DYAD_RUNG = { high: 0.85, low: 0.65, cooldown: 8, alpha: 0.15, lowerShare:
 // is harmonicOk and charged to the departure, as it already was. The 09-20
 // note "wide cold dyads were 9/9" was nine trials; 337 placings supersede it.
 const DYAD_WIDE_RATE = 1 / 3;
+// A WIDE SPAN IS ITS OWN SKILL, AND THE SKILL IS A REFLEX (2026-09-24).
+// Interval class is not a first-order percept (Deutsch: octave-scrambled
+// melodies go unrecognised) and harmonic intervals are identified by the
+// DISTANCE between the tones (Rogala et al. 2017), so a tenth is not credited
+// to the third: each size 13..24 has its own record (kv `wideDyads`), never
+// the harmonic engine's. And the aim is retrieval, not calculation (Logan
+// 1988): an answer counts as REFLEX when it is right AND started within
+// `reflexBeats` of the call. Caleb's data drew that line: dyads started
+// within 2 beats 93% right, 3-4 beats 67%; placings 85% within 2 beats and
+// 47% at 8+ -- and only 20 of 297 placings started within 2. Three uses:
+//   B  a duo/chorale is weighted by how reflexive its placing span is
+//      (`floor` for a span never reflexive; a preference, never a gate);
+//   C  a player who has NEVER reached duo waits for `entry` reflex over the
+//      last `window` wide dyads/placings (an entry gate: it never demotes);
+//   and the declared measure of progress: placings started within 2 beats
+//   (7% on 09-24) and placing accuracy (64%) should rise, duo per-note
+//   accuracy should not fall. If they do not move, the theory is wrong.
+const WIDE = { alpha: 0.15, reflexBeats: 2, window: 12, entry: 0.65, floor: 0.15 };
+const WIDE_KINDS = new Set(['dyad', 'dyad discrimination', 'placing']);
 
 export class Drill {
   /**
@@ -412,6 +431,8 @@ export class Drill {
     this.stageStore = db.kv('stage');
     this.roundsStore = db.kv('rounds'); // one record per run: the round's evidence is scoped away from the ladder
     this.rungStore = db.kv('dyadRung'); // the dyad rung controller (DYAD_RUNG)
+    this.wideStore = db.kv('wideDyads'); // wide spans as their own skills (WIDE)
+    this.placingSpans = new Map(); // phrase id -> its placing span
     this.len = this.lenStore.load() || {};
     this.state = 'IDLE';
     this.clockOffset = performance.now() / 1000 - audio.now;
@@ -522,9 +543,13 @@ export class Drill {
     };
     let level = st.level || 0;
     const cur = recent(POLY_KINDS[level]);
+    // C (WIDE): the first duo waits for wide spans answered by reflex. Only
+    // a player who has never reached duo; the window judges everyone else.
+    if ((st.level || 0) >= 1) st.reached = Math.max(st.reached ?? 0, st.level);
     if (level === 0) {
       const held = st.demotedAt && Date.now() - st.demotedAt < POLY_DEMOTE_HOLD_MS;
-      if (!held && this.engine.state.tiersUnlocked >= POLY.melodicTiersForDyads && this.engine.masteredCount() >= POLY.masteredForDyads) level = 1;
+      const entry = (st.reached ?? 0) >= 1 || this.wideEntryOpen();
+      if (!held && entry && this.engine.state.tiersUnlocked >= POLY.melodicTiersForDyads && this.engine.masteredCount() >= POLY.masteredForDyads) level = 1;
     } else if (cur.length >= POLY.window && rate(cur) >= POLY.promoteNote && level < POLY_KINDS.length - 1) {
       const gate = level === 1 ? this.harmonic.state.tiersUnlocked >= POLY.harmonicTiersForChorale : true;
       if (gate) level += 1;
@@ -1179,6 +1204,54 @@ export class Drill {
     return st || { rung: 1, ewma: { 1: 0.75, 2: 0.75, 3: 0.75 }, n: { 1: 0, 2: 0, 3: 0 }, since: 0 };
   }
 
+  /** The wide-span record (WIDE): per size, accuracy and reflex; the recent reflex run. */
+  wideState() {
+    return this.wideStore.load() || { sizes: {}, recent: [] };
+  }
+
+  /** One cold wide sonority (dyad or placing): right, and right within reflexBeats. */
+  noteWide(span, ok, reflex) {
+    const st = this.wideState();
+    const z = st.sizes[span] || { n: 0, acc: 0.5, reflex: 0 };
+    z.n += 1;
+    z.acc = z.acc * (1 - WIDE.alpha) + (ok ? WIDE.alpha : 0);
+    z.reflex = z.reflex * (1 - WIDE.alpha) + (reflex ? WIDE.alpha : 0);
+    st.sizes[span] = z;
+    st.recent = [...st.recent, reflex ? 1 : 0].slice(-WIDE.window);
+    this.wideStore.save(st);
+  }
+
+  /** C: may a player who has never reached duo start it? */
+  wideEntryOpen() {
+    const { recent } = this.wideState();
+    return recent.length >= WIDE.window && recent.reduce((t, x) => t + x, 0) / recent.length >= WIDE.entry;
+  }
+
+  /** The placing span a phrase opens on: pivot to the lowest first note of the other voices. */
+  placingSpan(phrase) {
+    if (this.placingSpans.has(phrase.id)) return this.placingSpans.get(phrase.id);
+    const pivot = phrase.notes[phrase.pivot];
+    const firsts = new Map();
+    for (const n of phrase.notes) {
+      const v = n[3] ?? 0;
+      const seen = firsts.get(v);
+      if (!seen || n[1] < seen[1]) firsts.set(v, n);
+    }
+    let lowest = null;
+    for (const [v, n] of firsts) if (v !== (pivot[3] ?? 0) && (lowest === null || n[0] < lowest)) lowest = n[0];
+    const span = lowest === null ? 0 : Math.abs(pivot[0] - lowest);
+    this.placingSpans.set(phrase.id, span);
+    return span;
+  }
+
+  /** B: a poly phrase's weight by how reflexive its placing span is. */
+  placingLean(phrase) {
+    const span = this.placingSpan(phrase);
+    if (span <= 12) return 1;
+    const r = this.wideState().sizes[span]?.reflex ?? 0;
+    return WIDE.floor + (1 - WIDE.floor) * r;
+  }
+
   /** One retrieval on a rung (never the unison), and the move it may cause. */
   noteRungRetrieval(rung, ok) {
     const st = this.rungState();
@@ -1608,6 +1681,7 @@ export class Drill {
         maxNotes: this.passageLength(kind),
         minNotes: this.passageLength(kind) - LEN.band,
         exclude: this.askedThisSession,
+        lean: kind === 'mono' ? null : (ph) => this.placingLean(ph),
       };
       // In the block key first; on the anchor only if nothing fits the key.
       // THE BAND IS A PREFERENCE, NOT A FAMINE: when nothing in it fits the
@@ -1762,6 +1836,18 @@ export class Drill {
       if (!p.landed) {
         this.log(`  (placing missed twice: the ${p.kind === 'retry' ? 'retry' : 'passage'} is dropped -- ${p.dyad ? 'the other hand was never there' : 'the hand never got to the note it starts on'})`);
         if (p.kind === 'retry') this.retry = null; // no verdict, no try spent: as a missed re-anchor
+        // A DROPPED FIRST ASKING IS A FAILED ONE (2026-09-24). It used to
+        // record nothing, so a player who cannot place never filled the
+        // level's window: stuck at duo, every passage dropped, never demoted.
+        // The passage cannot be played without the hand there, so every note
+        // it would have graded is missed. Not the length controller's: length
+        // did not cause it.
+        const ph = p.picked.phrase;
+        if (p.kind === 'passage' && ph.kind !== 'mono') {
+          this.poly.record(ph.id, false);
+          this.recordPolyOutcome(ph.kind, false, 0, p.picked.notes.length - 1);
+          this.flushPolyMove();
+        }
       } else if (this.fits(p.picked)) {
         // A melodic placing MOVED the anchor onto the pivot, so the passage
         // now begins under the hand and the octave in the label is stale.
@@ -2645,7 +2731,8 @@ export class Drill {
     const spanPlayed = both ? Math.abs(hi.played - lo.played) : null;
     const harmonicOk = both && simpleOf(spanPlayed) === simpleOf(spanExpected);
     const ok = (e) => e.played === e.midi;
-    const hAcc = this.harmonic.predictedAcc(simpleOf(spanExpected), this.idx(lo.midi), null);
+    const wide = spanExpected > 12; // its own skill (WIDE), never the harmonic engine's
+    const hAcc = wide ? (this.wideState().sizes[spanExpected]?.acc ?? 0.5) : this.harmonic.predictedAcc(simpleOf(spanExpected), this.idx(lo.midi), null);
     const mAcc = (e) => (e.unison || e.melodicFrom === null ? null : this.engine.predictedAcc(simpleOf(e.midi - e.melodicFrom), this.idx(e.melodicFrom), null));
     const trial = (e) => {
       // one melodic trial for this note at the rung's scope: asked, missed or not, resolved
@@ -2673,16 +2760,20 @@ export class Drill {
       harmonicMiss = harmonicMiss ?? { from: other.midi, missed: e.midi };
     }
     if (harmonicMiss) {
-      this.harmonic.ask(simpleOf(spanExpected), this.idx(lo.midi), null, { scope: harmonicScope });
-      this.harmonic.reportMiss(this.idx(lo.midi), this.idx(lo.midi) + (spanPlayed ?? 0), { confuse: spanPlayed !== null });
-      this.harmonic.reportResolved(null);
+      if (!wide) {
+        this.harmonic.ask(simpleOf(spanExpected), this.idx(lo.midi), null, { scope: harmonicScope });
+        this.harmonic.reportMiss(this.idx(lo.midi), this.idx(lo.midi) + (spanPlayed ?? 0), { confuse: spanPlayed !== null });
+        this.harmonic.reportResolved(null);
+      }
       this.queueRecovery(harmonicMiss.from, harmonicMiss.missed);
-    } else if (ok(lo) && ok(hi)) {
+    } else if (ok(lo) && ok(hi) && !wide) {
       this.harmonic.ask(simpleOf(spanExpected), this.idx(lo.midi), null, { scope: harmonicScope });
       this.harmonic.reportResolved(null);
     }
     // The rung controller reads the slot's own dyads, per retrieval, never the unison.
-    if (plain) for (const e of [lo, hi]) if (!e.unison) this.noteRungRetrieval(regime === 'twohand' ? 3 : q.contains ? 1 : 2, ok(e));
+    // Wide dyads stay out of it: their difficulty is the span's, not the rung's.
+    if (plain && !wide) for (const e of [lo, hi]) if (!e.unison) this.noteRungRetrieval(regime === 'twohand' ? 3 : q.contains ? 1 : 2, ok(e));
+    if (wide && WIDE_KINDS.has(q.kind)) this.noteWide(spanExpected, ok(lo) && ok(hi), ok(lo) && ok(hi) && (this.behind ?? 99) <= WIDE.reflexBeats);
     const prev = this.prevSonority && (this.prevSonority.question === this.questions || (this.prevSonority.question === this.questions - 1 && q.dyad)) ? this.prevSonority : null;
     this.db.sonority({
       sessionId: this.sessionId, question: this.questions, kind: q.kind, regime, position: g.index,

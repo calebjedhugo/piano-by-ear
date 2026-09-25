@@ -12,6 +12,8 @@
 // TRUNC=x    how often the player stops before the last note of a passage
 //            (the anchor must be the last note he PLAYED, not the last one
 //            written -- a full skip outside a round just ends the session).
+// PLACEMISS=x how often the other hand's note of a placing or place hand is
+//            wrong (a whole step high): the player who cannot place.
 // JUDGE=x    how often the player offers a note in the judgment window (half
 //            of those name a real miss, a third name the wrong note he
 //            actually played, the rest are wild).
@@ -90,7 +92,8 @@ while (drill.state === 'QUESTION' && drill.questions <= Number(maxQ)) {
     for (const e of g.notes) {
       if (e.free && e.silent) continue;
       const from = e.melodicFrom ?? drill.anchor;
-      const m = e.free ? (player === 'sloppy' && Math.random() < Number(process.env.FUMBLE ?? 0.25) ? e.midi + 1 : e.midi) : answerFor(prevPlayed ?? from, e.midi);
+      let m = e.free ? (player === 'sloppy' && Math.random() < Number(process.env.FUMBLE ?? 0.25) ? e.midi + 1 : e.midi) : answerFor(prevPlayed ?? from, e.midi);
+      if ((q.kind === 'placing' || q.kind === 'place hand') && e.midi !== drill.anchor && Math.random() < Number(process.env.PLACEMISS ?? 0)) m = e.midi + 2;
       const delay = Math.max(0, (at - audio.now) * 1000);
       setTimeout(() => press(m, at), delay);
       if (!e.free) prevPlayed = m;
