@@ -17,6 +17,8 @@
 // JUDGE=x    how often the player offers a note in the judgment window (half
 //            of those name a real miss, a third name the wrong note he
 //            actually played, the rest are wild).
+// STUCK=1    the opening note's release never arrives (a toddler on the
+//            octave buttons): the session must still end on silence.
 import { Audio } from '../src/audio.js';
 import { Db } from '../src/db.js';
 import { AdaptiveEngine } from '../src/engine.js';
@@ -57,7 +59,7 @@ const press = (midi, atAudio) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 drill.onNoteOn({ note: 62, velocity: 90, at: performance.now(), port: 'Keystation Pro 88' });
-setTimeout(() => drill.onNoteOff({ note: 62, at: performance.now() }), 150);
+if (!process.env.STUCK) setTimeout(() => drill.onNoteOff({ note: 62, at: performance.now() }), 150);
 process.on('uncaughtException', (e) => { console.log('UNCAUGHT', e.stack); process.exit(1); });
 let seen = 0;
 let played = null;

@@ -736,6 +736,10 @@ export class Drill {
       asked: [...this.askedThisSession],
     });
     if (!silent) this.audio.sessionOver();
+    // a key still "down" now is one whose release never came: say which, and
+    // start the next sitting without it
+    if (this.keysDown.size) this.log(`  keys still down at the end (release never arrived): ${[...this.keysDown].join(' ')}`);
+    this.keysDown.clear();
     this.state = 'IDLE';
     this.log(`session over (${reason}): ${this.questions} questions, ${this.passagesDone} passages. Play a note to start again.`);
     this.onSessionEnd?.();
@@ -2291,7 +2295,12 @@ export class Drill {
     const now = this.audio.now;
     // Silence only counts once an answer is actually possible: never during
     // the wait between questions, and never before the call has finished.
-    if (!this.answered) {
+    // EXCEPT A WAIT THAT CANNOT END. The next question waits for every key to
+    // come up, so a key whose release never arrived (a toddler on the
+    // octave buttons, 2026-09-25: D#3 down for good, the drill parked on an
+    // answered Q2 with the pulse running and no way out) held it forever.
+    // Silence there is the same silence: nothing pressed for the timeout.
+    if (!this.answered || this.nextQuestionAt === Infinity) {
       const idleSince = Math.max(this.lastInputAt, this.audioToPerf(this.callEndAt));
       if (performance.now() - idleSince > this.stage.timeoutMs) {
         // THE ECHO WINDOW IS THE ONE QUESTION WHERE THE DRILL HAS PLAYED
@@ -2302,7 +2311,7 @@ export class Drill {
         // the usual way if the player really has left. (William, 2026-09-11:
         // four windows, two figures -- and both of the other two ended his
         // session, which is the whole of what was wrong here.)
-        if (this.q.collect && this.collected.length === 0) {
+        if (!this.answered && this.q.collect && this.collected.length === 0) {
           this.echoEmpty += 1;
           this.log(`  nothing played yet: moving on${this.echoEmpty >= 2 ? ' (and the echo game is done for this sitting)' : ''}`);
           this.lastPlayedAt = now;
