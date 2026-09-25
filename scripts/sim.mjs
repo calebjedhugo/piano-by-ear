@@ -21,7 +21,7 @@ import { Audio } from '../src/audio.js';
 import { Db } from '../src/db.js';
 import { AdaptiveEngine } from '../src/engine.js';
 import { Drill } from '../src/drill.js';
-import { PhraseBank, MONO_PATH, HYMNS_PATH, POLY_PATH } from '../src/phrases.js';
+import { PhraseBank, MONO_PATH, HYMNS_PATH, POLY_PATHS } from '../src/phrases.js';
 import { RangeTracker } from '../src/range.js';
 
 const [dbPath, player = 'perfect', maxQ = '30', bpm = '160', nophrases = ''] = process.argv.slice(2);
@@ -33,7 +33,7 @@ audio.master.gain.value = 0;
 const range = new RangeTracker(db.kv('ranges'));
 range.setPort('Keystation Pro 88');
 const phrases = new PhraseBank({ store: db.kv('phraseStats'), path: [MONO_PATH, HYMNS_PATH] });
-const poly = new PhraseBank({ store: db.kv('polyStats'), path: POLY_PATH });
+const poly = new PhraseBank({ store: db.kv('polyStats'), path: POLY_PATHS });
 const drill = new Drill({ audio, db, range, phrases: nophrases ? null : phrases, poly: nophrases ? null : poly, log, bpmOverride: Number(bpm),
   makeEngine: (lo, hi, fluentMs, which) => new AdaptiveEngine({ range: hi - lo, fluentMs, pitchClassOffset: lo % 12, store: db.engineStore(which), ...(which === 'harmonic' ? { minTiers: 3, unsigned: true, timed: false } : {}) }) });
 

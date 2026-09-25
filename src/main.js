@@ -32,7 +32,7 @@ import { VolumeFader } from './volume.js';
 import { Roster, RETIRE_DAYS } from './roster.js';
 import { Sync, syncConfig } from './sync.js';
 import { deviceId } from './device.js';
-import { PhraseBank, MONO_PATH, HYMNS_PATH, POLY_PATH } from './phrases.js';
+import { PhraseBank, MONO_PATH, HYMNS_PATH, POLY_PATHS } from './phrases.js';
 
 const DATA = join(homedir(), '.piano-by-ear');
 const { values: args } = parseArgs({
@@ -138,7 +138,7 @@ function retire() {
 
 const hardware = hardwareSound();
 const audio = new Audio({ hardware });
-const phraseFiles = { mono: [MONO_PATH, HYMNS_PATH], poly: POLY_PATH };
+const phraseFiles = { mono: [MONO_PATH, HYMNS_PATH], poly: POLY_PATHS };
 let currentPort = null;
 
 // Parse the corpus NOW, while nobody is waiting. PhraseBank keeps one copy per

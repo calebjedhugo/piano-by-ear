@@ -31,7 +31,7 @@ export const BANDS = {
 export const DEFAULT_BAND = { pref: 76, max: 100 };
 
 // Texture discounts. These only ever multiply below 1: thicker is slower.
-export const TEXTURE = { mono: 1, duo: 0.94, chorale: 0.88, poly: 0.82 };
+export const TEXTURE = { mono: 1, duo: 0.94, trio: 0.91, chorale: 0.88, poly: 0.82 };
 
 // An interval question is not an excerpt and has no tempo of its own. It gets
 // a calm pulse, because the task is hearing rather than execution.

@@ -16,3 +16,50 @@ git clone --depth 1 https://github.com/craigsapp/bach-370-chorales /tmp/bach
 git clone --depth 1 https://github.com/craigsapp/mozart-piano-sonatas /tmp/mozart
 node scripts/build-corpus.mjs /tmp/bach/kern /tmp/mozart/kern
 ```
+
+## Adding your own sources
+
+The three-voice rung (`trio`, between two voices and four-part chorales) has
+**no excerpts in this repository**. Until you add a source it is simply
+stepped over, and everything else works. Adding one is how to get that rung.
+These steps are written so another Claude instance can follow them.
+
+1. **Find a source you are allowed to use.** You need Humdrum `**kern` files
+   of contrapuntal keyboard music (fugues, three-part inventions and the
+   like), with **each voice on its own spine** and three `**kern` spines per
+   file. Check the licence of the *digital edition*, not just the music: the
+   music may be centuries old while the encoding still reserves rights. Use
+   only what your own situation permits.
+2. **Keep the files outside the repository**, e.g. `~/.piano-by-ear/sources/<name>/`.
+   Copy in only the three-voice files. Count the spines like this:
+
+   ```bash
+   for f in *.krn; do echo "$f $(grep -m1 '^\*\*kern' "$f" | tr '\t' '\n' | grep -c kern)"; done
+   ```
+
+3. **Build them into the git-ignored local corpus:**
+
+   ```bash
+   node scripts/build-corpus.mjs --local <name> ~/.piano-by-ear/sources/<name>
+   ```
+
+   This writes `corpus/local/<name>.json` and touches nothing else. Four-voice
+   files would come out as `duo`/`chorale` and two-voice files as `poly`. Keep
+   those out unless you mean to add to those rungs.
+4. **Check the output.** The build prints the count by kind. You need a few
+   hundred `trio` excerpts, some of them 4-6 notes long, because the rung
+   starts at 4 notes. Three-voice windows are cut on the beat, which gives
+   short excerpts from dense music.
+5. **Restart the drill.** Every `corpus/local/*.json` is loaded into the
+   polyphonic bank at startup.
+6. **Never commit `corpus/local/`.** It is ignored on purpose: it holds
+   material you may use but may not redistribute.
+
+To check it end to end on a copy of a profile, never the live one, set the
+level to the trio rung and run the simulator:
+
+```bash
+cp ~/.piano-by-ear/profiles/<name>.db /tmp/t.db
+node -e 'const {DatabaseSync}=require("node:sqlite");new DatabaseSync("/tmp/t.db").prepare("insert or replace into kv(key,value) values(?,?)").run("poly",JSON.stringify({level:2,kinds:5,reached:2,history:[]}))'
+node scripts/sim.mjs /tmp/t.db sloppy 100 | grep -E "trio|placing"
+```

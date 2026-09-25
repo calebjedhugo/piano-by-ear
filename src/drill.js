@@ -72,7 +72,7 @@
 //              The top voice is heard for free (Fujioka 2005); the inner ones
 //              are the target.
 //   passage:   a real phrase in the block key, in its own meter with its
-//              pickup ('mono' one voice; 'duo', 'chorale', 'poly' more).
+//              pickup ('mono' one voice; 'duo', 'trio', 'chorale', 'poly' more).
 //   window:    after EVERY passage the pulse DROPS for two seconds (or two
 //              beats, whichever is longer). Whatever you play in that silence
 //              is your answer to "which note did you miss?"; playing nothing
@@ -216,8 +216,8 @@ const CALL_MAX_S = 2; // the longest a call note sounds; a hold is never graded 
 // all. His clean rates in CORPUS notes: mono 4 61%, 5 65%, 6 44%, 7 45%,
 // 8 31%, 9 18%, 10 0%; duo 4 63%, 5 36%, 6 19%, 7+ 0 for 23.
 const LEN = {
-  start: { mono: 5, duo: 4, chorale: 4, poly: 4 },
-  min: { mono: 4, duo: 4, chorale: 4, poly: 4 },
+  start: { mono: 5, duo: 4, trio: 4, chorale: 4, poly: 4 },
+  min: { mono: 4, duo: 4, trio: 4, chorale: 4, poly: 4 },
   band: 1, // a pick may be this many notes under the target, and still votes
   grow: 2,
   shrink: 3,
@@ -317,7 +317,18 @@ const POLY_DEMOTE_HOLD_MS = 24 * 60 * 60 * 1000;
 // Bursts closer than this are one sitting: the key, the warm-up and the loops carry over.
 const CARRY_MS = 30 * 60 * 1000;
 // Polyphony levels and how they are earned (see polyLevel()).
-export const POLY_KINDS = ['mono', 'duo', 'chorale', 'poly'];
+// THREE VOICES BEFORE FOUR (2026-09-25). Listeners count three concurrent
+// voices with ~10% error and four with ~50% (Huron 1989, Bach excerpts:
+// "one, two, three, or many"). Caleb, on the one-chord chorales: "I was
+// getting them right because I knew there were 4 voices, not because I
+// could hear them." So a three-voice rung sits between duo and chorale.
+// Its excerpts come from sources built into corpus/local/ (git-ignored; see
+// corpus/README.md); with none, the rung is stepped over both ways.
+// Stored levels are INDICES: `kinds: 5` marks a record already renumbered.
+export const POLY_KINDS = ['mono', 'duo', 'trio', 'chorale', 'poly'];
+// Voices striking together fuse (Huron 1989); a trio excerpt where every
+// onset is all three voices at once is wanted this much less.
+const TRIO_TOGETHER_PENALTY = 0.6;
 const POLY = {
   window: 12, // passages of a level's kind judged for promotion/demotion
   // PER NOTE, not per passage (2026-09-22): the level is judged on the notes
@@ -331,7 +342,7 @@ const POLY = {
   demoteNote: 0.65,
   melodicTiersForDyads: 6, // melodic tiers unlocked before dyads begin (through the M6)
   masteredForDyads: 6, // ...and this many intervals mastered: dyads wait for interval confidence, not passages
-  harmonicTiersForChorale: 4, // harmonic tiers unlocked before four-part chords
+  harmonicTiersForChorale: 4, // harmonic tiers unlocked before anything past two voices (trio, then chorale)
   // Harmonic tiers before three-note chords join the dyads. TWO, not three:
   // the tier ladder was tuned on the melodic engine, which has 30x the data,
   // and a rung of it means very little at n=81. More to the point, TWO NOTES
@@ -350,7 +361,7 @@ const POLY = {
 // hearing out chord tones tracks familiarity with the TYPE).
 const CHORD_SHAPES = [[4, 7], [3, 7], [3, 8], [4, 9], [4, 7, 10]];
 // Passage TEXTURE only: the dyads left this ladder on 2026-09-12 (dyadsOpen).
-const LEVEL_NAMES = ['melody only', 'two voices', 'four-part chorales', 'both hands'];
+const LEVEL_NAMES = ['melody only', 'two voices', 'three voices', 'four-part chorales', 'both hands'];
 // THE DYAD RUNGS (Caleb, 2026-09-20; see dyadSlot). A dyad is a DEPARTURE from
 // the anchor: both notes are measured from the note being left, and the
 // bottom note is no longer named for the player. Three rungs, in order:
@@ -541,6 +552,12 @@ export class Drill {
       const notes = rows.reduce((t, h) => t + h.notes, 0);
       return notes ? rows.reduce((t, h) => t + h.exact, 0) / notes : 0;
     };
+    if (st.kinds !== POLY_KINDS.length) {
+      // renumber a record from before the trio rung: chorale 2 -> 3, poly 3 -> 4
+      if ((st.level || 0) >= 2) st.level += 1;
+      if ((st.reached ?? 0) >= 2) st.reached += 1;
+      st.kinds = POLY_KINDS.length;
+    }
     let level = st.level || 0;
     const cur = recent(POLY_KINDS[level]);
     // C (WIDE): the first duo waits for wide spans answered by reflex. Only
@@ -553,8 +570,10 @@ export class Drill {
     } else if (cur.length >= POLY.window && rate(cur) >= POLY.promoteNote && level < POLY_KINDS.length - 1) {
       const gate = level === 1 ? this.harmonic.state.tiersUnlocked >= POLY.harmonicTiersForChorale : true;
       if (gate) level += 1;
+      while (level < POLY_KINDS.length - 1 && !this.polyKindAvailable(POLY_KINDS[level])) level += 1;
     } else if (level > 0 && cur.length >= POLY.window && rate(cur) < POLY.demoteNote) {
       level -= 1;
+      while (level > 1 && !this.polyKindAvailable(POLY_KINDS[level])) level -= 1;
       st.demotedAt = Date.now();
     }
     if (level !== (st.level || 0)) {
@@ -1244,12 +1263,19 @@ export class Drill {
     return span;
   }
 
-  /** B: a poly phrase's weight by how reflexive its placing span is. */
+  /** Does the poly bank hold any excerpts of this kind (a trio needs a local source)? */
+  polyKindAvailable(kind) {
+    if (!this.polyKinds) this.polyKinds = new Set(this.poly ? this.poly.phrases.map((p) => p.kind) : []);
+    return this.polyKinds.has(kind);
+  }
+
+  /** B: a poly phrase's weight by how reflexive its placing span is (and, for a trio, how separable its voices are). */
   placingLean(phrase) {
+    const fused = phrase.kind === 'trio' ? 1 - TRIO_TOGETHER_PENALTY * phrase.together : 1;
     const span = this.placingSpan(phrase);
-    if (span <= 12) return 1;
+    if (span <= 12) return fused;
     const r = this.wideState().sizes[span]?.reflex ?? 0;
-    return WIDE.floor + (1 - WIDE.floor) * r;
+    return fused * (WIDE.floor + (1 - WIDE.floor) * r);
   }
 
   /** One retrieval on a rung (never the unison), and the move it may cause. */
@@ -1623,7 +1649,10 @@ export class Drill {
   passageKinds() {
     const level = this.polyState.level;
     const kinds = [];
-    for (let l = 0; l <= level; l += 1) kinds.push({ kind: POLY_KINDS[l], w: l === level ? 0.6 : 0.4 / Math.max(1, level) });
+    for (let l = 0; l <= level; l += 1) {
+      if (l > 0 && l < level && !this.polyKindAvailable(POLY_KINDS[l])) continue; // a rung with no source is stepped over
+      kinds.push({ kind: POLY_KINDS[l], w: l === level ? 0.6 : 0.4 / Math.max(1, level) });
+    }
     // weighted order without replacement
     const order = [];
     const pool = kinds.slice();

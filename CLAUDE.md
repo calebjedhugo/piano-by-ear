@@ -297,7 +297,7 @@ ones. Caleb: "the way it's used for the advanced rungs is fine."
 
 ## THE LEVEL IS JUDGED PER NOTE, NOT PER PASSAGE (2026-09-22)
 
-The polyphony level (mono -> duo -> chorale -> poly) is promoted and demoted
+The polyphony level (mono -> duo -> trio -> chorale -> poly) is promoted and demoted
 on the NOTES of the last 12 first-asked passages of its kind, pooled (sum
 exact / sum graded): promote >= 85%, demote < 65% -- the dyad rungs' band.
 It used to read the PASSAGE VERDICT (>= 70% clean / < 30%).
@@ -675,7 +675,9 @@ comes up.
   (a doubled triad fuses into three notes -- the ear is right, the drill
   asks for the doubling) and 5 of 9 wrong notes were another note of the same
   chord (right pitch, wrong voice). It grows by itself as LEN grows: a chord,
-  then a chord and a moving voice, then two chords. KEEP IT. ON A RETRY a
+  then a chord and a moving voice, then two chords. KEEP IT -- but 09-25 Caleb
+  on it: "I was getting them right because I knew there were 4 voices, not
+  because I could hear them." Hence the trio rung below. ON A RETRY a
   voice's first note is free only if the voice goes on, or a placing put it
   under a hand: before, a one-chord retry graded NOTHING (6 of 6 "nailed on
   try 2" with zero notes asked). It cannot
@@ -893,6 +895,18 @@ comes up.
   clean. The ladder now governs PASSAGE TEXTURE ONLY
   (`passageKinds`); LEVEL_NAMES[1] is "two voices", not "dyads and two
   voices".
+  THREE VOICES BEFORE FOUR (2026-09-25, `trio`, level 2). Huron 1989: voice
+  counts in Bach excerpts err ~10% at three voices and ~50% at four. The trio
+  rung takes the harmonic gate (`harmonicTiersForChorale`); chorale is
+  earned from trio by the per-note window. Its excerpts come ONLY from
+  `corpus/local/*.json` (git-ignored, `build-corpus.mjs --local`; how-to in
+  corpus/README.md). NEVER NAME OR COMMIT A LOCAL SOURCE: this repo is public
+  and those encodings may not be redistributable. With no local source the
+  rung is stepped over both ways (`polyKindAvailable`). Stored levels are
+  indices: a `poly` record without `kinds: 5` is renumbered once (chorale
+  2 -> 3, poly 3 -> 4). Trio excerpts with every onset all three voices at
+  once are wanted less (`together`, TRIO_TOGETHER_PENALTY): voices struck
+  together fuse and get counted, not heard.
   DYADS AND CHORDS RUN ON INTERVAL CONFIDENCE, NOT ON THIS LADDER
   (`dyadsOpen()`, 2026-09-12): the same entry bar as before (tiers and
   mastered counts) but a duo-passage slump can no longer take them away. A
@@ -1172,7 +1186,12 @@ comes up.
   Ids are content hashes (stable across rebuilds). Also writes poly.json:
   `extractPoly` keeps every voice; `polyPhrases` cuts bar-aligned windows
   (2..8 beats) inside each melodic phrase: duo (voices 0 and top) and
-  chorale for 4-voice files, poly for 2-staff files; limits in `POLY`.
+  chorale for 4-voice files, trio for 3-voice files (cut on the BEAT too:
+  bar windows of fugal music were 7-14 notes), poly for 2-staff files;
+  limits in `POLY`. `--local <name>` writes only poly phrases to
+  corpus/local/<name>.json. The committed corpus predates upstream edits to
+  its sources: a rebuild today changes ~10k poly ids, so DON'T rebuild it
+  casually (phrase stats and schedules are keyed by id).
 - `src/midiout.js` ON THE INSTRUMENT'S OWN SOUND (launcher sound toggle ->
   `~/.piano-by-ear/sound`, read at startup, so a change needs a restart).
   For a keyboard with a sound engine rather than a mute controller: the call

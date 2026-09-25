@@ -1,7 +1,7 @@
 // Real musical phrases, chosen for the anchor you just played.
 //
 // Two banks share this class: corpus/phrases.json (one melodic line) and
-// corpus/poly.json (several voices: 'duo', 'chorale', 'poly'). A phrase's
+// corpus/poly.json (several voices: 'duo', 'trio', 'chorale', 'poly'). A phrase's
 // notes are [midi, offsetBeats, durationBeats, voice?]; `pivot` (default 0)
 // indexes the note placed on the anchor -- the first note of a melody, the
 // highest note of the first chord otherwise.
@@ -14,13 +14,17 @@
 // immediate tries; a same-session re-test is performance, not learning), a
 // clean one after 3 days, then a week, then three weeks (Cepeda 2008; Kang
 // 2014) -- and a phrase due for review is wanted a little more.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { phraseKey, shiftToKey, placementPoint } from './keyblock.js';
 
 export const MONO_PATH = fileURLToPath(new URL('../corpus/phrases.json', import.meta.url));
 export const HYMNS_PATH = fileURLToPath(new URL('../corpus/hymns.json', import.meta.url));
 export const POLY_PATH = fileURLToPath(new URL('../corpus/poly.json', import.meta.url));
+// Sources you may use but not redistribute are built into corpus/local/
+// (git-ignored; scripts/build-corpus.mjs --local) and join the poly bank.
+const LOCAL_DIR = fileURLToPath(new URL('../corpus/local/', import.meta.url));
+export const POLY_PATHS = [POLY_PATH, ...(existsSync(LOCAL_DIR) ? readdirSync(LOCAL_DIR).filter((f) => f.endsWith('.json')).sort().map((f) => LOCAL_DIR + f) : [])];
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DUE_AFTER_FAIL_MS = 1 * DAY_MS;
 const DUE_AFTER_CLEAN_MS = [3 * DAY_MS, 7 * DAY_MS, 21 * DAY_MS]; // by clean passes in a row
@@ -95,7 +99,7 @@ export class PhraseBank {
    * @param {object} opts
    * @param {import('./engine.js').AdaptiveEngine} opts.engine    melodic engine
    * @param {import('./engine.js').AdaptiveEngine} [opts.harmonic] harmonic engine (chords)
-   * @param {string} [opts.kind]        'mono' (default) | 'duo' | 'chorale' | 'poly'
+   * @param {string} [opts.kind]        'mono' (default) | 'duo' | 'trio' | 'chorale' | 'poly'
    * @param {number} opts.maxNotes
    * @param {number} [opts.minNotes]  the bottom of the band (see LEN in drill.js)
    * @param {Set<string>} [opts.exclude] phrase ids to skip this session
@@ -319,6 +323,15 @@ function analyse(p) {
     chromatic,
     harmonic,
     minDur: Math.min(...p.notes.map((n) => n[2])),
+    // share of onsets where EVERY voice attacks at once: the texture that
+    // fuses into one sound (Huron 1989), so voices are counted, not heard
+    together: (() => {
+      const nv = byVoice.size;
+      if (nv < 2) return 0;
+      const on = new Map();
+      for (const n of p.notes) on.set(n[1], (on.get(n[1]) || new Set()).add(n[3] || 0));
+      return [...on.values()].filter((v) => v.size === nv).length / on.size;
+    })(),
     span: maxEnd,
     lastRel: lastGroupTop - p.notes[pivot][0],
     maxRest,

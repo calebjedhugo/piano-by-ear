@@ -2,6 +2,12 @@
 // Build corpus/phrases.json from Humdrum **kern files.
 //
 //   node scripts/build-corpus.mjs <kern-dir> [<kern-dir>...]
+//   node scripts/build-corpus.mjs --local <name> <kern-dir> [<kern-dir>...]
+//
+// --local writes ONLY the polyphonic phrases, to corpus/local/<name>.json,
+// and leaves phrases.json and poly.json alone. corpus/local/ is git-ignored:
+// it is for sources you may use yourself but may not redistribute. See
+// corpus/README.md, "Adding your own sources".
 //
 // MELODY: the rightmost **kern spine at the header (soprano in the chorales,
 // right hand in the sonatas) and every sub-spine it splits into (*^). On each
@@ -23,7 +29,8 @@
 // POLYPHONY (corpus/poly.json): every voice of the same files, cut into
 // bar-aligned windows inside the melodic phrases above. Four-voice files
 // (the chorales) yield 'duo' (soprano + bass) and 'chorale' (all voices)
-// phrases; two-staff files (the sonatas) yield 'poly' (both hands). Notes
+// phrases; three-voice files, one voice per spine (fugues, sinfonias), yield
+// 'trio'; two-staff files (the sonatas) yield 'poly' (both hands). Notes
 // are [midi, offset, duration, voice] with voice 0 the lowest staff;
 // `pivot` indexes the highest note of the first onset, which is placed on
 // the player's anchor.
@@ -44,6 +51,7 @@ const MAX_AMBITUS = 19;
 // polyphonic windows
 const POLY = {
   duo: { maxNotes: 14, maxSimul: 2, minVoices: 2, maxAmbitus: 36 },
+  trio: { maxNotes: 14, maxSimul: 3, minVoices: 3, maxAmbitus: 36 },
   chorale: { maxNotes: 16, maxSimul: 4, minVoices: 3, maxAmbitus: 36 },
   poly: { maxNotes: 16, maxSimul: 4, minVoices: 2, maxAmbitus: 36 },
 };
@@ -487,21 +495,29 @@ function extractPoly(text) {
 function polyPhrases(monoPhrases, poly, bars, source) {
   const out = [];
   const seen = new Set();
-  const kinds = poly.voices >= 4 ? ['duo', 'chorale'] : poly.voices === 2 ? ['poly'] : [];
+  const kinds = poly.voices >= 4 ? ['duo', 'chorale'] : poly.voices === 3 ? ['trio'] : poly.voices === 2 ? ['poly'] : [];
   if (kinds.length === 0) return out;
   const top = poly.voices - 1;
   for (const mono of monoPhrases) {
     const { at, spanTicks, beatTicks, meter } = mono;
     const end = at + spanTicks;
     const barTicks = meter * beatTicks;
-    const cuts = [at, ...bars.map((b) => b.ticks).filter((t) => t > at && t < end), end];
+    const barCuts = [at, ...bars.map((b) => b.ticks).filter((t) => t > at && t < end), end];
+    // THREE-VOICE TEXTURES ARE CUT ON THE BEAT as well: a fugue bar holds far
+    // more notes than a chorale bar, and bar-aligned windows came out 7-14
+    // notes with almost nothing short enough to start a rung on.
+    const beatCuts = [];
+    for (let t = at; t < end; t += beatTicks) beatCuts.push(t);
+    beatCuts.push(end);
+    for (const kind of kinds) {
+    const cuts = kind === 'trio' ? beatCuts : barCuts;
     for (let i = 0; i < cuts.length - 1; i += 1) {
       for (let j = i + 1; j < cuts.length; j += 1) {
         const from = cuts[i];
         const to = cuts[j];
         const spanBeats = (to - from) / beatTicks;
         if (spanBeats < MIN_SPAN_BEATS || spanBeats > POLY_MAX_SPAN_BEATS) continue;
-        for (const kind of kinds) {
+        {
           const want = kind === 'duo' ? new Set([0, top]) : null;
           const notes = poly.notes
             .filter((n) => n.ticks >= from && n.ticks < to && (!want || want.has(n.voice)))
@@ -515,6 +531,7 @@ function polyPhrases(monoPhrases, poly, bars, source) {
           out.push(p);
         }
       }
+    }
     }
   }
   return out;
@@ -559,9 +576,13 @@ function polyPhrase(kind, raw, from, to, mono, source) {
   };
 }
 
+const argv = process.argv.slice(2);
+const localAt = argv.indexOf('--local');
+const local = localAt >= 0 ? argv.splice(localAt, 2)[1] : null;
+if (localAt >= 0 && !/^[A-Za-z0-9_-]+$/.test(local ?? '')) throw new Error('--local needs a plain name: --local <name> <kern-dir>...');
 const out = [];
 const polyOut = [];
-for (const dir of process.argv.slice(2)) {
+for (const dir of argv) {
   const files = readdirSync(dir).filter((f) => f.endsWith('.krn')).sort();
   const collection = basename(dir.replace(/\/kern\/?$/, ''));
   for (const f of files) {
@@ -585,12 +606,18 @@ for (const p of out) {
   delete p.beatTicks;
   delete p.bars;
 }
-mkdirSync('corpus', { recursive: true });
-writeFileSync('corpus/phrases.json', JSON.stringify(out));
-writeFileSync('corpus/poly.json', JSON.stringify(polyOut));
 const polyBy = {};
 for (const p of polyOut) polyBy[p.kind] = (polyBy[p.kind] || 0) + 1;
 console.log(`${polyOut.length} polyphonic phrases`, polyBy);
+if (local) {
+  mkdirSync('corpus/local', { recursive: true });
+  writeFileSync(`corpus/local/${local}.json`, JSON.stringify(polyOut));
+  console.log(`wrote corpus/local/${local}.json (git-ignored; restart the drill to load it)`);
+  process.exit(0);
+}
+mkdirSync('corpus', { recursive: true });
+writeFileSync('corpus/phrases.json', JSON.stringify(out));
+writeFileSync('corpus/poly.json', JSON.stringify(polyOut));
 const by = {};
 for (const p of out) by[p.composer] = (by[p.composer] || 0) + 1;
 const meters = {};
