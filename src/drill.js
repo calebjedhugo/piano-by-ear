@@ -3111,6 +3111,21 @@ export class Drill {
       sessionId: this.sessionId, question: w.question, phraseId: w.phraseId, passageClean: w.clean,
       missed: live.length, caught: w.missed.length - live.length, pressed: offered.length, hits, echoes, strays,
     });
+    // NAMING THE MISS MOVES THE HAND. The anchor is where the passage left
+    // his hand, so when that was the wrong note and he has just named the
+    // right one, his hand is on the right one now. Left alone, the re-anchor
+    // opened on the wrong note -- sounding his error back at him right after
+    // he fixed it, and from a key his hand had already left (2026-09-25: C6
+    // for C#6, named, then "re-anchor: C6 -> B5"). Only the anchor hand's own
+    // miss moves it; a note named in the other hand leaves it where it is.
+    for (const note of offered) {
+      const m = live.find((x) => x.midi === note && x.played === this.anchor);
+      if (m) {
+        this.log(`  (hand now on ${name(note)}, the note you named)`);
+        this.anchor = note;
+        break;
+      }
+    }
     // Served next: what he never reached, minus what he just named and what
     // he caught in flight. Nothing is played that he has already shown.
     const serve = [];
