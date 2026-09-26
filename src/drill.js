@@ -1594,6 +1594,8 @@ export class Drill {
     return {
       kind: 'correction',
       correction: true,
+      keepAnchor: c.anchorAfter == null,
+      anchorAfter: c.anchorAfter ?? null,
       tempo: c.bpm,
       notes,
       meter: 4,
@@ -2918,7 +2920,10 @@ export class Drill {
       // passage opened on B5 -- correctly placed, still lost). Now the hand
       // keeps the anchor and the drill ASKS him to move, which is the only
       // thing that actually puts him there.
-      const hand = top(reached[k - 1]);
+      // A correction leaves the anchor hand on its own note, as played.
+      const own = this.q.anchorAfter == null ? null
+        : this.groups.flatMap((g) => g.notes).find((e) => e.midi === this.q.anchorAfter && e.played !== null);
+      const hand = own ? own.played : top(reached[k - 1]);
       const inWindow = this.clampAnchor(hand);
       this.anchor = hand;
       if (inWindow !== hand) this.reanchor = { target: inWindow, forRetry: false, served: false };
@@ -3137,7 +3142,14 @@ export class Drill {
       this.correction = null;
       return;
     }
-    this.correction = serve.length ? { notes: serve, bpm: w.bpm } : null;
+    // A CORRECTION IS PLAYED IN ONE LINE, BUT THE HANDS ARE STILL TWO. Its
+    // last note used to become the anchor whatever hand it belonged to, so a
+    // bass note corrected after a named treble miss pulled the anchor down
+    // into the other hand and the re-anchor jumped across the keyboard from
+    // it (2026-09-26: D#5 named, C4 corrected, then "re-anchor: C4 -> C#5
+    // (+13)"). Only the anchor hand's own miss, if it is served, moves it.
+    const own = live.find((m) => m.played === this.anchor && serve.includes(m.midi));
+    this.correction = serve.length ? { notes: serve, bpm: w.bpm, anchorAfter: own ? own.midi : null } : null;
   }
 
   /**
