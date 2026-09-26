@@ -1187,7 +1187,9 @@ comes up.
   `extractPoly` keeps every voice; `polyPhrases` cuts bar-aligned windows
   (2..8 beats) inside each melodic phrase: duo (voices 0 and top) and
   chorale for 4-voice files, trio for 3-voice files (cut on the BEAT too:
-  bar windows of fugal music were 7-14 notes), poly for 2-staff files;
+  bar windows of fugal music were 7-14 notes; a trio window KEEPS NOTES
+  ALREADY SOUNDING at the cut, or a held voice's next note arrives from
+  nowhere as a wide leap), poly for 2-staff files;
   limits in `POLY`. `--local <name>` writes only poly phrases to
   corpus/local/<name>.json. The committed corpus predates upstream edits to
   its sources: a rebuild today changes ~10k poly ids, so DON'T rebuild it
