@@ -714,6 +714,7 @@ export class Drill {
     this.nextBarAt = this.audio.now + this.beat;
     this.scheduledUntil = this.nextBarAt;
     this.meter = 4;
+    this.barPhase = 0;
     this.answered = false;
     this.nextQ = this.makeQuestion();
     this.beginQuestion();
@@ -1612,6 +1613,16 @@ export class Drill {
     const plan = remeterPlan(phrase, this.floorSec);
     const notes = plan ? remeterNotes(picked.notes, plan) : picked.notes;
     const pickup = plan ? Math.round((phrase.pickup * plan.beatSec) / plan.unitSec) : phrase.pickup;
+    // THE CALL STARTS ON ITS FIRST NOTE, not on the bar line before it. An
+    // excerpt cut mid-bar used to be counted in from the downbeat: up to 11
+    // clicks of nothing before a fugue excerpt starting late in a 12/16 bar.
+    // Caleb: "The ear is not going to latch on to the meter until the excerpt
+    // starts playing anyway ... being able to start playing in the middle of
+    // a meter will be an emergent skill." Only the WHOLE beats go; a
+    // fraction stays so the notes still sit on the clicks, and the accent
+    // keeps falling where the bar lines really are (barPhase).
+    const skipped = Math.floor(pickup + 1e-9);
+    const meter = plan ? plan.meter : phrase.meter;
     // Placed in a key, the pivot is no longer the note under the hand: it is
     // a heard note like any other and is graded (buildGroups frames it from
     // the anchor). Placed on the anchor, it stays free. On a RETRY every
@@ -1633,7 +1644,7 @@ export class Drill {
       const freeOnRetry = kind === 'retry' && firstInVoice && (perVoice.get(voice) > 1 || underHand.has(midi));
       // The pivot is the note under your hand, in a key or not (PhraseBank
       // places it there): free, as it always was.
-      return { midi, b: pickup + off, dur, voice, free: i === phrase.pivot || freeOnRetry };
+      return { midi, b: pickup - skipped + off, dur, voice, free: i === phrase.pivot || freeOnRetry };
     });
     const pivotMidi = notes[phrase.pivot][0];
     const remetered = plan ? `, re-metered (${plan.meter} per beat)` : '';
@@ -1642,7 +1653,8 @@ export class Drill {
     return {
       kind,
       notes: placed,
-      meter: plan ? plan.meter : phrase.meter,
+      meter,
+      barPhase: ((skipped % meter) + meter) % meter,
       tempo: plan ? plan.bpm : undefined,
       phrase,
       octave,
@@ -2138,6 +2150,7 @@ export class Drill {
     this.engine.beginQuestion();
     this.harmonic.beginQuestion();
     this.meter = q.meter;
+    this.barPhase = q.barPhase ?? 0; // beat 0 of the question is this far into its bar
     // TEMPO IS PER QUESTION, like the meter beside it: this excerpt's own,
     // decided before anything is scheduled against it. The grid restarts here
     // anyway (nextBarAt is beat 0 of this question), so the new beat governs
@@ -2333,7 +2346,7 @@ export class Drill {
       // clicks simply are not played, and the next question sets its own
       // downbeat anyway.
       if (beatTime >= now && beatTime < horizon && !this.q.window) {
-        const inBar = ((beatIndex % this.meter) + this.meter) % this.meter;
+        const inBar = (((beatIndex + this.barPhase) % this.meter) + this.meter) % this.meter;
         this.audio.click(beatTime, { accent: inBar === 0 });
       }
       this.scheduledUntil = beatTime + this.beat;
