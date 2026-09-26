@@ -522,6 +522,21 @@ function polyPhrases(monoPhrases, poly, bars, source) {
           const notes = poly.notes
             .filter((n) => n.ticks >= from && n.ticks < to && (!want || want.has(n.voice)))
             .map((n) => ({ ...n, dur: Math.min(n.dur, to - n.ticks) }));
+          // A NOTE ALREADY SOUNDING IS PART OF THE MUSIC. A beat cut lands
+          // mid-note in the other voices more often than not, and a window of
+          // onsets alone dropped the held note, so the voice's NEXT note
+          // arrived from nowhere (2026-09-26: a top voice's held note stepping
+          // down a half step became a leap of an octave and a tritone from the
+          // middle voice). Held notes join at the cut, with what is left of
+          // them -- unless almost nothing is. Bar cuts are left alone: the
+          // committed corpus is not rebuilt casually.
+          if (kind === 'trio' && notes.some((n) => n.ticks === from)) {
+            const held = poly.notes
+              .filter((n) => n.ticks < from && n.ticks + n.dur > from && Math.min(n.ticks + n.dur, to) - from >= MIN_DUR_QUARTERS * TPQ - 1e-9)
+              .map((n) => ({ ...n, ticks: from, dur: Math.min(n.ticks + n.dur, to) - from }));
+            notes.unshift(...held);
+            notes.sort((a, b) => a.ticks - b.ticks || a.voice - b.voice);
+          }
           const p = polyPhrase(kind, notes, from, to, mono, source);
           if (!p) continue;
           const id = createHash('sha1').update(`${p.file}|${kind}|${from}|${JSON.stringify(p.notes)}`).digest('hex').slice(0, 12);
