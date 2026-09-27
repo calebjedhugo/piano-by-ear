@@ -650,7 +650,11 @@ comes up.
   graded and charged; then `placeHandQuestion` (kind 'place hand',
   navigation, no ladder sees it) sounds the missed note ALONE; once it lands
   both hands are down (the pivot never left) and `handsAfter` records them,
-  and the passage is served. Only a missed MATCH drops it. (For its first day
+  and the passage is served. Only a missed MATCH drops it, and the drop is a
+  ladder row of 0/1 -- ONE note, the one he could not find. IMPORTANT: it
+  never reaches the passages table, so SQL cannot see it; it cost the whole
+  passage until 2026-09-27, and three missed matches silently demoted him
+  trio -> melody only on 09-26. (For its first day
   it also asked both hands together a beat later -- a re-strike of the note
   he was holding: twice he matched the bass and was marked "missed".)
   Why: dropping cost 11 of 23 duo passages on 09-24, half the session's

@@ -1886,13 +1886,20 @@ export class Drill {
         // A DROPPED FIRST ASKING IS A FAILED ONE (2026-09-24). It used to
         // record nothing, so a player who cannot place never filled the
         // level's window: stuck at duo, every passage dropped, never demoted.
-        // The passage cannot be played without the hand there, so every note
-        // it would have graded is missed. Not the length controller's: length
-        // did not cause it.
+        // BUT IT COSTS ONE NOTE, not the passage (2026-09-27): the note he
+        // could not find, the other voice's first. Charging every note it
+        // would have graded made one missed match weigh as much as a whole
+        // passage of wrong notes, and the row never reaches the passages
+        // table, so nobody could see it: three missed matches on 09-26 (two
+        // a semitone off, one an octave) took him from three voices to
+        // melody only while the passages he PLAYED stood at 66% and 76%.
+        // A row per drop still fills the window, so a player who can never
+        // place is still demoted. Not the length controller's: length did
+        // not cause it.
         const ph = p.picked.phrase;
         if (p.kind === 'passage' && ph.kind !== 'mono') {
           this.poly.record(ph.id, false);
-          this.recordPolyOutcome(ph.kind, false, 0, p.picked.notes.length - 1);
+          this.recordPolyOutcome(ph.kind, false, 0, 1);
           this.flushPolyMove();
         }
       } else if (this.fits(p.picked)) {
