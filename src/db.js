@@ -478,6 +478,11 @@ export class Db {
   }
 
   /** When this profile last played anything, by any machine: who wins the kv. */
+  /** Questions answered in the profile's lifetime: any with a note played. */
+  answeredCount() {
+    return this.db.prepare("SELECT COUNT(DISTINCT session_id || ':' || question) n FROM attempts WHERE question IS NOT NULL").get().n;
+  }
+
   lastSessionAt() {
     return this.db.prepare('SELECT MAX(COALESCE(ended_at, started_at)) t FROM sessions').get().t ?? 0;
   }

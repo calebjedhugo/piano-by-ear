@@ -19,10 +19,20 @@
 // not seen Liz for a month retires her while she is playing daily on the
 // other one, and her chord then mints an empty duplicate. Entries merge one
 // by one, newest `updatedAt` wins, keyed by the chord itself.
+//
+// A PROFILE UNDER KEEP_MIN_ANSWERS IS NEVER KEPT (2026-09-27). Most chords
+// the door has ever seen were a toddler's fist or a guest finding the keys:
+// 36 of 47 profiles had fewer than 20 answers. So a sitting that closes a
+// profile still under the bar deletes it -- the db here and on the pi -- and
+// its roster entry becomes a TOMBSTONE (`deletedAt`, and `retiredAt` so it
+// matches nothing) that travels like any other entry, so the other machine
+// forgets it too. Playing that chord again starts from nothing, under the
+// same name.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export const RETIRE_DAYS = 30;
+export const KEEP_MIN_ANSWERS = 20; // questions answered, lifetime, before a profile is kept
 const NAME_MAX = 40; // comfortably inside the sync's 64-character limit
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const STEP = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -82,8 +92,7 @@ export class Roster {
 
   save() {
     mkdirSync(dirname(this.path), { recursive: true });
-    const out = this.profiles.map(({ name, chord, createdAt, updatedAt, lastPlayedAt, retiredAt }) => (
-      { name, chord, createdAt, updatedAt, lastPlayedAt, retiredAt: retiredAt ?? null }));
+    const out = this.toJSON().profiles;
     writeFileSync(this.path, JSON.stringify({ version: 1, profiles: out }, null, 2));
   }
 
@@ -113,11 +122,19 @@ export class Roster {
     // spelt-out name is longer than that -- which made a profile that worked
     // locally and could never reach the pi, silently. Long clusters get named
     // for their outer notes and their size instead.
+    const now = Date.now();
+    // A deleted chord comes back as itself: same entry, same name, no history.
+    const k = keyOf(chord.map(parseNote));
+    const dead = this.profiles.find((p) => p.deletedAt && keyOf(p.notes) === k);
+    if (dead) {
+      Object.assign(dead, { createdAt: now, updatedAt: now, lastPlayedAt: now, retiredAt: null, deletedAt: null });
+      this.save();
+      return dead;
+    }
     let name = chord.map((n) => n.replace('#', 's')).join('-');
     if (name.length > NAME_MAX) name = `${chord[0]}-${chord[chord.length - 1]}-${chord.length}notes`.replace(/#/g, 's');
     if (this.get(name)) name = `${name}-${Date.now().toString(36).slice(-4)}`;
-    const now = Date.now();
-    const p = { name, chord, createdAt: now, updatedAt: now, lastPlayedAt: now, retiredAt: null, notes: chord.map(parseNote) };
+    const p = { name, chord, createdAt: now, updatedAt: now, lastPlayedAt: now, retiredAt: null, deletedAt: null, notes: chord.map(parseNote) };
     this.profiles.push(p);
     this.save();
     return p;
@@ -127,6 +144,15 @@ export class Roster {
     const p = this.get(name);
     if (!p || p.retiredAt) return null;
     p.retiredAt = p.updatedAt = Date.now();
+    this.save();
+    return p;
+  }
+
+  /** Under KEEP_MIN_ANSWERS when it closed: a tombstone, not an entry. */
+  forget(name) {
+    const p = this.get(name);
+    if (!p) return null;
+    p.retiredAt = p.deletedAt = p.updatedAt = Date.now();
     this.save();
     return p;
   }
@@ -173,7 +199,7 @@ export class Roster {
       }
       const k = keyOf(notes);
       const mine = byChord.get(k);
-      const theirs = { ...raw, notes, updatedAt: raw.updatedAt ?? raw.createdAt ?? 0, lastPlayedAt: raw.lastPlayedAt ?? raw.createdAt ?? 0 };
+      const theirs = { ...raw, notes, deletedAt: raw.deletedAt ?? null, updatedAt: raw.updatedAt ?? raw.createdAt ?? 0, lastPlayedAt: raw.lastPlayedAt ?? raw.createdAt ?? 0 };
       if (!mine) {
         this.profiles.push(theirs);
         byChord.set(k, theirs);
@@ -188,7 +214,7 @@ export class Roster {
   }
 
   toJSON() {
-    return { version: 1, profiles: this.profiles.map(({ name, chord, createdAt, updatedAt, lastPlayedAt, retiredAt }) => (
-      { name, chord, createdAt, updatedAt, lastPlayedAt, retiredAt: retiredAt ?? null })) };
+    return { version: 1, profiles: this.profiles.map(({ name, chord, createdAt, updatedAt, lastPlayedAt, retiredAt, deletedAt }) => (
+      { name, chord, createdAt, updatedAt, lastPlayedAt, retiredAt: retiredAt ?? null, ...(deletedAt ? { deletedAt } : {}) })) };
   }
 }

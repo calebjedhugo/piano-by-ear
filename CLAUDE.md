@@ -70,6 +70,18 @@ A profile nobody has played for 30 days is SOFT DELETED: the db moves to
 fresh profile. Restoring one is deliberate -- move the file back and clear
 `retiredAt` in `roster.json`.
 
+**IMPORTANT: A PROFILE UNDER 20 ANSWERED QUESTIONS IS NEVER KEPT** (2026-09-27,
+Caleb: "don't save it"; 43 of 52 live profiles were a toddler's fist or a
+guest finding the keys). When a profile closes, `keepOrForget` (lobby.js)
+counts `Db.answeredCount()` (distinct session+question in attempts) AFTER the
+merge with the pi; under `KEEP_MIN_ANSWERS` it deletes the db here and on the
+pi (`Sync.deleteRemote`, no copy anywhere) and `Roster.forget` leaves a
+TOMBSTONE (`deletedAt` + `retiredAt`) that syncs like any entry. Playing the
+chord again reuses the entry and name, from nothing. NEVER judged on a copy
+that could not reach the pi (it may be missing most of a history): it waits
+for a sync that works. `sweepUnkept()` in main.js applies the rule at startup
+to profiles that closed before it existed.
+
 ## THE PI IS THE SOURCE OF TRUTH, AND SYNC IS A MERGE (2026-09-19)
 
 Two computers (upstairs, downstairs) and a laptop that travels with the
@@ -1037,7 +1049,16 @@ comes up.
   from a white key in C is diatonic either way). So the half step arrives
   where the scale puts it (E-F, B-C) instead of as an interval of its own,
   and the black keys turn on with the octave. `only` is dropped if it would
-  empty the pool: a filter must never be able to end the drill. Evidence scopes: interval questions
+  empty the pool: a filter must never be able to end the drill.
+  THE ENTRY LEVEL WAS A TRAP FOR A TRAINED EAR (2026-09-27): a scripted
+  player who never missed was on tier 2 after 165 questions and tier 4
+  after 535 (41 counted); the violinist had 59 of 667 answers count. Three
+  fixes, all ONLY below DIATONIC_TIERS: the key-block PRIME counts as an
+  isolated probe (`primeProbe` in gradeNote -- in-key there, the same ask as
+  a plain question); the frontier needs 3 trials in EITHER direction, not 3
+  each (in C the half step exists only at E-F and B-C); passages are picked
+  `openOnly` (a locked interval is a FILTER, not LOCKED_PENALTY -- the
+  guitarist got an octave four minutes in). Evidence scopes: interval questions
   update parent stats/cells/confusions/tier controller; passage notes and
   gestures (`scope:'passage'`) update a `+7|src:passage` cell AND record
   near-miss confusions; the round (`scope:'round'`) updates `src:round`

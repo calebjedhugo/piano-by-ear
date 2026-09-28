@@ -27,9 +27,9 @@ import { MidiOut, hardwareSound } from './midiout.js';
 import { RangeTracker } from './range.js';
 import { AdaptiveEngine } from './engine.js';
 import { Drill } from './drill.js';
-import { Lobby } from './lobby.js';
+import { Lobby, keepOrForget } from './lobby.js';
 import { VolumeFader } from './volume.js';
-import { Roster, RETIRE_DAYS } from './roster.js';
+import { KEEP_MIN_ANSWERS, Roster, RETIRE_DAYS } from './roster.js';
 import { Sync, syncConfig } from './sync.js';
 import { deviceId } from './device.js';
 import { PhraseBank, MONO_PATH, HYMNS_PATH, POLY_PATHS } from './phrases.js';
@@ -85,6 +85,7 @@ log(`this machine: ${device.label} (${device.id})${sync.enabled ? ` <-> ${sync.c
 sync.syncRoster(roster);
 reconcileLastPlayed();
 retire();
+sweepUnkept();
 
 /**
  * The roster's clock only moves when a profile is CLOSED on some machine, so
@@ -134,6 +135,33 @@ function retire() {
     log(`retired ${p.name}: nobody has played it in ${RETIRE_DAYS} days (history kept in profiles/retired)`);
   }
   sync.syncRoster(roster);
+}
+
+/**
+ * The KEEP_MIN_ANSWERS rule (src/roster.js) for profiles that closed before
+ * it existed, or on a build without it. Only a copy under the bar pays for a
+ * sync, and it is judged on the merged history -- the pi may hold rows this
+ * machine never saw.
+ */
+function sweepUnkept() {
+  let forgot = 0;
+  for (const p of roster.live) {
+    if (!existsSync(dbPath(p.name))) continue;
+    let db = null;
+    try {
+      db = new Db(dbPath(p.name));
+      if (db.answeredCount() >= KEEP_MIN_ANSWERS) continue;
+      const { ok } = sync.run(db, p.name, { reason: 'checking' });
+      const kept = keepOrForget({ name: p.name, db, dbPath, roster, sync, synced: ok, log });
+      db = null; // closed by keepOrForget
+      if (!kept) forgot += 1;
+    } catch (err) {
+      log(`could not check ${p.name}: ${err.message}`);
+    } finally {
+      db?.close();
+    }
+  }
+  if (forgot) sync.syncRoster(roster);
 }
 
 const hardware = hardwareSound();

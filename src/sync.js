@@ -286,6 +286,28 @@ export class Sync {
     }
   }
 
+  /**
+   * A profile under KEEP_MIN_ANSWERS is not kept anywhere (src/roster.js):
+   * the pi's db and its token go too. Taken under the profile's lock, so a
+   * second machine mid-merge cannot resurrect it.
+   */
+  deleteRemote(name) {
+    if (!this.enabled) return true;
+    let held = false;
+    try {
+      held = this.lock(name);
+      if (!held) return false;
+      const base = `${this.profiles}/${safe(name)}`;
+      this.ssh(`rm -f ${q(`${base}.db`)} ${q(`${base}.db-wal`)} ${q(`${base}.db-shm`)} ${q(`${base}.rev`)}`);
+      return true;
+    } catch (err) {
+      this.log(`  sync: could not delete ${name} on the pi -- ${short(err)}`);
+      return false;
+    } finally {
+      if (held) this.unlock(name);
+    }
+  }
+
   /** Soft delete on the pi as well: the file is moved, never removed. */
   retireRemote(name) {
     if (!this.enabled) return false;

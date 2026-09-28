@@ -621,7 +621,12 @@ export class AdaptiveEngine {
     const { ewma } = this.state.overall;
     if (ewma > TARGET_HIGH && this.state.tiersUnlocked < TIER_WIDTHS.length) {
       const frontierWidth = TIER_WIDTHS[this.state.tiersUnlocked - 1];
-      const seen = this.unsigned
+      // BELOW DIATONIC_TIERS, EITHER DIRECTION COUNTS (2026-09-27). The
+      // entry level keeps every target in C major, where the frontier half
+      // step exists only at E-F and B-C: a player who never missed had seen
+      // it up twice and down once in 165 questions, and "three each way" was
+      // the whole of what held him on tier 2.
+      const seen = this.unsigned || this.state.tiersUnlocked < DIATONIC_TIERS
         ? this.peekStats(frontierWidth).n + this.peekStats(-frontierWidth).n >= 3
         : [frontierWidth, -frontierWidth].every((i) => this.peekStats(i).n >= 3);
       if (seen) {

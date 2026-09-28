@@ -34,6 +34,8 @@ const DUE_BOOST = 1.3;
 // leaps and semitones) and each harmonic interval outside the harmonic
 // engine's tiers multiplies a phrase's weight by this, on top of its low
 // score, so a chromatic line waits for the ladder to reach semitones.
+// `openOnly` (the entry level) makes it a filter instead: a beginner on steps
+// was handed an octave four minutes in, and then octaves to remediate it.
 const LOCKED_PENALTY = 0.6;
 // Consecutive semitones (a chromatic run) are the thing that actually fails;
 // each adjacent pair multiplies the weight by this as well.
@@ -113,7 +115,7 @@ export class PhraseBank {
    * too quick. The old speed filter hid 38% of the corpus at a fast session
    * tempo, which is exactly backwards.
    */
-  pick(anchor, lo, hi, { engine, harmonic = null, kind = 'mono', maxNotes, minNotes = 0, exclude, key = null, lean = null }) {
+  pick(anchor, lo, hi, { engine, harmonic = null, kind = 'mono', maxNotes, minNotes = 0, exclude, key = null, lean = null, openOnly = false }) {
     const now = Date.now();
     const memo = (eng) => {
       const m = new Map();
@@ -183,6 +185,7 @@ export class PhraseBank {
         let locked = 0;
         for (const iv of phrase.melodic) if (!engine.openInPassage(iv)) locked += 1;
         if (harmonic) for (const iv of phrase.harmonic) if (!harmonic.unlockedWidth(iv)) locked += 1;
+        if (openOnly && locked > 0) continue;
         w *= LOCKED_PENALTY ** locked;
         if (!engine.unlockedWidth(1)) w *= CHROMATIC_PENALTY ** phrase.chromatic;
         if (st && !st.clean) w *= FAILED_BOOST;

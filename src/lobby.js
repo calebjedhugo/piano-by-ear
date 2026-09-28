@@ -29,13 +29,42 @@
 // at once: the session-over clicks go out on setTimeout (src/midiout.js), and
 // a sync blocks the event loop for seconds, which would swallow them.
 // The profile's history is merged with the pi (src/sync.js) as it opens and
-// as it closes.
+// as it closes. A profile that closes with fewer than KEEP_MIN_ANSWERS
+// questions answered in its lifetime is not kept (src/roster.js).
 import { rmSync } from 'node:fs';
+import { KEEP_MIN_ANSWERS } from './roster.js';
 
 const MIN_VELOCITY = 20; // the drill's own threshold: a brush is not a login
 const CHORD_GRACE_MS = 300; // long enough for a rolled chord and a ragged release
 const TICK_MS = 500;
 const CLOSE_AFTER_SESSION_MS = 1200; // long enough for audio.sessionOver() to finish sounding
+
+/**
+ * Keep the profile, or delete it everywhere if it has not earned a place:
+ * fewer than KEEP_MIN_ANSWERS questions answered, counted AFTER the merge with
+ * the pi. A copy that could not reach the pi may be missing most of a
+ * history, so it is only ever judged once `synced` says the rows are all in.
+ * Closes `db` either way. Returns true when kept.
+ */
+export function keepOrForget({ name, db, dbPath, roster, sync, synced, log }) {
+  let n;
+  try {
+    n = db.answeredCount();
+  } catch {
+    n = Infinity; // a db we cannot count is not evidence of anything
+  }
+  if (n >= KEEP_MIN_ANSWERS || (sync.enabled && !synced)) {
+    if (n < KEEP_MIN_ANSWERS) log(`${name}: ${n} answered, but the pi was not reached -- kept until it can be checked`);
+    db.close();
+    return true;
+  }
+  db.close();
+  for (const s of ['', '-wal', '-shm']) rmSync(dbPath(name) + s, { force: true });
+  const remote = sync.deleteRemote(name);
+  roster.forget(name);
+  log(`${name}: ${n} question${n === 1 ? '' : 's'} answered, under ${KEEP_MIN_ANSWERS} -- not kept (deleted here${remote ? ' and on the pi' : '; the pi copy could not be removed'})`);
+  return false;
+}
 
 export class Lobby {
   /**
@@ -157,9 +186,9 @@ export class Lobby {
       this.log(`could not open ${name}: ${err.message}`);
       return;
     }
-    this.profile = { name, guest, ...opened };
+    this.profile = { name, guest, ...opened, synced: false };
     // A guest leaves no trace and has nothing to merge.
-    if (!guest) this.sync.run(opened.db, name, { reason: 'opening' });
+    if (!guest) this.profile.synced = this.sync.run(opened.db, name, { reason: 'opening' }).ok;
     this.roster.touch(name);
     this.announce(name);
     this.idleSince = performance.now();
@@ -200,14 +229,16 @@ export class Lobby {
     drill.stop({ silent: true });
     // Only if a sitting actually happened: opening a profile and walking away
     // without playing has nothing to send.
-    if (!guest && this.needsSync) this.sync.run(db, name, { reason: 'session over' });
+    let { synced } = this.profile;
+    if (!guest && this.needsSync) synced = this.sync.run(db, name, { reason: 'session over' }).ok;
+    if (guest) db.close();
+    else keepOrForget({ name, db, dbPath: this.dbPath, roster: this.roster, sync: this.sync, synced, log: this.log });
     // And take the roster while nobody is waiting on us: retirements, new
-    // chords and renames from the other machine land here rather than sitting
-    // until this process next restarts. Costs a round trip in an empty room.
+    // chords, renames and deletions from either machine land here rather than
+    // sitting until this process next restarts. Costs a round trip in an empty room.
     if (!guest) this.sync.syncRoster(this.roster);
     this.needsSync = false;
     this.closeAt = null;
-    db.close();
     this.profile = null;
     this.held.clear();
     this.pending.clear();

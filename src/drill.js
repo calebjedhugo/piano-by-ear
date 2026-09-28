@@ -1729,6 +1729,11 @@ export class Drill {
         minNotes: this.passageLength(kind) - LEN.band,
         exclude: this.askedThisSession,
         lean: kind === 'mono' ? null : (ph) => this.placingLean(ph),
+        // ON THE WHITE KEYS, ONLY WHAT THE LADDER HAS OPENED. Above it a
+        // locked interval is a penalty, which is right for a player with
+        // eleven tiers and wrong for one with two. No fit means no passage
+        // this slot, never no question: pickPassage's caller asks a plain one.
+        openOnly: this.entryLevel(),
       };
       // In the block key first; on the anchor only if nothing fits the key.
       // THE BAND IS A PREFERENCE, NOT A FAMINE: when nothing in it fits the
@@ -2651,7 +2656,15 @@ export class Drill {
     // like a passage for engine evidence: heard in context, they inform the
     // engine at passage scope but never
     // moves the interval tier ladder, which only clean isolated probes own.
-    const passage = Boolean(q.phrase) || Boolean(q.gesture) || Boolean(q.prime) || Boolean(q.exposure) || Boolean(q.correction) || Boolean(q.recovery);
+    //
+    // EXCEPT THE PRIME AT THE ENTRY LEVEL (2026-09-27). Below DIATONIC_TIERS
+    // a plain question is held inside the block key too, so the warm-up and
+    // the probe are the same ask from the same silent anchor -- and keeping
+    // the warm-up off the ladder left a beginner almost nothing that moved
+    // it: a player who never missed was still on tier 2 after 165 questions
+    // (12 had counted), and the violinist on 09-27 had 59 of 667 count.
+    const primeProbe = Boolean(q.prime) && this.entryLevel();
+    const passage = Boolean(q.phrase) || Boolean(q.gesture) || (Boolean(q.prime) && !primeProbe) || Boolean(q.exposure) || Boolean(q.correction) || Boolean(q.recovery);
     const round = Boolean(q.round);
     const rtNorm = inTime ? Math.min(Math.abs(onsetMs), this.beat * 1000) / this.beat : null;
     const from = exp.melodicFrom ?? exp.harmonicFrom ?? this.anchor;
@@ -2665,7 +2678,8 @@ export class Drill {
     // isolated probe: below the exact stage it is the only thing the drill
     // asks for that a passage would otherwise cover, and a beginner who
     // arpeggiates in the right direction has done what he was asked. It
-    // still never moves the ladder or the stage (see `isolated` below).
+    // never moves the stage, and moves the ladder only at the entry level
+    // (`primeProbe` above).
     if ((isolated || q.prime || q.recovery) && exp.melodicFrom !== null) {
       credit = this.stage.credit(exp.melodicFrom, exp.midi, played);
       // A compound ask: the interval skill is judged on pitch class, the
@@ -2682,6 +2696,7 @@ export class Drill {
         const iv = q.wide || Math.abs(raw) > 12 ? simpleOf(raw) : raw; // the ladder knows simple intervals only
         const prev = exp.melodicPrev;
         if (passage) this.engine.ask(iv, this.idx(exp.melodicFrom), prev === null ? null : this.idx(prev), { scope: 'passage' });
+        else if (primeProbe) this.engine.ask(iv, this.idx(exp.melodicFrom), null, { scope: 'interval' });
         if (!credit) {
           this.engine.reportMiss(this.idx(exp.melodicFrom), played === null ? this.idx(exp.melodicFrom) : this.idx(note), { confuse: !round });
           if (passage && !q.correction && Math.abs(iv) >= 3 && this.remediated < REMEDIATE_MAX_PER_PASSAGE &&
