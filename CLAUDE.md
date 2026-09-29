@@ -519,6 +519,16 @@ comes up.
   that rounding would otherwise have broken. Because a re-metered beat is
   0.4s, every wait written in beats has an absolute floor MIN_QUIET_S (0.8s)
   or an answer gets cut off mid-phrase.
+  A CALL IS SHORT IN SECONDS, NOT JUST IN NOTES (2026-09-28, `capHolds`,
+  `MAX_CALL_S`, `callFits`). The half-note cap now covers EVERY excerpt, not
+  just re-metered ones (chorales at 68 bpm kept whole notes and fermatas:
+  the note after a hold over 2.5s was right 1 in 9), and the picker skips
+  any phrase whose call as served runs past 7.5s. Mono, 09-01..28, SAME note
+  count (6.4): calls of 7-8s clean 51% (n=195), over 9s 29% (n=28); notes
+  more than 7s into the call 61% then 42%, vs. 73-79% before that. He loses
+  the END of the line to TIME. NEVER answer this with a faster tempo: notes
+  0.7-1s apart are his best (83%), under 0.4s his worst (62%). The limit
+  removes 7-13% of 7-8 note melodies and no polyphony.
   **THE ONE RULE: NO NOTE IS PLAYED THAT THE PLAYER IS NOT BEING ASKED TO
   PLAY BACK.** No listen-only questions, no cues, no chimes, no error
   sounds, anywhere. Feedback is intrinsic to the content served: a miss is

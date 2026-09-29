@@ -105,6 +105,7 @@ export class PhraseBank {
    * @param {number} opts.maxNotes
    * @param {number} [opts.minNotes]  the bottom of the band (see LEN in drill.js)
    * @param {Set<string>} [opts.exclude] phrase ids to skip this session
+   * @param {(phrase) => boolean} [opts.fitsTime] false = the call would run too long to hold
    * @param {{tonic:number, mode:string}} [opts.key]  place phrases IN this key
    *   (src/keyblock.js) rather than on the anchor; phrases with no clear key
    *   of their own are skipped then
@@ -113,9 +114,10 @@ export class PhraseBank {
    * Nothing here filters on tempo: a phrase's tempo is derived FROM the phrase
    * once it is chosen (src/tempo.js), so no excerpt is out of reach for being
    * too quick. The old speed filter hid 38% of the corpus at a fast session
-   * tempo, which is exactly backwards.
+   * tempo, which is exactly backwards. `fitsTime` filters on the call's
+   * LENGTH in seconds, never its speed: too long to hold, not too quick.
    */
-  pick(anchor, lo, hi, { engine, harmonic = null, kind = 'mono', maxNotes, minNotes = 0, exclude, key = null, lean = null, openOnly = false }) {
+  pick(anchor, lo, hi, { engine, harmonic = null, kind = 'mono', maxNotes, minNotes = 0, exclude, key = null, lean = null, openOnly = false, fitsTime = null }) {
     const now = Date.now();
     const memo = (eng) => {
       const m = new Map();
@@ -146,6 +148,7 @@ export class PhraseBank {
         const st = this.stats[phrase.id];
         if (st && st.dueAt > now) continue;
         if (st && st.restUntil > now) continue;
+        if (fitsTime && !fitsTime(phrase)) continue; // the call as served, in seconds (callFits in drill.js)
         let shift;
         if (key) {
           if (octave > 0 || !phrase.tonalKey) continue; // the key decides the octave

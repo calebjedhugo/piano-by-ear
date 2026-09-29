@@ -145,7 +145,7 @@
 // rule at the top: nothing else sounds, ever.
 
 import { DIATONIC_TIERS, TIER_WIDTHS, WARMUP_QUESTIONS, simpleOf } from './engine.js';
-import { floorFromHistory, passageTempo, remeterNotes, remeterPlan, toleranceMsFor } from './tempo.js';
+import { MAX_CALL_S, callSeconds, capHolds, floorFromHistory, passageTempo, remeterNotes, remeterPlan, toleranceMsFor } from './tempo.js';
 import { summarizeRungs, describeRungs, rungScore } from './rungs.js';
 import { BLOCK_QUESTIONS, NAMES, chooseKey, chordFor, keyName, nearestPc, primeSet, diatonicIn, diatonicStep, modeSwap } from './keyblock.js';
 import { Stage } from './stage.js';
@@ -1604,14 +1604,37 @@ export class Drill {
     };
   }
 
+  /**
+   * The notes as they will actually sound: re-metered when too fast to hear
+   * at their own tempo, else the written rhythm with every hold capped at a
+   * half note (capHolds, src/tempo.js). `secPerBeat` is the click the call
+   * runs on.
+   */
+  served(phrase, notes) {
+    const plan = remeterPlan(phrase, this.floorSec);
+    if (plan) return { plan, notes: remeterNotes(notes, plan), secPerBeat: 60 / plan.bpm };
+    return { plan: null, notes: capHolds(notes), secPerBeat: 60 / passageTempo(phrase, this.floorSec) };
+  }
+
+  /** Whether a phrase's call ends inside MAX_CALL_S as served this session (memoised: floorSec is fixed per session). */
+  callFits(phrase) {
+    if (this.callFitMemo?.floor !== this.floorSec) this.callFitMemo = { floor: this.floorSec, fits: new Map() };
+    let ok = this.callFitMemo.fits.get(phrase.id);
+    if (ok === undefined) {
+      const { notes, secPerBeat } = this.served(phrase, phrase.notes);
+      ok = callSeconds(notes, secPerBeat) <= MAX_CALL_S;
+      this.callFitMemo.fits.set(phrase.id, ok);
+    }
+    return ok;
+  }
+
   passageQuestion(kind, picked) {
     const { phrase, octave, key } = picked;
     // RE-METERED when the written rhythm is too fast to hear at its own
     // tempo: the shortest note becomes the beat and the long notes are capped
     // so they do not drag behind it (src/tempo.js). The pivot index still
     // points at the same note -- only offsets and lengths change.
-    const plan = remeterPlan(phrase, this.floorSec);
-    const notes = plan ? remeterNotes(picked.notes, plan) : picked.notes;
+    const { plan, notes } = this.served(phrase, picked.notes);
     const pickup = plan ? Math.round((phrase.pickup * plan.beatSec) / plan.unitSec) : phrase.pickup;
     // THE CALL STARTS ON ITS FIRST NOTE, not on the bar line before it. An
     // excerpt cut mid-bar used to be counted in from the downbeat: up to 11
@@ -1734,6 +1757,11 @@ export class Drill {
         // eleven tiers and wrong for one with two. No fit means no passage
         // this slot, never no question: pickPassage's caller asks a plain one.
         openOnly: this.entryLevel(),
+        // NO CALL PAST MAX_CALL_S (src/tempo.js): past about eight seconds he
+        // loses the END of the line whatever its note count. Stays on through
+        // every fallback below: a short passage is the easy end, a long call
+        // is the one he cannot hold.
+        fitsTime: (ph) => this.callFits(ph),
       };
       // In the block key first; on the anchor only if nothing fits the key.
       // THE BAND IS A PREFERENCE, NOT A FAMINE: when nothing in it fits the

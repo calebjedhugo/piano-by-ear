@@ -200,3 +200,55 @@ export function remeterNotes(notes, { beatSec, unitSec, cap }) {
     return [midi, b, Math.max(clicks(dur), Math.min(cap, gap - 1)), voice];
   });
 }
+
+/**
+ * NOTHING IS HELD LONGER THAN A HALF NOTE, AT ANY TEMPO (2026-09-28). The rule
+ * Caleb set on 2026-09-14 ("the longest note in these drills should be a half
+ * note") was built into re-metering only, so music slow enough to be heard at
+ * its own tempo kept its whole notes and fermata holds -- up to 3.5s at a
+ * chorale's 68 bpm. The note after a hold over 2.5s was right 1 time in 9
+ * (mono first askings, 09-01..28). A gap between onsets longer than
+ * `maxBeats` shrinks to `maxBeats` and every note ends where its end maps to,
+ * capped at `maxBeats`: the pitches, their order and every shorter value stay
+ * exactly as written. The cost: after a shortened hold the accent can land
+ * off the written bar line (re-metering pays the same price).
+ *
+ * @param {number[][]} notes [midi, offsetBeats, durationBeats, voice?]
+ */
+export function capHolds(notes, maxBeats = MAX_NOTE_BEATS) {
+  const onsets = [...new Set(notes.map((n) => n[1]))].sort((a, b) => a - b);
+  if (!onsets.some((o, i) => i > 0 && o - onsets[i - 1] > maxBeats) && !notes.some((n) => n[2] > maxBeats)) return notes;
+  const at = [onsets[0]];
+  for (let i = 1; i < onsets.length; i += 1) at.push(at[i - 1] + Math.min(maxBeats, onsets[i] - onsets[i - 1]));
+  // A written time maps inside its own segment, clamped to how long that
+  // segment became: a note that outlasts a shortened gap ends where it did.
+  const map = (t) => {
+    let i = onsets.length - 1;
+    while (i > 0 && onsets[i] > t) i -= 1;
+    const room = i + 1 < onsets.length ? at[i + 1] - at[i] : maxBeats;
+    return at[i] + Math.min(t - onsets[i], room);
+  };
+  return notes.map(([midi, off, dur, ...rest]) => {
+    const b = map(off);
+    return [midi, b, Math.min(maxBeats, map(off + dur) - b), ...rest];
+  });
+}
+
+/**
+ * NO CALL RUNS PAST MAX_CALL_S (2026-09-28). Seconds into the call vs. the
+ * note there being right (mono first askings, 09-01..28): 0-7s 73-79%
+ * (n~3000), 7-8s 61% (n=38), 8s+ 42% (n=12). Held at the SAME note count
+ * (6.4 notes), calls of 7-8s were clean 51% (n=195) and calls over 9s 29%
+ * (n=28): the line is lost to time, not to the count, and it goes at the
+ * END. Slow notes themselves are not the problem -- notes 0.7-1s apart are
+ * his best (83%), under 0.4s his worst (62%) -- so the answer is a shorter
+ * call, never a faster tempo.
+ */
+export const MAX_CALL_S = 7.5;
+
+/** How long a call lasts, first onset to last release, in seconds. */
+export function callSeconds(notes, secPerBeat) {
+  const first = Math.min(...notes.map((n) => n[1]));
+  const end = Math.max(...notes.map((n) => n[1] + n[2]));
+  return (end - first) * secPerBeat;
+}
