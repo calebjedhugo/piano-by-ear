@@ -567,13 +567,16 @@ function section4() {
 }
 
 // ================= 4b. Response-start lag =================
-// attempts.behind is the number of beats between the call and the
-// response's first note, stored on every attempt row of a question (same
-// value for all rows of one question) -- dedupe by (session_id, question).
+// attempts.after_call is the number of beats from the call's LAST RELEASE to
+// the response's first note (negative = started during the call), stored on
+// every attempt row of a question -- dedupe by (session_id, question). It
+// replaced `behind` here on 2026-09-28: `behind` counts from the call's FIRST
+// note, so it holds the whole call (a 7-note passage read "7 beats" when he
+// started one beat after it ended). Rows before 2026-09-28 have no after_call.
 function sectionResponseLag() {
   console.log('\n=== Response-start lag ===');
-  if (!hasColumn('attempts', 'behind')) {
-    console.log('(behind column not present in this database yet)');
+  if (!hasColumn('attempts', 'after_call')) {
+    console.log('(after_call column not present in this database yet)');
     return;
   }
   const KIND_GROUPS = {
@@ -585,8 +588,8 @@ function sectionResponseLag() {
   };
   const allKinds = [...new Set(Object.values(KIND_GROUPS).flat())];
   const rows = db.prepare(`
-    SELECT session_id, question, ts, kind, behind FROM attempts
-    WHERE behind IS NOT NULL AND kind IN (${allKinds.map(() => '?').join(',')}) AND ts >= ?
+    SELECT session_id, question, ts, kind, after_call FROM attempts
+    WHERE after_call IS NOT NULL AND kind IN (${allKinds.map(() => '?').join(',')}) AND ts >= ?
     ORDER BY ts ASC`).all(...allKinds, cutoff);
 
   const seenQ = new Set();
@@ -606,12 +609,12 @@ function sectionResponseLag() {
     const list = byDay.get(day);
     const cells = [day];
     for (const g of groupNames) {
-      const sub = list.filter((r) => KIND_GROUPS[g].includes(r.kind)).map((r) => r.behind);
+      const sub = list.filter((r) => KIND_GROUPS[g].includes(r.kind)).map((r) => r.after_call);
       cells.push(num(median(sub), 1), sub.length);
     }
     return cells;
   });
-  printTable('Median response-start lag (beats behind the call), by kind, by day', header, rowsOut);
+  printTable('Median response start (beats after the call ENDED; negative = during it), by kind, by day', header, rowsOut);
 
   // Search time: passages only, median onset_ms of the first graded note
   // per question (position = min position among graded=1 rows).

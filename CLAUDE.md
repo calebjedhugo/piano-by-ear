@@ -1001,7 +1001,12 @@ comes up.
   around the middle even at the top, and `engine.centerPull` is steep past
   18 semitones out (x3 / x0.15): the walk reached C7 and C2 on 88 keys.
   `attempts.behind` stores the response-start lag (beats) on every row of a
-  question: the effort signature, reported by kind in progress.mjs. A round's lead is never shorter than the previous
+  question, COUNTED FROM THE CALL'S FIRST NOTE, so it contains the whole
+  call; the drill's own rules (rounds, the wide reflex) read it.
+  `attempts.after_call` (2026-09-28) counts from the call's LAST RELEASE and
+  is what progress.mjs reports: reading `behind` as a wait told Caleb he sat
+  7-9 beats before playing when he starts a median ONE beat after the call
+  ends (0.9s). A round's lead is never shorter than the previous
   answer's lag + 1, and a call is never scheduled at a time already past.
 - `src/engine.js` AdaptiveEngine (ear-training port), instantiated twice:
   melodic (kv `engine`) and harmonic (kv `engine:harmonic`; `unsigned: true`

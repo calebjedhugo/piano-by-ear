@@ -46,6 +46,11 @@ const ATTEMPT_COLUMNS = {
   // 1 when this note IS the anchor it was measured from -- the common tone,
   // required and graded as a unison, reported to no engine.
   contains_anchor: 'INTEGER',
+  // BEATS FROM THE CALL'S LAST RELEASE to the response's first note
+  // (2026-09-28); negative = started while the call was still sounding.
+  // `behind` counts from the call's FIRST note, so it holds the whole call
+  // (a 7-note phrase reads 7 even when he starts a beat after it ends).
+  after_call: 'REAL',
 };
 // passage_clean: the window follows clean passages too (sampled): false alarms vs hits.
 // learning: one of the first windows, before the player has ever pressed in one -- not evidence.
@@ -238,8 +243,8 @@ export class Db {
       attempt: this.db.prepare(`
         INSERT INTO attempts (session_id, ts, anchor, target, played, velocity, correct, first_attempt, onset_ms,
                               question, kind, phrase_id, position, graded, in_time, beat_ms, credit, stage, height_err, voice, behind, key,
-                              regime, contains_anchor)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
+                              regime, contains_anchor, after_call)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
       recentIsolated: this.db.prepare(`
         SELECT anchor, target, CASE WHEN velocity > 0 THEN played ELSE NULL END played, stage FROM attempts
         WHERE graded = 1 AND kind IN ('interval', 'discrimination', 'remediation', 'echo') ORDER BY id DESC LIMIT ?`),
@@ -344,7 +349,7 @@ export class Db {
       a.correct ? 1 : 0, a.firstAttempt ? 1 : 0, a.onsetMs ?? null,
       a.question ?? null, a.kind ?? null, a.phraseId ?? null, a.position ?? null,
       a.graded ? 1 : 0, nb(a.inTime), a.beatMs ?? null, nb(a.credit), a.stage ?? null, nb(a.heightErr), a.voice ?? null, a.behind ?? null,
-      a.key ?? null, a.regime ?? null, nb(a.containsAnchor),
+      a.key ?? null, a.regime ?? null, nb(a.containsAnchor), a.afterCall ?? null,
     ).id;
   }
 

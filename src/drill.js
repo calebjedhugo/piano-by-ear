@@ -2224,6 +2224,8 @@ export class Drill {
     this.callScheduled = 0;
     const lastCall = this.callNotes[this.callNotes.length - 1];
     this.callEndAt = lastCall ? lastCall[1] + Math.max(lastCall[2], this.beat) : t0 + (q.window ? q.window.sec : this.beat);
+    // The call's last RELEASE, not its last onset: a held lower voice can outlast the top.
+    this.callSoundEnd = this.callNotes.length ? Math.max(...this.callNotes.map(([, at, dur]) => at + dur)) : null;
     this.buildGroups(notes);
     this.earliestStart = (lastCall ? this.callNotes[0][1] : t0) + this.beat; // one beat behind the call
     if (q.collect) this.earliestStart = t0; // your turn to make something up: any time
@@ -2240,6 +2242,7 @@ export class Drill {
     this.held = new Map(); // midi -> { rowId, onAt, durSec } for notes awaiting release
     this.awaitingFinalize = false;
     this.behind = null;
+    this.afterCall = null;
     if (q.phrase && q.kind === 'passage') this.askedThisSession.add(q.phrase.id);
     // Nothing sounds here but the call. A collect question is silence you
     // fill; a variant is the phrase you nailed in a new key, and it is the
@@ -2515,6 +2518,7 @@ export class Drill {
     }
     this.gi = j;
     this.behind = behind;
+    this.afterCall = this.callSoundEnd === null ? null : (atAudio - this.callSoundEnd) / this.beat;
     this.responseStarted = true;
     this.log(`  response started ${behind} beat${behind === 1 ? '' : 's'} behind${j === 1 ? ' (skipping the anchor)' : ''}`);
   }
@@ -2759,7 +2763,7 @@ export class Drill {
       firstAttempt: true, onsetMs, question: this.questions, kind: q.kind,
       phraseId: q.phrase?.id ?? null, position: g.index, graded: exp.graded, inTime, beatMs: this.beat * 1000,
       credit: isolated || q.prime ? credit : null, stage: isolated || q.prime ? this.stage.current : null, heightErr: q.wide ? heightErr : null,
-      voice: exp.voice ?? null, behind: this.behind,
+      voice: exp.voice ?? null, behind: this.behind, afterCall: this.afterCall,
       key: this.block ? keyName(this.block.key) : null,
       regime: exp.regime ?? q.regime ?? null, containsAnchor: q.pair ? exp.unison : null,
     });
