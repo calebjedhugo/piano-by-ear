@@ -36,7 +36,9 @@ const range = new RangeTracker(db.kv('ranges'));
 range.setPort('Keystation Pro 88');
 const phrases = new PhraseBank({ store: db.kv('phraseStats'), path: [MONO_PATH, HYMNS_PATH] });
 const poly = new PhraseBank({ store: db.kv('polyStats'), path: POLY_PATHS });
-const drill = new Drill({ audio, db, range, phrases: nophrases ? null : phrases, poly: nophrases ? null : poly, log, bpmOverride: Number(bpm),
+// WRAP_S="after,grace" (seconds) shortens the session's own ending (drill.js WRAP) so it can be watched.
+const wrap = process.env.WRAP_S ? (([a, g]) => ({ afterMs: a * 1000, graceMs: g * 1000 }))(process.env.WRAP_S.split(',').map(Number)) : undefined;
+const drill = new Drill({ audio, db, range, phrases: nophrases ? null : phrases, poly: nophrases ? null : poly, log, bpmOverride: Number(bpm), wrap,
   makeEngine: (lo, hi, fluentMs, which) => new AdaptiveEngine({ range: hi - lo, fluentMs, pitchClassOffset: lo % 12, store: db.engineStore(which), ...(which === 'harmonic' ? { minTiers: 3, unsigned: true, timed: false } : {}) }) });
 
 const rnd = (n) => Math.floor(Math.random() * n);

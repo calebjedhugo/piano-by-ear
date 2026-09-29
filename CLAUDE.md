@@ -65,6 +65,15 @@ seconds, which would swallow them. A chord that never becomes an anchor --
 somebody logged in and walked away -- closes on the ordinary silence timeout
 instead, and pushes nothing, because nothing was played.
 
+**A SESSION ALSO ENDS ON ITS OWN, ON A SUCCESS** (2026-09-28, `WRAP`,
+`wrapReason`). Everyone who tried it asked for a clean way to stop. After 20
+minutes (per SESSION: the chord again starts another 20) it ends on the next
+pitch-clean phrase -- first asking, retry or variant -- BEFORE that phrase's
+judgment window; after 25, on the next correct answer he played (never a
+correction or a placing), so a player who never gets a phrase clean is not
+held there. Same end clicks, same profile close: no cue. Silence still ends it
+sooner. `WRAP_S=after,grace` (seconds) on `scripts/sim.mjs` shortens it.
+
 A profile nobody has played for 30 days is SOFT DELETED: the db moves to
 `profiles/retired/` and the chord stops matching, so playing it starts a
 fresh profile. Restoring one is deliberate -- move the file back and clear

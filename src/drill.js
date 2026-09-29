@@ -258,6 +258,17 @@ const QUIET_BEATS = { retry: 2, variant: 2 };
 // silence means you are done" then cuts an answer off in four tenths of a
 // second. Every wait measured in beats gets this floor in real time.
 const MIN_QUIET_S = 0.8;
+// A SESSION ENDS ON ITS OWN, ON A SUCCESS (2026-09-28). Everyone who tried it
+// asked for a clean way to stop; the only way out was ten seconds of silence
+// with the pulse still running, mid-question. Past `afterMs` the session ends
+// on the next phrase played pitch-clean (a first asking, a retry or a
+// variant), before its judgment window; past `afterMs + graceMs` on the next
+// correct answer of any kind, so a player who never gets a phrase clean is
+// not held there. The clock is per SESSION: playing the chord again starts
+// another twenty minutes. How a session ends is most of how it is remembered
+// (Kahneman et al. 1993, peak-end), and remembered is what brings someone
+// back. The ending sound is the end-of-session clicks, as always: no cue.
+export const WRAP = { afterMs: 20 * 60e3, graceMs: 5 * 60e3 };
 // The round: this many clean, in-time plain answers started within two beats
 // open one; a run is this many calls or this many misses; then a cool-down
 // call. At the ~70% a 2-down/1-up staircase converges on, 16 calls expect
@@ -423,8 +434,9 @@ export class Drill {
    * @param {(msg: string) => void} deps.log
    * @param {number} [deps.bpmOverride]  debugging only
    * @param {() => void} [deps.onSessionEnd]  the sitting is over: src/lobby.js sends it to the pi
+   * @param {{afterMs: number, graceMs: number}} [deps.wrap]  when a session ends on its own (WRAP)
    */
-  constructor({ audio, db, range, makeEngine, phrases, poly = null, log, bpmOverride = null, onSessionEnd = null }) {
+  constructor({ audio, db, range, makeEngine, phrases, poly = null, log, bpmOverride = null, onSessionEnd = null, wrap = WRAP }) {
     this.keysDown = new Set(); // every key currently down, graded or not
     this.lastReleasedAt = null; // audio time of the last key-up
     this.audio = audio;
@@ -436,6 +448,7 @@ export class Drill {
     this.log = log;
     this.bpmOverride = bpmOverride;
     this.onSessionEnd = onSessionEnd;
+    this.wrap = wrap;
     this.polyStore = db.kv('poly');
     this.lenStore = db.kv('passageLen');
     this.carryStore = db.kv('carry');
@@ -704,6 +717,7 @@ export class Drill {
     this.prevSonority = null; // { question, spanExpected, spanPlayed } -- so a resolution reads as one
     this.lastInputAt = performance.now();
     this.lastPlayedAt = this.audio.now;
+    this.sessionStartedAt = performance.now(); // the WRAP clock
     this.syncClock(1);
     this.state = 'QUESTION';
     const level = this.polyState.level;
@@ -3017,6 +3031,7 @@ export class Drill {
       return;
     }
     const clean = this.pitchClean && this.timeClean;
+    const wrap = this.wrapReason(q); // read once: the clock must not cross between the window and the end
     // A correction is notes you were just handed: playing them back is not a
     // clean answer, and it must not count toward earning the next passage.
     // A window has no notes at all, and neither of them breaks a run of
@@ -3085,15 +3100,33 @@ export class Drill {
       }
       // THE PULSE DROPS. After every passage, clean or not, so its arrival
       // never gives the verdict away -- that is the whole reason it follows
-      // the ones you nailed.
-      this.openWindow(q);
+      // the ones you nailed. (Unless the session is ending here: WRAP.)
+      if (!wrap) this.openWindow(q);
     } else if (q.kind === 'gesture' || q.dyad) {
       const timing = this.timing.notes && !this.timeClean ? ` (timing ${this.timing.inTime}/${this.timing.notes})` : '';
       if (timing) this.log(`  ${this.pitchClean ? 'right' : 'wrong'} notes${timing}`);
       // Rung 3 follows a clean departure with both hands still down.
       if (q.kind === 'dyad' && q.regime === 'departure' && this.pitchClean && this.hands && this.rungState().rung >= 3) this.chainDyad = true;
     }
+    if (wrap) {
+      this.endSession(wrap);
+      return;
+    }
     this.nextQ = this.makeQuestion();
+  }
+
+  /** Why the session ends on this answer (WRAP), or null to go on. */
+  wrapReason(q) {
+    const ms = performance.now() - this.sessionStartedAt;
+    if (ms < this.wrap.afterMs || !this.pitchClean) return null;
+    const mins = Math.round(this.wrap.afterMs / 60e3);
+    if (q.phrase && (q.kind === 'passage' || q.kind === 'retry' || q.kind === 'variant')) return `${mins} minutes: ended on a clean phrase`;
+    // Past the grace, any correct answer -- one he actually played, and not
+    // notes he was just handed (a correction) or a placing whose passage is
+    // still waiting behind it.
+    const played = this.groups.some((g) => g.notes.some((e) => e.played !== null));
+    if (ms >= this.wrap.afterMs + this.wrap.graceMs && played && !q.correction && !q.placing) return `${mins} minutes: ended on a correct answer`;
+    return null;
   }
 
   /**
