@@ -351,6 +351,22 @@ const POLY = {
   // demoted Caleb on 2026-09-21 was 3/12 clean and 80% of its notes right.
   promoteNote: 0.85,
   demoteNote: 0.65,
+  // DEMOTION IS THE LAST RESORT (2026-09-30). A window that sinks under
+  // `shortNote` holds the level's passages at their SHORTEST (LEN.min) until
+  // it climbs back to `shortUntil`; then the length controller grows them
+  // again from there. The level drops only on a window under demoteNote made
+  // ENTIRELY of passages asked short -- he cannot hold the texture even at
+  // its shortest. WHY: per-note accuracy is not length-free after all (duo,
+  // 09-22..30: 4-5 notes 83% n=109, 6-7 notes 74% n=40), so the length
+  // controller, growing on two clean in a row, carried duo from 4.7 notes to
+  // 6.2 and on to 8, and the window followed it down: 84% at 08:14 on 09-30,
+  // 72% at 08:23, demoted at 63% at 21:38 -- Caleb: "they kept getting
+  // harder until they suddenly stopped." 72% is under where his long duos
+  // sit (74%); 80% is reachable short (83%) and above it, so it does not
+  // re-enter at once. No promotion while held short.
+  shortNote: 0.72,
+  shortUntil: 0.8,
+  shortMinRows: 6, // a window this thin is noise: do not hold short on it
   melodicTiersForDyads: 6, // melodic tiers unlocked before dyads begin (through the M6)
   masteredForDyads: 6, // ...and this many intervals mastered: dyads wait for interval confidence, not passages
   harmonicTiersForChorale: 4, // harmonic tiers unlocked before anything past two voices (trio, then chorale)
@@ -573,6 +589,9 @@ export class Drill {
     }
     let level = st.level || 0;
     const cur = recent(POLY_KINDS[level]);
+    // Held short (POLY.shortNote): released once the window has climbed back.
+    const released = Boolean(st.short) && rate(cur) >= POLY.shortUntil;
+    if (released) st.short = false;
     // C (WIDE): the first duo waits for wide spans answered by reflex. Only
     // a player who has never reached duo; the window judges everyone else.
     if ((st.level || 0) >= 1) st.reached = Math.max(st.reached ?? 0, st.level);
@@ -580,18 +599,21 @@ export class Drill {
       const held = st.demotedAt && Date.now() - st.demotedAt < POLY_DEMOTE_HOLD_MS;
       const entry = (st.reached ?? 0) >= 1 || this.wideEntryOpen();
       if (!held && entry && this.engine.state.tiersUnlocked >= POLY.melodicTiersForDyads && this.engine.masteredCount() >= POLY.masteredForDyads) level = 1;
-    } else if (cur.length >= POLY.window && rate(cur) >= POLY.promoteNote && level < POLY_KINDS.length - 1) {
+    } else if (!st.short && !released && cur.length >= POLY.window && rate(cur) >= POLY.promoteNote && level < POLY_KINDS.length - 1) {
       const gate = level === 1 ? this.harmonic.state.tiersUnlocked >= POLY.harmonicTiersForChorale : true;
       if (gate) level += 1;
       while (level < POLY_KINDS.length - 1 && !this.polyKindAvailable(POLY_KINDS[level])) level += 1;
-    } else if (level > 0 && cur.length >= POLY.window && rate(cur) < POLY.demoteNote) {
+    } else if (level > 0 && cur.length >= POLY.window && rate(cur) < POLY.demoteNote && cur.every((h) => h.short)) {
       level -= 1;
       while (level > 1 && !this.polyKindAvailable(POLY_KINDS[level])) level -= 1;
       st.demotedAt = Date.now();
+    } else if (level > 0 && !st.short && cur.length >= POLY.shortMinRows && rate(cur) < POLY.shortNote) {
+      st.short = true;
     }
     if (level !== (st.level || 0)) {
       // the passages that earned the change don't count again at the new level
       st.history = st.history.filter((h) => h.kind !== POLY_KINDS[st.level || 0]);
+      st.short = false;
     }
     st.level = level;
     return st;
@@ -620,7 +642,8 @@ export class Drill {
 
   recordPolyOutcome(kind, clean, exact, notes) {
     const st = this.polyState;
-    st.history.push({ kind, clean, exact, notes, ts: Date.now() });
+    // `short`: asked while the level was held short -- only a window of these can demote it.
+    st.history.push({ kind, clean, exact, notes, ts: Date.now(), short: Boolean(st.short) && kind === POLY_KINDS[st.level || 0] });
     if (st.history.length > POLY.historyMax) st.history.splice(0, st.history.length - POLY.historyMax);
     this.polyStore.save(st);
     // THE LEVEL IS RE-READ HERE, not only at startSession. A sitting can run
@@ -631,8 +654,15 @@ export class Drill {
     // read. A level the player is failing must not hold for the rest of the
     // sitting. Announced by nothing but the change in what is asked.
     const before = st.level;
+    const wasShort = Boolean(st.short);
     this.polyState = this.polyLevel();
     this.polyStore.save(this.polyState);
+    if (this.polyState.level === before && Boolean(this.polyState.short) !== wasShort) {
+      const k = POLY_KINDS[before];
+      this.shortMove = this.polyState.short
+        ? `${k} passages held short: ${LEVEL_NAMES[before]} under ${Math.round(POLY.shortNote * 100)}% of notes; growing again at ${Math.round(POLY.shortUntil * 100)}%`
+        : `${k} passages free to grow again: back to ${Math.round(POLY.shortUntil * 100)}% of notes`;
+    }
     // The level changes NOW -- everything downstream of this question sees it
     // -- but the LINE waits for the passage verdict. Printed before it, a
     // demotion reads as though the passage that just went clean had caused
@@ -645,6 +675,10 @@ export class Drill {
    * Log only: no cue, no sound. The change in what is asked IS the signal.
    */
   flushPolyMove() {
+    if (this.shortMove) {
+      this.log(`  ${this.shortMove}`);
+      this.shortMove = null;
+    }
     if (this.polyMove === null || this.polyMove === undefined) return;
     const from = this.polyMove;
     const to = this.polyState.level;
@@ -722,7 +756,7 @@ export class Drill {
     this.state = 'QUESTION';
     const level = this.polyState.level;
     const dyads = this.dyadsOpen();
-    this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms), tiers ${this.engine.state.tiersUnlocked}${dyads ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, ${dyads ? 'dyads and chords, ' : ''}passages ${LEVEL_NAMES[level]}, stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}`);
+    this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms), tiers ${this.engine.state.tiersUnlocked}${dyads ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, ${dyads ? 'dyads and chords, ' : ''}passages ${LEVEL_NAMES[level]}${this.polyState.short ? ' (held short)' : ''}, stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}`);
 
     // The anchor rings for a beat, then the grid starts on an accented downbeat.
     this.nextBarAt = this.audio.now + this.beat;
@@ -1729,10 +1763,16 @@ export class Drill {
     return kind === 'mono' ? 3 + this.engine.state.tiersUnlocked : 6 + 2 * this.harmonic.state.tiersUnlocked;
   }
 
+  /** The level's own kind while its window is under POLY.shortNote (see POLY). */
+  heldShort(kind) {
+    return Boolean(this.polyState?.short) && kind === POLY_KINDS[this.polyState.level || 0];
+  }
+
   /** Current passage length for a kind: the controller's value, inside its bounds. */
   passageLength(kind) {
     const st = this.len[kind] || { notes: LEN.start[kind], cleanRun: 0, failRun: 0 };
     this.len[kind] = st;
+    if (this.heldShort(kind)) return LEN.min[kind];
     return Math.max(LEN.min[kind], Math.min(this.lengthCeiling(kind), st.notes));
   }
 
@@ -1744,6 +1784,13 @@ export class Drill {
    */
   updatePassageLength(kind, clean, served = null) {
     const before = this.passageLength(kind); // also creates the kind's state
+    if (this.heldShort(kind)) {
+      // HELD SHORT: the controller restarts from the shortest length when
+      // the hold lifts, so the climb back is the same gradual one as before.
+      Object.assign(this.len[kind], { notes: LEN.min[kind], cleanRun: 0, failRun: 0 });
+      this.lenStore.save(this.len);
+      return;
+    }
     if (served !== null && served < before - LEN.band) return;
     const st = this.len[kind];
     if (clean) { st.cleanRun += 1; st.failRun = 0; } else { st.failRun += 1; st.cleanRun = 0; }

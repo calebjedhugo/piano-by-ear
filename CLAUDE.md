@@ -342,6 +342,18 @@ NOT CHANGED, on Caleb's call ("let's see what happens first"): a returning
 level resumes its kind's length where it was left (duo came back at 7 notes,
 where he is 0 for 4 since 09-19). Watch it before resetting it.
 
+**DEMOTION IS THE LAST RESORT (2026-09-30, `POLY.shortNote`, `heldShort`).**
+Per note was NOT length-free after all: duo 4-5 notes 83% (n=109), 6-7
+notes 74% (n=40), so the length controller carried duo from 4.7 notes to 8
+and the window followed it down (84% at 08:14, 72% at 08:23, demoted at 63%
+at 21:38 on 09-30). Caleb: "they kept getting harder until they suddenly
+stopped." Now a window under 72% (6+ rows) HOLDS THE LEVEL'S KIND AT LEN.min
+-- no growth, length reset to min -- until it is back to 80%, then the
+controller grows it again from min. History rows carry `short`; the level
+drops only on a window under 65% made ENTIRELY of short rows. No promotion
+while held, nor on the row that releases it. Logged "duo passages held
+short" / "free to grow again"; the session-start line says "(held short)".
+
 ## MEMORY, FOR SMALL MACHINES (2026-09-19)
 
 The sampled pianos decode every kept layer into memory at startup. Measured
