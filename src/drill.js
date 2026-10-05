@@ -1734,13 +1734,20 @@ export class Drill {
     };
   }
 
-  /** Which passage kinds this level may ask, weighted toward the level's own. */
+  /**
+   * Which passage kinds this level may ask, in a random order. EVERY EARNED
+   * KIND GETS AN EQUAL SHARE (2026-10-04): the level's own kind used to take
+   * 60%, which assumed each rung is a harder version of the one below. It is
+   * not -- chorale at its shortest is one chord (chord hearing), duo is two
+   * lines (line following) -- and each kind's own length controller already
+   * holds it at his edge, so no kind's accuracy says it needs more.
+   */
   passageKinds() {
     const level = this.polyState.level;
     const kinds = [];
     for (let l = 0; l <= level; l += 1) {
       if (l > 0 && l < level && !this.polyKindAvailable(POLY_KINDS[l])) continue; // a rung with no source is stepped over
-      kinds.push({ kind: POLY_KINDS[l], w: l === level ? 0.6 : 0.4 / Math.max(1, level) });
+      kinds.push({ kind: POLY_KINDS[l], w: 1 });
     }
     // weighted order without replacement
     const order = [];

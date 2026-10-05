@@ -354,6 +354,17 @@ drops only on a window under 65% made ENTIRELY of short rows. No promotion
 while held, nor on the row that releases it. Logged "duo passages held
 short" / "free to grow again"; the session-start line says "(held short)".
 
+**EVERY EARNED KIND GETS AN EQUAL SHARE OF PASSAGES (2026-10-04,
+`passageKinds`).** The level's own kind used to take 60% and the rest split
+40% (at chorale: 13% each for mono, duo, trio). That assumed each rung is a
+harder version of the last; at chorale it is not -- 44 of 49 chorales were ONE
+chord (chord hearing), duo is line following. Duo got 3-4 passages a session
+and sat at 5 notes (5/7 clean) with 6 at 0/8. Weighting by weakness was
+REJECTED: each kind's length controller holds it at ~70-85%, so accuracy
+cannot rank kinds (and deficit selection is what inverted the interval diet).
+If a kind's LENGTH stalls for a week, weight by stalled growth -- not before.
+Cost: the level's window fills about half as fast (slower promotion and hold).
+
 ## MEMORY, FOR SMALL MACHINES (2026-09-19)
 
 The sampled pianos decode every kept layer into memory at startup. Measured
