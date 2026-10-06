@@ -1,6 +1,7 @@
 // Headless simulation: a scripted player answers the drill, fast, against a
 // scratch or copied profile. Never point it at a live profile.
 //   node scripts/sim.mjs <db> <player> <questions> [bpm] [nophrases]
+// bpm 'auto' = no override: each question's own tempo (a round's tempo level).
 // players: perfect | sloppy (20% one-semitone slips) | kid (direction right
 // 85%, size random) | liz (half exact, else 1-2 semitones off) | random.
 // "nophrases" leaves the passage banks out (the round needs plain questions).
@@ -19,6 +20,8 @@
 //            actually played, the rest are wild).
 // STUCK=1    the opening note's release never arrives (a toddler on the
 //            octave buttons): the session must still end on silence.
+// ROUNDS=1   open the round on this (scratch!) profile before the run.
+// ROUNDLATE=x how often a round answer comes a beat late (a lost round).
 import { Audio } from '../src/audio.js';
 import { Db } from '../src/db.js';
 import { AdaptiveEngine } from '../src/engine.js';
@@ -38,9 +41,12 @@ const phrases = new PhraseBank({ store: db.kv('phraseStats'), path: [MONO_PATH, 
 const poly = new PhraseBank({ store: db.kv('polyStats'), path: POLY_PATHS });
 // WRAP_S="after,grace" (seconds) shortens the session's own ending (drill.js WRAP) so it can be watched.
 const wrap = process.env.WRAP_S ? (([a, g]) => ({ afterMs: a * 1000, graceMs: g * 1000 }))(process.env.WRAP_S.split(',').map(Number)) : undefined;
-const drill = new Drill({ audio, db, range, phrases: nophrases ? null : phrases, poly: nophrases ? null : poly, log, bpmOverride: Number(bpm), wrap,
+const drill = new Drill({ audio, db, range, phrases: nophrases ? null : phrases, poly: nophrases ? null : poly, log, bpmOverride: bpm === 'auto' ? null : Number(bpm), wrap,
   makeEngine: (lo, hi, fluentMs, which) => new AdaptiveEngine({ range: hi - lo, fluentMs, pitchClassOffset: lo % 12, store: db.engineStore(which), ...(which === 'harmonic' ? { minTiers: 3, unsigned: true, timed: false } : {}) }) });
 
+// CALLS=1 logs every scheduled call note and each question's beat 0 (audio clock).
+if (process.env.CALLS) { const note = audio.note.bind(audio); audio.note = (m, o) => { log(`    [sound ${m} at ${o.at.toFixed(3)}]`); return note(m, o); }; }
+if (process.env.ROUNDS) db.kv('canon').save({ unlockedAt: Date.now(), levels: { tempo: 0, lead: 0, interval: 0 } });
 const rnd = (n) => Math.floor(Math.random() * n);
 function answerFor(anchor, target) {
   const iv = target - anchor;
@@ -85,14 +91,17 @@ while (drill.state === 'QUESTION' && drill.questions <= Number(maxQ)) {
   if (q.collect && process.env.ECHOSILENT) { played = drill.questions; continue; }
   if (q.collect) { played = drill.questions; const t = audio.now + 0.2; press(60, t); setTimeout(() => press(64, audio.now), drill.beat * 1000); setTimeout(() => press(62, audio.now), 2 * drill.beat * 1000); continue; }
   played = drill.questions;
+  if (process.env.CALLS) log(`    [Q${drill.questions} beat 0 at ${drill.callT0.toFixed(3)}${q.round ? `, answer due ${(drill.callT0 + q.lead * drill.beat).toFixed(3)}` : ''}]`);
   // answer each group one beat behind the call
   const t0 = drill.callT0;
   const beat = drill.beat;
   const groups = drill.groups;
   let prevPlayed = null;
   const trunc = groups.length >= 3 && Math.random() < Number(process.env.TRUNC ?? 0);
+  // A round's answer has one beat, the lead (sometimes missed by a beat).
+  const lag = q.round ? q.lead + (Math.random() < Number(process.env.ROUNDLATE ?? 0) ? 1 : 0) : 1;
   for (const g of (trunc ? groups.slice(0, -1) : groups)) {
-    const at = t0 + (g.b + 1) * beat;
+    const at = t0 + (g.b + lag) * beat;
     for (const e of g.notes) {
       if (e.free && e.silent) continue;
       const from = e.melodicFrom ?? drill.anchor;

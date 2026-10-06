@@ -247,7 +247,10 @@ export class Db {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
       recentIsolated: this.db.prepare(`
         SELECT anchor, target, CASE WHEN velocity > 0 THEN played ELSE NULL END played, stage FROM attempts
-        WHERE graded = 1 AND kind IN ('interval', 'discrimination', 'remediation', 'echo') ORDER BY id DESC LIMIT ?`),
+        WHERE graded = 1 AND kind IN ('interval', 'round', 'discrimination', 'remediation', 'echo') ORDER BY id DESC LIMIT ?`),
+      recentPlain: this.db.prepare(`
+        SELECT correct, behind FROM attempts
+        WHERE graded = 1 AND first_attempt = 1 AND kind = 'interval' ORDER BY ts DESC LIMIT ?`),
       updateHeld: this.db.prepare('UPDATE attempts SET held_ms = ?, dur_ok = ? WHERE id = ?'),
       selfCorrected: this.db.prepare('UPDATE attempts SET self_corrected = 1 WHERE id = ?'),
       window: this.db.prepare(`
@@ -367,6 +370,11 @@ export class Db {
   /** The last isolated first attempts, newest first, for the stage (src/stage.js). */
   recentIsolated(limit = 20) {
     return this.stmts.recentIsolated.all(limit);
+  }
+
+  /** The last plain interval answers, newest first: right, and how many beats behind (the round's unlock). */
+  recentPlain(limit = 40) {
+    return this.stmts.recentPlain.all(limit);
   }
 
   /** One judgment window: what he offered in the silence, and what was true. */

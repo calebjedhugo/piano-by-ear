@@ -863,18 +863,25 @@ comes up.
   +-2/3 semitones (same hand shape), else the other mode (`modeSwap`, last:
   it changes the melody); passage-scope evidence only, never the length
   controller or the retry loop.
-  THE ROUND: ROUND.trigger clean, in-time plain answers started <= 2 beats
-  behind (passages neither count nor reset) open a run: kind `round`, the
-  next call at a fixed lead (`nextQuestionAt` set in beginQuestion and
-  never renegotiated by the silence rule; an unfinished answer is abandoned
-  once the lead has passed by more than the tolerance), a 2-down/1-up
-  staircase on one dimension per run (interval = extra tiers, tempo = +6
-  bpm/level, lead = 4/3/2 beats), ends after ROUND.calls (16) or
-  ROUND.misses (5) with one cool-down call at level 0, ANNOUNCED BY NOTHING
-  (the caller simply stops waiting), evidence scope 'round' (cells only: never the tier
-  ladder, never the stage, never a focus trial), a record per run in kv
-  `rounds`, cooldown before the next. A staircase miss is pitch only,
-  except on the tempo dimension where time is the game.
+  THE ROUND (rebuilt 2026-10-05, Caleb's design; see the ROUND comment in
+  drill.js). **Earned once, never taken away**: duo passages at 8 notes AND
+  the last 40 plain intervals >= 80% right and started within 2 beats
+  (`roundsOpen`, kv `canon` {unlockedAt, levels}). From then on every plain
+  interval slot (after gestures; discrimination and wide asks stay) is a
+  round: kind `round`, SIX calls, each call SOUNDING ON THE BEAT ITS PREVIOUS
+  ANSWER IS DUE (`successorNote`, picked in `roundCall` from the note asked
+  for, scheduled by beginQuestion, flushed if the lookahead missed it). The
+  answer's beat is pinned (`startResponse` behind = lead; nothing before its
+  half-beat window counts). Win = all six right and within tolerance; the
+  first miss loses, the call already sounding is still graded, nothing
+  follows. NO CUE for either ending: the last answer sounds alone, then the
+  normal beat of silence. A win raises that run's dimension (tempo +6 bpm
+  to level 4, lead 4/3/2 beats, interval = extra tiers while tiers < 12);
+  a loss lowers nothing. GRADED LIKE A PLAIN INTERVAL: scope 'interval'
+  (ladder, confusions, stage), except a width the ladder has not opened.
+  Holds under a sounding call are not judged. Runs logged in kv `rounds`.
+  The old round (five lucky clean answers, unannounced, 16-call staircase)
+  went 2 for 14 in its two lives and read as a malfunction.
   STAGE (`src/stage.js`): `this.stage.credit()` decides what an isolated
   note counts as (direction / within 2 / exact); the engine and streak see
   the credit, `attempts.correct` stays exact, `attempts.credit`/`stage`
@@ -887,7 +894,7 @@ comes up.
   wrong first note count as a wrong target; the echo ask-back has no free
   note at all (its first note is framed from the playback's last note and
   graded on the stage's rung).
-  Block count: KEYED_KINDS only (the prime, retries, rounds, echoes and
+  Block count: KEYED_KINDS only (the prime, retries, echoes and
   exposures are not the key's). ECHO GAME: `collect` question (SILENT -- the
   drill just goes quiet and takes the player's 2-4 notes until a beat of
   silence) -> that same figure asked straight back as the call, graded on
@@ -912,8 +919,7 @@ comes up.
   is restored by a session started within CARRY_MS (30 min). The block
   itself is NOT carried, only its number: a resumed sitting opens a fresh
   block on the note the player has just sat down on, because the prime is a
-  call and a call starts under the hand. roundStreak/cooldown and the streak
-  reset per burst.
+  call and a call starts under the hand. The streak resets per burst.
   PASSAGE LENGTH is a controller (kv `passageLen`, +1 after 2 clean
   first-askings, -1 after 3 failures, bounded by LEN.min and the tier
   ceiling). TEMPO IS NOT A CONTROLLER and must never become one.
@@ -1038,8 +1044,8 @@ comes up.
   `attempts.after_call` (2026-09-28) counts from the call's LAST RELEASE and
   is what progress.mjs reports: reading `behind` as a wait told Caleb he sat
   7-9 beats before playing when he starts a median ONE beat after the call
-  ends (0.9s). A round's lead is never shorter than the previous
-  answer's lag + 1, and a call is never scheduled at a time already past.
+  ends (0.9s). A call is never scheduled at a time already past, except a
+  round's next call, which is already sounding there.
 - `src/engine.js` AdaptiveEngine (ear-training port), instantiated twice:
   melodic (kv `engine`) and harmonic (kv `engine:harmonic`; `unsigned: true`
   -- its skills are sizes, the frontier gate counts |w| -- `minTiers: 3`,
@@ -1108,8 +1114,8 @@ comes up.
   guitarist got an octave four minutes in). Evidence scopes: interval questions
   update parent stats/cells/confusions/tier controller; passage notes and
   gestures (`scope:'passage'`) update a `+7|src:passage` cell AND record
-  near-miss confusions; the round (`scope:'round'`) updates `src:round`
-  cells only. CONFUSIONS decay by the DAY (`confusionsDecayedAt`), not per
+  near-miss confusions; a round call is `scope:'interval'` like a plain
+  one (`scope:'round'` only for a width past the ladder, and for the pick). CONFUSIONS decay by the DAY (`confusionsDecayedAt`), not per
   session; a pair (same direction, widths within 2) at CONFUSION_THRESHOLD
   becomes `state.focus` {a, b, left, expose, served, recent}: `takeExposure()`
   hands the drill a both-of-them CALL at open and every FOCUS_EXPOSE_EVERY
@@ -1316,7 +1322,7 @@ comes up.
   one; synced like the other event tables). kv: `engine`, `engine:harmonic`
   (restarted 09-20, the old state in `kv_archive`), `dyadRung`, `wideDyads`, `poly`,
   `passageLen`, `phraseStats`, `polyStats`, `ranges`, `carry`, `stage`,
-  `rounds`, `migrations` (what `Db.runOnce` has already done). `backfillPassages()` builds `passages`
+  `rounds`, `canon`, `migrations` (what `Db.runOnce` has already done). `backfillPassages()` builds `passages`
   from `attempts` once when the table is empty (main.js calls it at startup)
   so history exists from day one; attempts carry no voice, so backfilled
   polyphonic rows have contour zeroed.
@@ -1324,7 +1330,9 @@ comes up.
 ## Testing without the keyboard
 
 `node scripts/sim.mjs <copy-of-a-profile.db> perfect 40 200` (or sloppy /
-kid / liz / random; `nophrases` as a fifth arg to reach the round). It
+kid / liz / random; `nophrases` as a fifth arg for plain questions; bpm
+`auto` = no override; ROUNDS=1 opens the round, ROUNDLATE=x answers late,
+CALLS=1 traces call times). It
 drives `Drill` directly with `audio.master.gain.value = 0` and answers each
 onset group one beat behind the call. Copy a profile first; never the live
 one. The end-of-run "statement has been finalized" is the harness closing

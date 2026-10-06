@@ -197,7 +197,7 @@ function section0() {
   // are not placement (2026-09-12: variants alone pulled the period down 7
   // points). Same rule as PhraseBank.record: only qkind 'passage' counts.
   const inPhrase = (r) => r.kind === 'passage';
-  const isolated = (r) => r.kind === 'interval' || r.kind === 'discrimination';
+  const isolated = (r) => r.kind === 'interval' || r.kind === 'round' || r.kind === 'discrimination';
 
   // --- the context penalty -------------------------------------------------
   const BANDS = ['step (1-2)', 'leap (3-7)', 'wide (8+)'];
@@ -250,7 +250,7 @@ function section1() {
   const rows = db.prepare(`
     SELECT session_id, ts, anchor, target, played, velocity, correct, ${col('attempts', 'credit')}
     FROM attempts
-    WHERE kind IN ('interval','discrimination','remediation') AND graded = 1 AND ts >= ?
+    WHERE kind IN ('interval','round','discrimination','remediation') AND graded = 1 AND ts >= ?
     ORDER BY ts ASC`).all(cutoff);
 
   const seen = new Set();
@@ -580,7 +580,7 @@ function sectionResponseLag() {
     return;
   }
   const KIND_GROUPS = {
-    interval: ['interval', 'discrimination', 'remediation', 'gesture'],
+    interval: ['interval', 'round', 'discrimination', 'remediation', 'gesture'],
     passage: ['passage'],
     retry: ['retry'],
     variant: ['variant'],

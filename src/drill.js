@@ -93,13 +93,12 @@
 //   variant:   a passage you nailed comes back a few questions later in the
 //              block's new key, or the other mode, or a step away (variable
 //              practice after constant; practice, not the retention test).
-//   round:     when plain intervals are coming back clean and in time, the
-//              caller stops waiting: the next call comes on a fixed lead
-//              while you are still answering, a canon. A 2-down/1-up
-//              staircase on ONE dimension per run (interval width, tempo, or
-//              lead) oscillates around threshold instead of climbing to a
-//              break; the run ends on a passable call, and its evidence is
-//              its own (never the tier ladder).
+//   round:     EARNED ONCE, NEVER TAKEN AWAY, and from then on it IS the
+//              plain interval question: a canon of six calls, each sounding
+//              on the beat its previous answer is due, so you listen while
+//              you play. Six right and on the beat is a win; the first miss
+//              loses it. Either way your last note sounds alone, and you stop.
+//              Graded exactly like a plain interval (see ROUND).
 //   echo:      (lowest stage) the drill goes quiet; you make up two or three
 //              notes; it asks for them straight back. The game is taught by
 //              imitating you first, and your own figure is the call. It is
@@ -269,11 +268,27 @@ const MIN_QUIET_S = 0.8;
 // (Kahneman et al. 1993, peak-end), and remembered is what brings someone
 // back. The ending sound is the end-of-session clicks, as always: no cue.
 export const WRAP = { afterMs: 20 * 60e3, graceMs: 5 * 60e3 };
-// The round: this many clean, in-time plain answers started within two beats
-// open one; a run is this many calls or this many misses; then a cool-down
-// call. At the ~70% a 2-down/1-up staircase converges on, 16 calls expect
-// about 5 misses, so a run usually ends on its length, not on a failure.
-const ROUND = { trigger: 5, calls: 16, misses: 5, cooldown: 15, maxLevel: 4, leads: [4, 3, 2], tempoStep: 6 };
+// THE ROUND (2026-10-05, Caleb's design). A canon on single intervals: each
+// call sounds ON THE BEAT ITS PREVIOUS ANSWER IS DUE, so the answer is played
+// while the next call is heard -- the ear-hand span of playing by ear in real
+// time (Sloboda 1974's eye-hand span, Keller's prioritized integrative
+// attention). It runs on automatic components or not at all (Schneider &
+// Shiffrin 1977): the old round fired on five lucky clean intervals and went
+// 2 for 14 in its two lives (09-24, 10-05), both times a surprise.
+// - UNLOCKED ONCE, NEVER LOCKED: duo passages at `duoNotes` AND the last
+//   `reflexN` plain intervals `reflexRate` right and started within
+//   `reflexBeats` beats. kv `canon` keeps it. It will surprise him once,
+//   whatever we do; after that it is simply what a plain interval is.
+// - SIX CALLS, ONE DIFFICULTY. All six right and within tolerance of their
+//   beat is a win; the first wrong or off-beat answer loses. The call that was
+//   already sounding when he missed is still answered and graded -- he heard
+//   it -- and nothing follows it. No cue for either ending: his last note
+//   sounds alone, he stops, and a beat of silence brings the next question.
+// - A WIN RAISES THE DIMENSION IT WAS PLAYED ON (tempo, lead, or interval
+//   width past the ladder); a loss never lowers anything.
+// - GRADED EXACTLY LIKE A PLAIN INTERVAL: the ladder, confusions, the stage.
+//   Every answer has its own beat, so time says which call a note answers.
+const ROUND = { calls: 6, duoNotes: 8, reflexN: 40, reflexRate: 0.8, reflexBeats: 2, leads: [4, 3, 2], tempoStep: 6, tempoMax: 4 };
 // THE CHAIN. Past a certain number of missed notes the corrective loop stops
 // working, and the data says exactly where. Correction accuracy by how many
 // notes the passage missed (2026-09-11..18, first askings, the correction
@@ -322,7 +337,7 @@ const CHAIN = {
   maxSteps: 8,  // a span is 3-5 notes; this caps the walk even if it oscillates
 };
 // Kinds that use the block key: what a block counts.
-const KEYED_KINDS = new Set(['interval', 'gesture', 'discrimination', 'remediation', 'passage', 'variant']);
+const KEYED_KINDS = new Set(['interval', 'round', 'gesture', 'discrimination', 'remediation', 'passage', 'variant']);
 // Once a level is dropped, the interval-confidence gate cannot lift it again for this long.
 const POLY_DEMOTE_HOLD_MS = 24 * 60 * 60 * 1000;
 // Bursts closer than this are one sitting: the key, the warm-up and the loops carry over.
@@ -469,7 +484,8 @@ export class Drill {
     this.lenStore = db.kv('passageLen');
     this.carryStore = db.kv('carry');
     this.stageStore = db.kv('stage');
-    this.roundsStore = db.kv('rounds'); // one record per run: the round's evidence is scoped away from the ladder
+    this.roundsStore = db.kv('rounds'); // one record per run (the log of rounds)
+    this.canonStore = db.kv('canon'); // { unlockedAt, levels }: the round, once earned (ROUND)
     this.rungStore = db.kv('dyadRung'); // the dyad rung controller (DYAD_RUNG)
     this.wideStore = db.kv('wideDyads'); // wide spans as their own skills (WIDE)
     this.placingSpans = new Map(); // phrase id -> its placing span
@@ -552,9 +568,8 @@ export class Drill {
     if (q.tempo) return q.tempo; // a window or its correction keeps the passage's pulse
     if (q.phrase) return passageTempo(q.phrase, this.floorSec);
     // A round on the tempo dimension is the one place a question is quicker
-    // than its music wants, and it is a game, not a controller: the tempo
-    // returns to INTERVAL_BPM the moment the round is over.
-    if (q.kind === 'round' && this.round?.dim === 'tempo') return INTERVAL_BPM + ROUND.tempoStep * this.round.level;
+    // than its music wants: the tempo returns to INTERVAL_BPM when it is over.
+    if (q.round && q.roundDim === 'tempo') return INTERVAL_BPM + ROUND.tempoStep * q.roundLevel;
     return INTERVAL_BPM;
   }
 
@@ -715,9 +730,10 @@ export class Drill {
     this.passagesDone = 0;
     this.streak = 0;
     this.cleanNotes = 0;
-    this.roundStreak = 0; // reset per burst: a round wants a run within one sitting
-    this.roundCooldown = 0;
     this.round = null;
+    // The unlock's interval half: the last ROUND.reflexN plain intervals, oldest first.
+    this.reflex = this.db.recentPlain(ROUND.reflexN).reverse()
+      .map((r) => Boolean(r.correct) && r.behind !== null && r.behind <= ROUND.reflexBeats);
     this.remediationQueue = resumed?.remediationQueue ?? [];
     this.recovery = null; // { a, t, chord, step } -- the walk out of a harmonic miss
     // The corrective loop and the variants carry as ids + placement, re-placed
@@ -1935,8 +1951,8 @@ export class Drill {
     const prev = this.prevAnchor === null ? null : this.idx(this.prevAnchor);
     const top = this.stage.current === 'exact';
 
-    // The round has the floor while it runs (see roundStep).
-    if (this.round) return this.roundQuestion(a, prev);
+    // A round call already sounding is answered before anything else (roundStep).
+    if (this.round?.pending != null) return this.roundCall(this.round.pending);
 
     // The window, then its correction, then the retry: estimate, hear, redo.
     if (this.window) {
@@ -2150,18 +2166,11 @@ export class Drill {
     const w = this.win;
     const key = this.block.key;
     const inKey = (t) => diatonicIn(t + this.lo, key);
-    const feasible = (t) => t >= this.idx(w.lo) && t <= this.idx(w.hi);
     const target = engine.nextTargetIndex(a, prev, {
       allowWide: top,
       pool: this.stage.pool ? this.stage.pool.flatMap((x) => [x, -x]) : null,
       bounds: { lo: this.idx(w.lo), hi: this.idx(w.hi) },
-      // The sign lands in the key: the mirror target (same width, other way)
-      // being diatonic and feasible makes this one nearly unwanted.
-      lean: (t) => {
-        const mirror = 2 * a - t;
-        if (inKey(t)) return inKey(mirror) && feasible(mirror) ? 1 : DIATONIC_LEAN;
-        return inKey(mirror) && feasible(mirror) ? CHROMATIC_SIDE : 1;
-      },
+      lean: this.keyLean(a),
       // Early on the lean is not enough: it only chooses which SIDE of the
       // anchor to land on, and from a white key in C a fifth is diatonic
       // either way, so a beginner got fifths in key and learned nothing about
@@ -2173,83 +2182,143 @@ export class Drill {
     // A plain interval question is sometimes a gesture instead: the same
     // drilled interval, continued in the key. Never at the lower stages.
     if (top && Math.random() < GESTURE_RATE) return this.gestureQuestion(target);
+    if (this.roundsOpen()) return this.startRound(target);
     return this.intervalQuestion('interval', target);
+  }
+
+  /** The sign lands in the key: the mirror target (same width, other way)
+   *  being diatonic and feasible makes this one nearly unwanted. */
+  keyLean(a) {
+    if (!this.block) return null;
+    const key = this.block.key;
+    const w = this.win;
+    const inKey = (t) => diatonicIn(t + this.lo, key);
+    const feasible = (t) => t >= this.idx(w.lo) && t <= this.idx(w.hi);
+    return (t) => {
+      const mirror = 2 * a - t;
+      if (inKey(t)) return inKey(mirror) && feasible(mirror) ? 1 : DIATONIC_LEAN;
+      return inKey(mirror) && feasible(mirror) ? CHROMATIC_SIDE : 1;
+    };
   }
 
   // --- the round -----------------------------------------------------------
 
-  /** Clean plain answers in a row, started promptly, open a round. */
-  noteRoundStreak(q, clean, behind) {
-    if (this.round || this.stage.current !== 'exact') return;
-    if (this.roundCooldown > 0) this.roundCooldown -= 1;
-    const plain = q.kind === 'interval' || q.kind === 'gesture' || q.kind === 'discrimination';
-    if (plain && clean && behind <= 2) this.roundStreak += 1;
-    else if (plain) this.roundStreak = 0;
-    if (this.roundStreak >= ROUND.trigger && this.roundCooldown === 0 && !this.retry) {
-      const dims = ['interval', 'tempo', 'lead'];
-      this.round = { dim: dims[Math.floor(Math.random() * dims.length)], level: 0, correctRun: 0, misses: 0, calls: 0, cool: false };
-      this.roundStreak = 0;
-      // Nothing announces it. The next call simply does not wait for you,
-      // which is the only description of a round anyone needs.
-      this.log(`round on: ${this.round.dim} staircase`);
-    }
+  /** The round, once earned (ROUND): kv `canon`. */
+  canonState() {
+    const st = this.canonStore.load() || {};
+    return { unlockedAt: st.unlockedAt ?? null, levels: { tempo: 0, lead: 0, interval: 0, ...(st.levels || {}) } };
   }
 
-  roundQuestion(a, prev) {
+  /** Is the round what a plain interval question is now? Earned once, never lost. */
+  roundsOpen() {
+    if (this.stage.current !== 'exact') return false;
+    const st = this.canonState();
+    if (st.unlockedAt) return true;
+    const duo = this.len.duo ? this.passageLength('duo') : 0;
+    const r = this.reflex;
+    if (duo < ROUND.duoNotes || r.length < ROUND.reflexN) return false;
+    const rate = r.filter(Boolean).length / r.length;
+    if (rate < ROUND.reflexRate) return false;
+    st.unlockedAt = Date.now();
+    this.canonStore.save(st);
+    this.log(`  rounds unlocked: duo passages at ${duo} notes, ${Math.round(rate * 100)}% of the last ${r.length} intervals right within ${ROUND.reflexBeats} beats`);
+    return true;
+  }
+
+  /** The dimensions a round can be played on, each at its saved level. */
+  roundDims() {
+    const lv = this.canonState().levels;
+    const all = [
+      { dim: 'tempo', level: lv.tempo, max: ROUND.tempoMax },
+      { dim: 'lead', level: lv.lead, max: ROUND.leads.length - 1 },
+      // Width past the ladder: nothing left to widen once every tier is open.
+      { dim: 'interval', level: lv.interval, max: TIER_WIDTHS.length - this.engine.state.tiersUnlocked },
+    ].map((d) => ({ ...d, level: Math.min(d.level, d.max) }));
+    const open = all.filter((d) => d.level < d.max);
+    return open.length ? open : all.filter((d) => d.max > 0);
+  }
+
+  /** A plain interval slot, once rounds are earned: call one of six. */
+  startRound(target) {
+    const dims = this.roundDims();
+    const d = dims[Math.floor(Math.random() * dims.length)];
+    this.round = { dim: d.dim, level: d.level, max: d.max, calls: 0, ok: 0, lost: false, pending: null };
+    this.log(`round on: ${d.dim} level ${d.level}`);
+    return this.roundCall(target);
+  }
+
+  /**
+   * One call of the round. Its successor is chosen NOW, from the note this
+   * call asks for, because it must sound on this answer's beat whatever the
+   * answer turns out to be (beginQuestion schedules it). Not after a miss,
+   * and not on the sixth call: that answer sounds alone.
+   */
+  roundCall(target) {
     const r = this.round;
-    const extra = r.dim === 'interval' ? r.level : 0;
-    // The round pushes PAST the current level on one dimension -- that is what
-    // it is for -- but the entry level's promise is the white keys, and a
-    // round widening by extraTiers off a white key lands on black ones (C + 3).
-    // It can widen inside the key instead; tempo and lead are untouched.
-    const key = this.block?.key ?? null;
-    const target = this.engine.nextTargetIndex(a, prev, {
-      extraTiers: extra,
-      scope: 'round',
-      bounds: { lo: this.idx(this.win.lo), hi: this.idx(this.win.hi) },
-      only: this.entryLevel() && key ? (t) => diatonicIn(t + this.lo, key) : null,
-    }) + this.lo;
     r.calls += 1;
+    r.pending = null;
     const q = this.intervalQuestion('round', target);
+    // After a miss the call already sounding can be the very note he landed
+    // on: then it asks for that note again, on its beat, with no anchor to skip.
+    if (target === this.anchor) q.notes = q.notes.filter((n) => !n.silent);
     q.round = true;
-    q.level = r.level;
-    // The lead never cuts a player who answers as promptly as the trigger
-    // admits: at least one beat more than the previous answer's lag.
-    q.lead = Math.max(r.dim === 'lead' ? ROUND.leads[Math.min(r.level, ROUND.leads.length - 1)] : ROUND.leads[0], (this.behind ?? 1) + 1);
-    q.label = `round ${r.calls}${r.cool ? ' (cool-down)' : ''}, ${r.dim} level ${r.level}: ${name(this.anchor)} -> ? (${signed(target - this.anchor)})`;
+    q.roundDim = r.dim;
+    q.roundLevel = r.level;
+    q.lead = ROUND.leads[r.dim === 'lead' ? r.level : 0];
+    q.successor = null;
+    const a = this.idx(this.anchor);
+    const prev = this.prevAnchor === null ? null : this.idx(this.prevAnchor);
+    if (!r.lost && r.calls < ROUND.calls) {
+      const t = this.idx(target);
+      const key = this.block?.key ?? null;
+      q.successor = this.engine.nextTargetIndex(t, a, {
+        extraTiers: r.dim === 'interval' ? r.level : 0,
+        scope: 'round', // only a pick: the call is framed when it is asked
+        bounds: { lo: this.idx(this.win.lo), hi: this.idx(this.win.hi) },
+        lean: this.keyLean(t),
+        only: this.entryLevel() && key ? (x) => diatonicIn(x + this.lo, key) : null,
+      }) + this.lo;
+    }
+    // Frame THIS call last (picking the successor framed that one), from the
+    // note under the hand, exactly as a plain question is framed. A width the
+    // ladder has not opened (the interval dimension) stays off it.
+    const iv = target - this.anchor;
+    const onLadder = iv !== 0 && Math.abs(iv) <= 12 && this.engine.unlockedWidth(iv);
+    this.engine.ask(iv, a, prev, { scope: onLadder ? 'interval' : 'round' });
+    q.label = `round ${r.calls}/${ROUND.calls}${r.lost ? ' (after the miss)' : ''}, ${r.dim} level ${r.level}: ${name(this.anchor)} -> ? (${signed(iv)})`;
     return q;
   }
 
-  /** 2-down/1-up: two clean in a row climb one level, a miss drops one. */
-  roundStep(clean) {
+  /** A round call is resolved: right AND on its beat, or not. */
+  roundStep(q, ok) {
     const r = this.round;
-    if (r.cool) {
-      this.round = null;
-      this.roundCooldown = ROUND.cooldown;
-      this.log(`round over: ${r.calls} calls, ${r.misses} misses, top level ${r.top ?? r.level}`);
-      const runs = this.roundsStore.load() || [];
-      runs.push({ ts: Date.now(), session: this.sessionId, dim: r.dim, calls: r.calls, misses: r.misses, top: r.top ?? r.level });
-      this.roundsStore.save(runs.slice(-500));
-      return;
+    if (!r) return;
+    if (!r.lost) {
+      if (ok) r.ok += 1;
+      else r.lost = true;
     }
-    r.top = Math.max(r.top ?? 0, r.level);
-    if (clean) {
-      r.correctRun += 1;
-      if (r.correctRun >= 2) { r.level = Math.min(ROUND.maxLevel, r.level + 1); r.correctRun = 0; }
-    } else {
-      r.misses += 1;
-      r.correctRun = 0;
-      r.level = Math.max(0, r.level - 1);
-    }
-    if (r.calls >= ROUND.calls || r.misses >= ROUND.misses) {
-      // One more call at an easy level, so the run ends on a correct model.
-      r.cool = true;
-      r.level = 0;
-    }
+    // The next call is already in his ear: it is answered, and graded, first.
+    r.pending = q.successor;
+    if (r.pending !== null) return;
+    this.round = null;
+    const won = !r.lost && r.ok >= ROUND.calls;
+    const st = this.canonState();
+    if (won) st.levels[r.dim] = Math.min(r.max, r.level + 1);
+    this.canonStore.save(st);
+    this.log(won ? `round won: ${r.ok} of ${ROUND.calls}${st.levels[r.dim] > r.level ? `, ${r.dim} now level ${st.levels[r.dim]}` : ''}`
+      : `round lost on call ${r.ok + 1} of ${ROUND.calls}`);
+    const runs = this.roundsStore.load() || [];
+    runs.push({ ts: Date.now(), session: this.sessionId, dim: r.dim, level: r.level, calls: r.calls, ok: r.ok, won });
+    this.roundsStore.save(runs.slice(-500));
   }
 
   beginQuestion() {
     if (this.rangeDirty) this.rebuildEngine();
+    // A round's next call goes out on its beat whatever happened to the answer
+    // it rides on: if the lookahead never reached it, it goes now.
+    const pending = this.successorNote;
+    this.successorNote = null;
+    if (pending && !pending.sent) this.audio.note(pending.midi, { at: Math.max(pending.at, this.audio.now), velocity: 90, duration: pending.dur });
     const q = this.nextQ || this.makeQuestion();
     this.nextQ = null;
     this.q = q;
@@ -2290,6 +2359,8 @@ export class Drill {
       return [n.midi, at, Math.max(0.05, dur)];
     });
     this.callScheduled = 0;
+    // A round call after the first was sounded by the call before it.
+    if (q.round && pending) this.callScheduled = this.callNotes.length;
     const lastCall = this.callNotes[this.callNotes.length - 1];
     this.callEndAt = lastCall ? lastCall[1] + Math.max(lastCall[2], this.beat) : t0 + (q.window ? q.window.sec : this.beat);
     // The call's last RELEASE, not its last onset: a held lower voice can outlast the top.
@@ -2297,6 +2368,16 @@ export class Drill {
     this.buildGroups(notes);
     this.earliestStart = (lastCall ? this.callNotes[0][1] : t0) + this.beat; // one beat behind the call
     if (q.collect) this.earliestStart = t0; // your turn to make something up: any time
+    // A round's answer has ONE beat, the lead; anything before its window is
+    // not an answer (startResponse pins the beat).
+    if (q.round) {
+      this.roundDeadline = t0 + q.lead * this.beat;
+      this.earliestStart = this.roundDeadline;
+      if (q.successor !== null) {
+        const dur = Math.max(0.05, Math.min(CALL_MAX_S, this.beat));
+        this.successorNote = { midi: q.successor, at: this.roundDeadline, dur, sent: false };
+      }
+    }
     this.responseStarted = false;
     this.gi = 0;
     this.pitchClean = true;
@@ -2315,7 +2396,7 @@ export class Drill {
     // Nothing sounds here but the call. A collect question is silence you
     // fill; a variant is the phrase you nailed in a new key, and it is the
     // new key that says so.
-    if (q.round) this.nextQuestionAt = t0 + q.lead * this.beat; // the caller does not wait
+    if (q.round && q.successor !== null) this.nextQuestionAt = this.roundDeadline; // the caller does not wait
     this.log(`Q${this.questions}: ${q.label} @ ${this.bpm} bpm (±${this.toleranceMs.toFixed(0)}ms)${this.block && q.kind === 'interval' ? `  [${keyName(this.block.key)}]` : ''}`);
   }
 
@@ -2462,6 +2543,11 @@ export class Drill {
       }
       this.scheduledUntil = beatTime + this.beat;
     }
+    const succ = this.successorNote;
+    if (succ && !succ.sent && succ.at < horizon) {
+      this.audio.note(succ.midi, { at: Math.max(succ.at, now), velocity: 90, duration: succ.dur });
+      succ.sent = true;
+    }
     while (this.callScheduled < this.callNotes.length && this.callNotes[this.callScheduled][1] < horizon) {
       const [midi, at, duration] = this.callNotes[this.callScheduled];
       // A note whose time has already passed (the event loop stalled past the
@@ -2479,9 +2565,8 @@ export class Drill {
         // still open: the silence is the question
       } else if (q.collect) {
         this.collectTick(now);
-      } else if (q.round && now >= this.nextQuestionAt + this.toleranceMs / 1000) {
-        // The caller does not wait: whatever is left of this answer is missed
-        // (a note inside tolerance of the next downbeat is still this answer).
+      } else if (q.round && now >= this.roundDeadline + this.toleranceMs / 1000) {
+        // The answer's beat has gone by: whatever is left of it is missed.
         this.abandonResponse({ quiet: true });
       } else if (this.responseStarted && this.keysDown.size === 0) {
         // A beat of silence once the pending group's time has come means you
@@ -2498,7 +2583,7 @@ export class Drill {
       // down, nothing pressed or released for QUIET_BEATS_BEFORE_NEXT beats.
       // The next call starts on the first click after that. The pulse itself
       // never moves; only the bar's accent pattern restarts there.
-      if (this.q.round) {
+      if (this.q.round && this.q.successor !== null) {
         // fixed lead, set in beginQuestion: never renegotiated by silence
       } else if (this.keysDown.size === 0) {
         const quietSince = Math.max(this.lastPlayedAt ?? -Infinity, this.lastReleasedAt ?? -Infinity);
@@ -2511,10 +2596,9 @@ export class Drill {
       }
       if (now >= this.nextQuestionAt - SCHEDULE_AHEAD_S) {
         if (this.awaitingFinalize) this.finalizeQuestion();
-        // A round abandons an unfinished answer just past its lead: the next
-        // call then goes on the next grid beat, never at a time already gone
-        // (the pulse is constant, so one beat later is still clean).
-        while (this.nextQuestionAt < now) this.nextQuestionAt += this.beat;
+        // Never at a time already gone -- except a round's next call, which
+        // has already sounded there.
+        if (!(this.q.round && this.q.successor !== null)) while (this.nextQuestionAt < now) this.nextQuestionAt += this.beat;
         this.nextBarAt = this.nextQuestionAt;
         this.beginQuestion();
       }
@@ -2574,7 +2658,8 @@ export class Drill {
       for (const e of g[0].notes) e.done = true;
     }
     const callAt = this.callT0 + g[j].b * this.beat; // when the call sounded (or would have) this group
-    const behind = Math.max(1, Math.round((atAudio - callAt) / this.beat));
+    // A round's answer has one beat, the lead: off it is off time, not a later beat.
+    const behind = this.q.round ? this.q.lead : Math.max(1, Math.round((atAudio - callAt) / this.beat));
     const T = callAt + behind * this.beat;
     for (const grp of g) grp.at = T + (grp.b - g[j].b) * this.beat;
     let prevAt = T - this.beat; // the first group's own window is +/- half a beat
@@ -2765,7 +2850,6 @@ export class Drill {
     // (12 had counted), and the violinist on 09-27 had 59 of 667 count.
     const primeProbe = Boolean(q.prime) && this.entryLevel();
     const passage = Boolean(q.phrase) || Boolean(q.gesture) || (Boolean(q.prime) && !primeProbe) || Boolean(q.exposure) || Boolean(q.correction) || Boolean(q.recovery);
-    const round = Boolean(q.round);
     const rtNorm = inTime ? Math.min(Math.abs(onsetMs), this.beat * 1000) / this.beat : null;
     const from = exp.melodicFrom ?? exp.harmonicFrom ?? this.anchor;
     // The stage's credit: what this note counts as for the engine and the
@@ -2798,7 +2882,7 @@ export class Drill {
         if (passage) this.engine.ask(iv, this.idx(exp.melodicFrom), prev === null ? null : this.idx(prev), { scope: 'passage' });
         else if (primeProbe) this.engine.ask(iv, this.idx(exp.melodicFrom), null, { scope: 'interval' });
         if (!credit) {
-          this.engine.reportMiss(this.idx(exp.melodicFrom), played === null ? this.idx(exp.melodicFrom) : this.idx(note), { confuse: !round });
+          this.engine.reportMiss(this.idx(exp.melodicFrom), played === null ? this.idx(exp.melodicFrom) : this.idx(note));
           if (passage && !q.correction && Math.abs(iv) >= 3 && this.remediated < REMEDIATE_MAX_PER_PASSAGE &&
               this.engine.predictedAcc(iv, this.idx(exp.melodicFrom)) < 0.8) {
             this.remediationQueue.push(simpleOf(iv));
@@ -2821,9 +2905,10 @@ export class Drill {
         this.harmonic.reportResolved(rtNorm);
       }
     }
-    // The stage sees plain answers only: never a round (its pressure must not
-    // decide the grading rung), whatever isolatedKind says for the credit path.
-    if (isolated && !round && exp.graded && exp.melodicFrom !== null) {
+    // The stage sees isolated answers, a round's included: since 2026-10-05 a
+    // round IS the plain question once earned, graded the same.
+    exp.inTime = inTime;
+    if (isolated && exp.graded && exp.melodicFrom !== null) {
       if (this.stage.observe(exp.melodicFrom, exp.midi, played)) this.stageMoved();
     }
     const rowId = this.db.attempt({
@@ -3065,7 +3150,7 @@ export class Drill {
     }
     // When the next question starts is decided in tick(): a beat of silence
     // (a round's is fixed and already set).
-    if (!this.q.round) this.nextQuestionAt = Infinity;
+    if (!(this.q.round && this.q.successor !== null)) this.nextQuestionAt = Infinity;
     if (this.held.size === 0) this.finalizeQuestion();
   }
 
@@ -3077,7 +3162,9 @@ export class Drill {
     if (!this.awaitingFinalize) return;
     this.awaitingFinalize = false;
     const now = this.audio.now;
-    for (const [, h] of this.held) this.gradeHold(h, now, true); // still held: never "too long"
+    // A round answer still held as the next call sounds is held THROUGH it,
+    // as a canon is played: its length is not judged.
+    if (!(this.q.round && this.q.successor !== null)) for (const [, h] of this.held) this.gradeHold(h, now, true); // still held: never "too long"
     this.held.clear();
     const q = this.q;
     if (q.collect || q.window) {
@@ -3105,8 +3192,12 @@ export class Drill {
     if (!q.correction) this.streak = this.pitchClean ? this.streak + 1 : 0;
     if (q.phrase) this.passagesInARow += 1;
     else if (!q.correction && !q.window) this.passagesInARow = 0;
-    if (q.round) this.roundStep(this.round?.dim === 'tempo' ? clean : this.pitchClean); // time only counts when time is the game
-    else this.noteRoundStreak(q, clean, this.behind ?? 99);
+    // A round call counts on pitch AND its beat (holds are not the game).
+    if (q.round) this.roundStep(q, this.groups.every((g) => g.notes.every((e) => e.free || e.silent || (e.played === e.midi && e.inTime))));
+    if (q.kind === 'interval') {
+      this.reflex.push(this.pitchClean && (this.behind ?? 99) <= ROUND.reflexBeats);
+      if (this.reflex.length > ROUND.reflexN) this.reflex.shift();
+    }
     if (q.phrase) {
       this.cleanNotes = 0;
       this.passagesDone += 1;
@@ -3173,6 +3264,7 @@ export class Drill {
   wrapReason(q) {
     const ms = performance.now() - this.sessionStartedAt;
     if (ms < this.wrap.afterMs || !this.pitchClean) return null;
+    if (this.round) return null; // a round finishes first: a call may already be sounding
     const mins = Math.round(this.wrap.afterMs / 60e3);
     if (q.phrase && (q.kind === 'passage' || q.kind === 'retry' || q.kind === 'variant')) return `${mins} minutes: ended on a clean phrase`;
     // Past the grace, any correct answer -- one he actually played, and not
