@@ -962,11 +962,18 @@ comes up.
   THREE VOICES BEFORE FOUR (2026-09-25, `trio`, level 2). Huron 1989: voice
   counts in Bach excerpts err ~10% at three voices and ~50% at four. The trio
   rung takes the harmonic gate (`harmonicTiersForChorale`); chorale is
-  earned from trio by the per-note window. Its excerpts come ONLY from
-  `corpus/local/*.json` (git-ignored, `build-corpus.mjs --local`; how-to in
-  corpus/README.md). NEVER NAME OR COMMIT A LOCAL SOURCE: this repo is public
-  and those encodings may not be redistributable. With no local source the
-  rung is stepped over both ways (`polyKindAvailable`). Stored levels are
+  earned from trio by the per-note window. Its excerpts come from
+  `corpus/trios.json` (COMMITTED, shareable: Bach's Sinfonias, three WTC
+  fugues and Trio Sonata V from the Mutopia Project, all public domain;
+  2,420 excerpts, `scripts/ly2kern.mjs` + `build-corpus.mjs --shared trios`,
+  verified note for note by `scripts/check-ly2kern.mjs`; rebuild in
+  corpus/README.md) plus any `corpus/local/*.json` (git-ignored,
+  `build-corpus.mjs --local`). NEVER NAME OR COMMIT A LOCAL SOURCE: this repo
+  is public and those encodings may not be redistributable. The shared set is
+  THIN AT THE SHORT END (4 notes: 5 excerpts, 5: 29, 6: 124 -- sixteenth-note
+  counterpoint makes long windows), so a player without a local source starts
+  the rung on a handful of excerpts. With no trio source at all the rung is
+  stepped over both ways (`polyKindAvailable`). Stored levels are
   indices: a `poly` record without `kinds: 5` is renumbered once (chorale
   2 -> 3, poly 3 -> 4). Trio excerpts with every onset all three voices at
   once are wanted less (`together`, TRIO_TOGETHER_PENALTY): voices struck

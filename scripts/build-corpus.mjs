@@ -9,6 +9,12 @@
 // it is for sources you may use yourself but may not redistribute. See
 // corpus/README.md, "Adding your own sources".
 //
+//   node scripts/build-corpus.mjs --shared <name> <kern-dir> [<kern-dir>...]
+//
+// --shared does the same into corpus/<name>.json, which IS committed: for
+// sources that may be redistributed (corpus/trios.json, the Mutopia
+// Sinfonias -- see corpus/README.md).
+//
 // MELODY: the rightmost **kern spine at the header (soprano in the chorales,
 // right hand in the sonatas) and every sub-spine it splits into (*^). On each
 // time slice the highest attacked pitch across those columns is taken, unless
@@ -105,6 +111,8 @@ const isGrace = (token) => /[qQ]/.test(token);
 function beatUnit(num, den) {
   if (den === 8 && num % 3 === 0 && num > 3) return [1.5, num / 3];
   if (den === 8) return [0.5, num];
+  // 9/16 (BWV 801) is three dotted eighths, the way 9/8 is three dotted quarters.
+  if (den === 16 && num % 3 === 0 && num > 3) return [0.75, num / 3];
   if (den === 16) return [0.25, num];
   if (den === 2) return [2, num];
   if (den === 1) return [4, num];
@@ -595,6 +603,10 @@ const argv = process.argv.slice(2);
 const localAt = argv.indexOf('--local');
 const local = localAt >= 0 ? argv.splice(localAt, 2)[1] : null;
 if (localAt >= 0 && !/^[A-Za-z0-9_-]+$/.test(local ?? '')) throw new Error('--local needs a plain name: --local <name> <kern-dir>...');
+const sharedAt = argv.indexOf('--shared');
+const shared = sharedAt >= 0 ? argv.splice(sharedAt, 2)[1] : null;
+if (sharedAt >= 0 && !/^[A-Za-z0-9_-]+$/.test(shared ?? '')) throw new Error('--shared needs a plain name: --shared <name> <kern-dir>...');
+if (shared && ['phrases', 'poly', 'hymns'].includes(shared)) throw new Error(`--shared ${shared} would overwrite a corpus file`);
 const out = [];
 const polyOut = [];
 for (const dir of argv) {
@@ -624,6 +636,12 @@ for (const p of out) {
 const polyBy = {};
 for (const p of polyOut) polyBy[p.kind] = (polyBy[p.kind] || 0) + 1;
 console.log(`${polyOut.length} polyphonic phrases`, polyBy);
+if (shared) {
+  mkdirSync('corpus', { recursive: true });
+  writeFileSync(`corpus/${shared}.json`, JSON.stringify(polyOut));
+  console.log(`wrote corpus/${shared}.json (committed; restart the drill to load it)`);
+  process.exit(0);
+}
 if (local) {
   mkdirSync('corpus/local', { recursive: true });
   writeFileSync(`corpus/local/${local}.json`, JSON.stringify(polyOut));

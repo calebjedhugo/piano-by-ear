@@ -17,11 +17,49 @@ git clone --depth 1 https://github.com/craigsapp/mozart-piano-sonatas /tmp/mozar
 node scripts/build-corpus.mjs /tmp/bach/kern /tmp/mozart/kern
 ```
 
+## trios.json: the shareable three-voice rung
+
+`trios.json` holds 2,420 three-voice (`trio`) excerpts from Bach as typeset
+at the [Mutopia Project](https://www.mutopiaproject.org), every file marked
+**public domain** by its typesetter:
+
+- Sinfonias 1-15, BWV 787-801 (Olivier Vermersch)
+- Das Wohltemperierte Clavier I, Fugues III and VIII, BWV 848 and 853 (Davide Castellone)
+- Das Wohltemperierte Clavier II, Fugue I, BWV 870 (Jarle Fagerheim)
+- Trio Sonata V, BWV 529 (Urs Metzger; the Largo yields nothing, its
+  melody moves in thirty-second notes, faster than the builder admits)
+
+Mutopia's other three-voice fugues write their voices inside each staff
+(`<< { } \\ { } >>`) rather than as continuous parts, and Book I Fugue II is
+CC BY-SA, so they are not included.
+
+**LilyPond is never run.** A `.ly` file can execute Scheme when compiled, so
+`scripts/ly2kern.mjs` reads the notes from the text, and
+`scripts/check-ly2kern.mjs` compares every note with the MIDI Mutopia
+publishes beside each file. All 21 movements match; the only differences are
+LilyPond's own (grace notes, which the corpus drops on purpose, and one tie
+into a rest in BWV 797), listed in the checker.
+
+Rebuild:
+
+```bash
+mkdir -p /tmp/mutopia && cd /tmp/mutopia
+for n in $(seq 787 801); do curl -sSO "https://www.mutopiaproject.org/ftp/BachJS/BWV$n/bwv$n/bwv$n.ly"; curl -sSO "https://www.mutopiaproject.org/ftp/BachJS/BWV$n/bwv$n/bwv$n.mid"; done
+for p in BWV848/bwv848b/bwv848b BWV853/bwv853b/bwv853b BWV870/wtk2fuga1/wtk2fuga1 BWV529/bwv529/bwv529; do curl -sSO "https://www.mutopiaproject.org/ftp/BachJS/$p.ly"; done
+for p in BWV848/bwv848b/bwv848b BWV853/bwv853b/bwv853b BWV870/wtk2fuga1/wtk2fuga1; do curl -sSO "https://www.mutopiaproject.org/ftp/BachJS/$p.mid"; done
+curl -sSO https://www.mutopiaproject.org/ftp/BachJS/BWV529/bwv529/bwv529-mids.zip && unzip -o -q bwv529-mids.zip
+cp bwv529.mid bwv529-1.mid && cp bwv529-a4-1.mid bwv529-2.mid && cp bwv529-a4-2.mid bwv529-3.mid
+cd -
+node scripts/ly2kern.mjs /tmp/mutopia /tmp/mutopia-kern/mutopia-bach/kern
+node scripts/check-ly2kern.mjs /tmp/mutopia-kern/mutopia-bach/kern /tmp/mutopia
+node scripts/build-corpus.mjs --shared trios /tmp/mutopia-kern/mutopia-bach/kern
+```
+
 ## Adding your own sources
 
-The three-voice rung (`trio`, between two voices and four-part chorales) has
-**no excerpts in this repository**. Until you add a source it is simply
-stepped over, and everything else works. Adding one is how to get that rung.
+The three-voice rung (`trio`, between two voices and four-part chorales)
+ships with `trios.json` above. A local source adds to it -- useful above all
+for short excerpts, which the Sinfonias have few of.
 These steps are written so another Claude instance can follow them.
 
 1. **Find a source you are allowed to use.** You need Humdrum `**kern` files

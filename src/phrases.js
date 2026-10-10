@@ -21,10 +21,14 @@ import { phraseKey, shiftToKey, placementPoint } from './keyblock.js';
 export const MONO_PATH = fileURLToPath(new URL('../corpus/phrases.json', import.meta.url));
 export const HYMNS_PATH = fileURLToPath(new URL('../corpus/hymns.json', import.meta.url));
 export const POLY_PATH = fileURLToPath(new URL('../corpus/poly.json', import.meta.url));
+// The shareable three-voice excerpts (Bach's Sinfonias from the Mutopia
+// Project, public domain; scripts/build-corpus.mjs --shared trios).
+export const TRIOS_PATH = fileURLToPath(new URL('../corpus/trios.json', import.meta.url));
 // Sources you may use but not redistribute are built into corpus/local/
 // (git-ignored; scripts/build-corpus.mjs --local) and join the poly bank.
 const LOCAL_DIR = fileURLToPath(new URL('../corpus/local/', import.meta.url));
-export const POLY_PATHS = [POLY_PATH, ...(existsSync(LOCAL_DIR) ? readdirSync(LOCAL_DIR).filter((f) => f.endsWith('.json')).sort().map((f) => LOCAL_DIR + f) : [])];
+export const POLY_PATHS = [POLY_PATH, ...(existsSync(TRIOS_PATH) ? [TRIOS_PATH] : []),
+  ...(existsSync(LOCAL_DIR) ? readdirSync(LOCAL_DIR).filter((f) => f.endsWith('.json')).sort().map((f) => LOCAL_DIR + f) : [])];
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DUE_AFTER_FAIL_MS = 1 * DAY_MS;
 const DUE_AFTER_CLEAN_MS = [3 * DAY_MS, 7 * DAY_MS, 21 * DAY_MS]; // by clean passes in a row
