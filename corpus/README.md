@@ -19,7 +19,7 @@ node scripts/build-corpus.mjs /tmp/bach/kern /tmp/mozart/kern
 
 ## trios.json: the shareable three-voice rung
 
-`trios.json` holds 2,420 three-voice (`trio`) excerpts from Bach as typeset
+`trios.json` holds 4,752 three-voice (`trio`) excerpts (one beat to eight long; 397 at four notes, where the rung starts) from Bach as typeset
 at the [Mutopia Project](https://www.mutopiaproject.org), every file marked
 **public domain** by its typesetter:
 
@@ -58,8 +58,7 @@ node scripts/build-corpus.mjs --shared trios /tmp/mutopia-kern/mutopia-bach/kern
 ## Adding your own sources
 
 The three-voice rung (`trio`, between two voices and four-part chorales)
-ships with `trios.json` above. A local source adds to it -- useful above all
-for short excerpts, which the Sinfonias have few of.
+ships with `trios.json` above. A local source adds to it.
 These steps are written so another Claude instance can follow them.
 
 1. **Find a source you are allowed to use.** You need Humdrum `**kern` files

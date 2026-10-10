@@ -63,6 +63,12 @@ const POLY = {
 };
 const POLY_MIN_NOTES = 4;
 const POLY_MAX_SPAN_BEATS = 8;
+// A TRIO MAY BE ONE BEAT LONG (2026-10-10). Two beats of three voices moving
+// in sixteenths is 8+ notes, so the Mutopia set (trios.json) had 5 excerpts
+// at 4 notes, where the rung starts, and 24 at 5. One-beat windows: 397 and
+// 420. It is the three-voice version of the chorale rung's single chord: a
+// sonority with a little motion in it. Other kinds keep MIN_SPAN_BEATS.
+const TRIO_MIN_SPAN_BEATS = 1;
 
 const STEP = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
 const ENTITIES = { uuml: 'ü', ouml: 'ö', auml: 'ä', Uuml: 'Ü', Ouml: 'Ö', Auml: 'Ä', szlig: 'ß', eacute: 'é', egrave: 'è', amp: '&' };
@@ -524,7 +530,7 @@ function polyPhrases(monoPhrases, poly, bars, source) {
         const from = cuts[i];
         const to = cuts[j];
         const spanBeats = (to - from) / beatTicks;
-        if (spanBeats < MIN_SPAN_BEATS || spanBeats > POLY_MAX_SPAN_BEATS) continue;
+        if (spanBeats < (kind === 'trio' ? TRIO_MIN_SPAN_BEATS : MIN_SPAN_BEATS) || spanBeats > POLY_MAX_SPAN_BEATS) continue;
         {
           const want = kind === 'duo' ? new Set([0, top]) : null;
           const notes = poly.notes
