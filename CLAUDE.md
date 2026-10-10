@@ -1353,6 +1353,11 @@ onset group one beat behind the call. Copy a profile first; never the live
 one. The end-of-run "statement has been finalized" is the harness closing
 the DB under late timers, not the drill.
 
+**IMPORTANT (Claude Code sandbox):** `sim.mjs` (like `pbe.sh` and the drill) needs CoreAudio, so run it
+with the sandbox disabled; sandboxed it dies in `src/audio.js` with `OSStatus: 560947818`. `$TMPDIR` is
+`/tmp/claude-501` inside the sandbox but the normal macOS temp dir outside it, so use absolute
+`/private/tmp/claude-501/...` paths for scratch DBs and logs shared between the two.
+
 ## Gotchas
 
 - `@julusian/midi` has an install script; `npm install` may warn about
