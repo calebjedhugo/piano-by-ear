@@ -1248,6 +1248,14 @@ comes up.
   judgments, timing apart from pitch, stage, session shape. In-session
   gains are performance; judge progress here. Section 0 counts FIRST ASKINGS
   ONLY (`kind = 'passage'`): retries are echoes, variants are transfer.
+  LEAPS ARE SPLIT BY CONTEXT (`leapContext`, 2026-10-10): line (the note two
+  back is a step away), chord (the three notes fit one triad), bare -- 3-5
+  semitones 71/77/56%, sixths chord 57% vs bare 24%. The drill does NOT
+  change (hearing a leap through its chord or line is the skill); the
+  reading does: an interval trend in phrases moves with the mix, so read it
+  inside one context. Strict count only -- first askings, one voice,
+  mid-line, previous note right; with variants and voice entries in, M6 "in
+  phrases" read 54% -> 77% when it was 54% -> 57%.
 - `scripts/sim.mjs <db> <player> <n> [bpm] [nophrases]` headless scripted
   player (perfect | sloppy | kid | liz | random) against a scratch DB; the
   way every path above was verified. Never a live profile. ALWAYS PASS A BPM:

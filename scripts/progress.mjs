@@ -242,6 +242,77 @@ function section0() {
           pctN(list.map((r) => (diatonicIn(r.target, parseKey(r.key)) ? 1 : 0)))];
       }));
   }
+
+  leapContext();
+}
+
+// --- a leap is heard through what came before it --------------------------
+// A sixth that completes a triad, or a leap whose note continues a stepwise
+// line from two notes back (a compound melody), is not the same ask as a bare
+// sixth -- 2026-09-10..10-10: 3-5 semitones bare 57% (n=148), line 71%, chord
+// 77%; sixths bare 24% (n=17), chord 57% (n=14). Hearing it that way IS the
+// skill, so the drill does not change; the READING does, because a per-
+// interval trend in phrases moves with the mix (bare sixths 61% -> 40% of
+// sixths between two halves). Counted strictly: FIRST ASKINGS, one voice at a
+// time, MID-LINE (the previous note of the same voice is the anchor and was
+// played right). Variants, chains, voice entries and notes after a miss are
+// out -- including them is what made M6 "in phrases" read 54% -> 77% on
+// 10-07 when the strict count was 54% -> 57%.
+const TRIADS = [];
+for (let r = 0; r < 12; r += 1) {
+  TRIADS.push([r, (r + 4) % 12, (r + 7) % 12], [r, (r + 3) % 12, (r + 7) % 12]);
+}
+const pc = (m) => ((m % 12) + 12) % 12;
+function leapContextOf(twoBack, prev, target) {
+  const d = Math.abs(target - twoBack);
+  if (d >= 1 && d <= 2) return 'line';
+  const set = [pc(twoBack), pc(prev), pc(target)];
+  return TRIADS.some((t) => set.every((x) => t.includes(x))) ? 'chord' : 'bare';
+}
+const LEAP_BANDS = [[3, 5, '3-5'], [6, 7, '6-7 (tritone, 5th)'], [8, 9, '8-9 (sixths)'], [10, 12, '10-12']];
+
+function leapContext() {
+  if (!hasColumn('attempts', 'position')) return;
+  const rows = db.prepare(`
+    SELECT session_id, question, ts, anchor, target, correct, position, ${col('attempts', 'voice')}
+    FROM attempts
+    WHERE graded = 1 AND first_attempt = 1 AND kind = 'passage' AND ts >= ? AND position IS NOT NULL
+    ORDER BY session_id, question, voice, position, ts`).all(cutoff);
+  const lines = groupBy(rows, (r) => `${r.session_id}:${r.question}:${r.voice ?? 0}`);
+  const leaps = [];
+  for (const list of lines.values()) {
+    const seq = [];
+    for (const r of list) if (!seq.length || seq[seq.length - 1].position !== r.position) seq.push(r);
+    for (let i = 2; i < seq.length; i += 1) {
+      const [two, prev, r] = [seq[i - 2], seq[i - 1], seq[i]];
+      if (prev.target !== r.anchor || !prev.correct) continue;
+      const w = Math.abs(r.target - r.anchor);
+      const band = LEAP_BANDS.find(([lo, hi]) => w >= lo && w <= hi);
+      if (!band) continue;
+      leaps.push({ ts: r.ts, band: band[2], ctx: leapContextOf(two.target, prev.target, r.target), correct: r.correct });
+    }
+  }
+  const CTX = ['line', 'chord', 'bare'];
+  const cells = (list) => [
+    ...CTX.map((c) => pctN(list.filter((l) => l.ctx === c).map((l) => l.correct))),
+    list.length ? pct(list.filter((l) => l.ctx === 'bare').length / list.length) : '--'];
+  const header = ['line (step from 2 back)', 'chord (one triad)', 'bare', 'bare share'];
+  printTable('Leaps by what came before them (first askings, one voice, mid-line, previous note right)',
+    ['leap', ...header],
+    LEAP_BANDS.map(([, , name]) => [name, ...cells(leaps.filter((l) => l.band === name))]));
+
+  // Weekly, counting back from the newest day: a day holds too few leaps.
+  if (!leaps.length) return;
+  const dayMs = (ts) => Date.parse(`${localDay(ts)}T00:00:00`);
+  const newest = Math.max(...leaps.map((l) => dayMs(l.ts)));
+  const weeks = groupBy(leaps, (l) => Math.floor((newest - dayMs(l.ts)) / (7 * 86400000)));
+  printTable('Leaps (3-12) by week -- read a trend inside one context, never across the mix',
+    ['week', ...header],
+    [...weeks.keys()].sort((a, b) => b - a).map((k) => {
+      const list = weeks.get(k);
+      const days = list.map((l) => localDay(l.ts)).sort();
+      return [`${days[0]}..${days[days.length - 1]}`, ...cells(list)];
+    }));
 }
 
 // ================= 1. Isolated intervals =================
