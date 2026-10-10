@@ -19,6 +19,7 @@ import { Output } from '@julusian/midi';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { SampledPiano } from './sampler.js';
 
 const NOTE_ON = 0x90;
 const NOTE_OFF = 0x80;
@@ -72,23 +73,55 @@ const OUT_LATENCY_MS = 0;
 
 const SOUND_FILE = join(homedir(), '.piano-by-ear', 'sound');
 
-/** True when the launcher has handed the sound over to the instrument. */
+/**
+ * True when the instrument makes the sound. ~/.piano-by-ear/sound decides when
+ * it exists (the launcher writes it). WITHOUT IT, THE KEYBOARD'S OWN SOUND
+ * UNLESS THE PIANOS HAVE BEEN DOWNLOADED (2026-10-10, Caleb: most people who
+ * get this have a digital piano; the sampled pianos are opt-in, for silent
+ * controllers like his own). Downloading them is the choice of the app's sound.
+ */
 export function hardwareSound() {
   try {
     return readFileSync(SOUND_FILE, 'utf8').trim() === 'hardware';
   } catch {
-    return false; // never set, or unreadable: the app's own pianos
+    return !SampledPiano.available('grand');
   }
 }
+
+const CLICKS_FILE = join(homedir(), '.piano-by-ear', 'clicks');
+
+/**
+ * True when the metronome should come from the computer even though the
+ * keyboard makes the sound (2026-10-10). The woodblock on channel 10 is a
+ * General MIDI drum: Roland and Yamaha's arrangers have it, but every Kawai
+ * answers channel 10 with its piano (the click becomes E5/F5, a note nobody
+ * asked for) and the drum-less Yamaha/Casio/Korg pianos are undocumented.
+ * The launcher's "Metronome from the computer" writes ~/.piano-by-ear/clicks.
+ */
+export function computerClicks() {
+  try {
+    return readFileSync(CLICKS_FILE, 'utf8').trim() === 'computer';
+  } catch {
+    return false;
+  }
+}
+
+// Outputs that are never the player's instrument. Windows lists its own
+// software synth first, so "the first output" was the computer, not the
+// keyboard; a Mac's IAC bus and network session go to other programs.
+const NOT_AN_INSTRUMENT = /microsoft gs wavetable|^iac driver|network session/i;
 
 export class MidiOut {
   /**
    * @param {object} opts
    * @param {string} [opts.match] only open a port whose name contains this
    * @param {(name: string, connected: boolean) => void} [opts.onPort]
+   * @param {() => string[]} [opts.inputs] the MIDI inputs open now: an output
+   *   with the same name is the same keyboard, and is preferred
    */
-  constructor({ match, onPort } = {}) {
+  constructor({ match, onPort, inputs = () => [] } = {}) {
     this.match = match?.toLowerCase();
+    this.inputs = inputs;
     this.onPort = onPort;
     this.port = null; // the open Output, once there is one
     this.portName = null;
@@ -109,7 +142,7 @@ export class MidiOut {
 
   listPorts() {
     try {
-      return Output.getPortNames().filter((n) => n && n.trim() && (!this.match || n.toLowerCase().includes(this.match)));
+      return Output.getPortNames().filter((n) => n && n.trim() && !NOT_AN_INSTRUMENT.test(n) && (!this.match || n.toLowerCase().includes(this.match)));
     } catch {
       return [];
     }
@@ -123,7 +156,8 @@ export class MidiOut {
       this.onPort?.(gone, false);
     }
     if (this.port || names.length === 0) return;
-    const name = names[0];
+    const playing = new Set(this.inputs());
+    const name = names.find((n) => playing.has(n)) ?? names[0];
     const out = new Output();
     try {
       out.openPortByName(name);

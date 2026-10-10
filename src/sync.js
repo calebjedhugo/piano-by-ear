@@ -27,7 +27,11 @@ const CONNECT_S = 3;
 const OP_MS = 20000;
 const LOCK_STALE_MS = 120000;
 
-const DEFAULTS = { enabled: true, host: 'chugo@hugopi', dir: 'piano-by-ear' };
+// OFF UNLESS A MACHINE SAYS OTHERWISE (2026-10-10). The app is shared with
+// people who have no pi; a default that dials an ssh host would cost every one
+// of their logins a connect timeout. A household machine turns it on in its
+// own ~/.piano-by-ear/sync.json ({"enabled": true, "host": ..., "dir": ...}).
+const DEFAULTS = { enabled: false, host: 'chugo@hugopi', dir: 'piano-by-ear' };
 
 // ONE CONNECTION, NOT SIX. A sync used to pay a fresh ssh handshake for the
 // lock, the existence test, each transfer, the move and the unlock -- 200-360

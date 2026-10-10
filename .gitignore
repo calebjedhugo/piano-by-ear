@@ -3,3 +3,5 @@ data/
 *.log
 .DS_Store
 corpus/local/
+packaging/build/
+packaging/cache/

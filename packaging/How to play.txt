@@ -1,0 +1,76 @@
+PIANO BY EAR
+============
+
+There is no screen. You use it only from your piano keyboard.
+
+WHAT YOU NEED
+- A MIDI keyboard plugged into this computer by USB. Any size works, and 61
+  or 88 keys is best.
+- If your keyboard makes its own sound (a digital piano), that is the sound
+  you will hear. Nothing else to do.
+- If your keyboard makes NO sound of its own (a controller), download the
+  pianos once (below), and use speakers or headphones on the computer.
+
+START
+- Mac: open "Piano by Ear" from Applications. Click the app again for the
+  sound, restart, or quit.
+- Windows: double-click "Piano by Ear.cmd". Leave the black window open and
+  close it to stop.
+- When it hears your keyboard, it clicks once. Play a note.
+
+WHO IS PLAYING
+- Play ONE note and you are a guest. Nothing is kept, and that note is your
+  anchor (below): the session starts there.
+- Play a CHORD that is yours (any notes, held together, then let go) and
+  that chord becomes your login. Play the same notes in the same octave next
+  time and your history comes back. Pick something nobody else in the house
+  will play by accident.
+- After the chord you hear a low-high click. Now play ONE NOTE, YOUR ANCHOR.
+  Any note will do. The session starts from it and it becomes the first
+  key. Nothing happens until you play it.
+- From then on, every question starts from the last note you played, so
+  leave your hand where it lands.
+- Beginners start on the white keys. The black keys come in as you earn
+  them.
+- A new history is kept only after you have answered 20 questions. One
+  nobody has played for 30 days is put away.
+
+THE DRILL
+- You hear a note or a short phrase. Play it back. That is the whole game.
+- Keep to the metronome. Start your answer on any click after the call ends.
+- It starts simple and gets harder only as you get things right. A missed
+  phrase comes back.
+- After each phrase the metronome stops for a couple of seconds. If you
+  think you missed a note, play it then. If not, play nothing.
+- There are no beeps, chimes or error sounds. Every note you hear is one
+  you are being asked to play back.
+- It ends by itself after about 20 minutes, on something you got right.
+  Ten seconds of silence also ends it. Play your chord or a note to go again.
+
+TIPS
+- Don't look at your hands. Listen, and let your hand find the note.
+- Short daily sittings beat long weekly ones.
+
+IF THE METRONOME SOUNDS LIKE A PIANO NOTE (OR NOT AT ALL)
+Some keyboards (Kawai, and other pianos without drum sounds) play the
+metronome as a note. Have the computer play it instead:
+- Mac: click the app while it is running and choose "Metronome from the
+  computer".
+- Windows: double-click "Switch metronome.cmd", then start Piano by Ear.
+Turn the computer's sound on to hear it.
+
+A KEYBOARD WITH NO SOUND OF ITS OWN
+- Mac: start the app, click it again, and choose "Download pianos".
+- Windows: double-click "Download pianos.cmd", then start Piano by Ear.
+It downloads about 75 MB, once. To go back to the keyboard's own sound:
+on a Mac choose "Use my keyboard's own sound" from the same menu; on
+Windows double-click "Use keyboard sound.cmd".
+
+FREE PLAY (with the downloaded pianos)
+- Mac: click the app while it is running and choose "Free play".
+- Windows: double-click "Free play.cmd" instead of Piano by Ear.
+Your keyboard plays the grand piano. Nothing is graded.
+
+WHERE YOUR HISTORY LIVES
+In a folder called .piano-by-ear in your home folder. Deleting it starts
+everyone over.

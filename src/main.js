@@ -23,7 +23,7 @@ import { mkdirSync, renameSync, existsSync, writeFileSync } from 'node:fs';
 import { Audio } from './audio.js';
 import { Db } from './db.js';
 import { Midi } from './midi.js';
-import { MidiOut, hardwareSound } from './midiout.js';
+import { MidiOut, hardwareSound, computerClicks } from './midiout.js';
 import { RangeTracker } from './range.js';
 import { AdaptiveEngine } from './engine.js';
 import { Drill } from './drill.js';
@@ -165,7 +165,7 @@ function sweepUnkept() {
 }
 
 const hardware = hardwareSound();
-const audio = new Audio({ hardware });
+const audio = new Audio({ hardware, computerClicks: computerClicks() });
 const phraseFiles = { mono: [MONO_PATH, HYMNS_PATH], poly: POLY_PATHS };
 let currentPort = null;
 
@@ -242,6 +242,7 @@ midi.debug = args['debug-midi'];
 const out = hardware
   ? new MidiOut({
       match: args.port,
+      inputs: () => midi.portNames,
       onPort: (name, connected) => log(connected ? `MIDI out: ${name} (the call plays on your keyboard)` : `MIDI out disconnected: ${name}`),
     })
   : null;

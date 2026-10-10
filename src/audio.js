@@ -41,9 +41,10 @@ export class Audio {
    *   back to the voice below if the output port is missing, so a pulled
    *   cable leaves the drill audible rather than mute.
    */
-  constructor({ ctx, hardware = false } = {}) {
+  constructor({ ctx, hardware = false, computerClicks = false } = {}) {
     this.ctx = ctx ?? new AudioContext();
     this.hardware = hardware;
+    this.computerClicks = computerClicks; // the call on the keyboard, the metronome here
     this.out = null; // the MidiOut, once one is attached
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.8;
@@ -75,7 +76,7 @@ export class Audio {
   }
 
   async load({ lo = 21, hi = 108 } = {}) {
-    if (this.hardware) return { voice: 'hardware', detail: "your keyboard's own sound (call on its own channel, clicks on its woodblock)" };
+    if (this.hardware) return { voice: 'hardware', detail: `your keyboard's own sound (call on its own channel, clicks ${this.computerClicks ? 'from the computer' : 'on its woodblock'})` };
     const parts = [];
     if (SampledPiano.available('grand')) {
       const grand = new SampledPiano(this.ctx, this.master, 'grand', { pan: STUDENT_PAN });
@@ -199,7 +200,7 @@ export class Audio {
 
   /** Metronome. `accent` = bar downbeat. */
   click(at, { accent = false } = {}) {
-    if (this.out?.ready && this.out.click((Math.max(at, this.now) - this.now) * 1000, accent)) return;
+    if (!this.computerClicks && this.out?.ready && this.out.click((Math.max(at, this.now) - this.now) * 1000, accent)) return;
     this.tone(accent ? 1600 : 1000, at, 0.03, accent ? 0.18 : 0.1, 'square');
   }
 

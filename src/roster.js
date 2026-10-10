@@ -52,14 +52,11 @@ export function noteName(midi) {
 /** A chord is a SET of notes: order and doubling never matter. */
 const keyOf = (notes) => [...new Set(notes)].sort((a, b) => a - b).join(',');
 
-// The family, seeded on first run. After that the file is the truth -- editing
-// these does nothing to a roster that already exists.
-const SEED = [
-  { name: 'Caleb', chord: ['C3', 'G3', 'Eb4', 'Bb4'] },
-  { name: 'Liz', chord: ['C#4', 'E4', 'B4'] },
-  { name: 'William', chord: ['C4', 'E4', 'G4'] },
-  { name: 'Evelyn', chord: ['C5', 'E5', 'G5'] },
-];
+// NOBODY IS SEEDED (2026-10-10). The family's chords used to be written into
+// every new roster, which on anyone else's machine made C4-E4-G4 log in as
+// William. A household machine gets them from the pi (the roster syncs before
+// a chord can create a profile); everyone else names themselves by playing.
+const SEED = [];
 
 export class Roster {
   constructor(path) {
@@ -75,12 +72,10 @@ export class Roster {
       /* no roster yet */
     }
     const now = Date.now();
-    // THE SEED MUST LOSE EVERY MERGE. A second machine seeds these four before
-    // it has ever spoken to the pi, and an `updatedAt` of now would be NEWER
-    // than the real roster -- a blank install would overwrite it and quietly
-    // un-retire everyone. `lastPlayedAt` is still now, so a first boot with no
-    // network does not read its own seed as a month of silence and retire the
-    // family on the spot.
+    // IF A SEED EVER RETURNS, IT MUST LOSE EVERY MERGE: a second machine
+    // seeds before it has spoken to the pi, so its entries carry `updatedAt` 0
+    // (never newer than the real roster) and `lastPlayedAt` now (a first boot
+    // with no network must not read its own seed as a month of silence).
     this.profiles = raw?.profiles ?? SEED.map((p) => ({ ...p, createdAt: now, updatedAt: 0, lastPlayedAt: now, retiredAt: null }));
     if (!raw) this.save();
     for (const p of this.profiles) {

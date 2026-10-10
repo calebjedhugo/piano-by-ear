@@ -1,0 +1,35 @@
+PIANO BY EAR -- CREDITS AND LICENCES
+=====================================
+
+Piano by Ear is written by Caleb Hugo and given away free.
+Source: https://github.com/calebjedhugo/piano-by-ear
+
+MUSIC (app/corpus/)
+- phrases.json and poly.json are excerpts made from Craig Stuart Sapp's
+  Humdrum editions of the Bach 371 chorales and the Mozart piano sonatas:
+    https://github.com/craigsapp/bach-370-chorales
+    https://github.com/craigsapp/mozart-piano-sonatas
+  Those editions are licensed CC BY-NC-SA 4.0, and so are these files:
+    https://creativecommons.org/licenses/by-nc-sa/4.0/
+  They may not be sold.
+- trios.json is made from Bach as typeset at the Mutopia Project
+  (https://www.mutopiaproject.org) by Olivier Vermersch, Davide Castellone,
+  Jarle Fagerheim and Urs Metzger. Every source file is marked public
+  domain by its typesetter.
+- hymns.json holds hymn tunes published before 1930, encoded by Caleb Hugo.
+
+PIANO SOUNDS (the optional "Download pianos", kept in .piano-by-ear/samples)
+- Your piano: Salamander Grand Piano V3 by Alexander Holm, licensed CC BY
+  3.0 (https://creativecommons.org/licenses/by/3.0/). It is trimmed here to
+  4 of its 16 velocity layers and converted to FLAC. Original:
+  https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html
+- The teacher's piano: Upright Piano KW by FreePats, released CC0
+  (public domain).
+
+SOFTWARE
+- Node.js (https://nodejs.org), MIT licence. Its LICENSE file is beside
+  the node program.
+- @julusian/midi (MIT, includes RtMidi), node-web-audio-api (BSD-3-Clause)
+  and their dependencies (MIT, BSD-2-Clause, 0BSD). Each one's licence is
+  in app/node_modules/<name>/.
+- resound-sound, by Caleb Hugo (ISC).

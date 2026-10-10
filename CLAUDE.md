@@ -33,6 +33,38 @@ node src/main.js --keys 36..96 # decode only these keys (small machines)
 node src/main.js --bpm 160     # developer override only
 ```
 
+## DOWNLOADS FOR FRIENDS (2026-10-10, `packaging/`)
+
+Free only, never charged. `packaging/build.sh` (run with the sandbox OFF:
+`osacompile` cannot load `do shell script` inside it) makes three files in
+`packaging/build/`: `Piano-by-Ear-mac.dmg` (universal, macOS 13.5+),
+`Piano-by-Ear-windows.zip` (x64, Windows 10+), `Piano-by-Ear-pianos.zip`.
+- **What ships is LISTED** (src, package.json, node_modules pruned per
+  platform, corpus phrases/poly/trios/hymns). Never corpus/local, scripts/,
+  data/, or anything from ~/.piano-by-ear. Node comes from nodejs.org, checked
+  against SHASUMS256.
+- **Defaults are for strangers now.** Sync is OFF unless `sync.json` says
+  `"enabled": true` (this Mac's does; **a NEW household machine must write
+  it**); the roster seeds nobody (C4-E4-G4 was William on every install).
+- **THE PIANOS ARE OPT-IN** (Caleb: most people have a digital piano). No
+  `sound` file = the keyboard's own sound unless the pianos are downloaded
+  (`hardwareSound`, src/midiout.js); `src/download-pianos.js` fetches the
+  pianos zip from release `PIANOS_TAG` and checks the SHA-256 that build.sh
+  stamps into the shipped copy. **NEVER replace that zip on its release** --
+  a new zip needs a new tag. MidiOut skips Windows' GS Wavetable synth and
+  IAC, and prefers the output named like an open input.
+- **The metronome stays on the keyboard's woodblock (ch 10, 76/77) unless
+  ~/.piano-by-ear/clicks says `computer`** (menu "Metronome from the
+  computer", `Switch metronome.cmd`, `src/metronome.js`). Researched 10-10
+  from makers' MIDI charts: Roland, Yamaha arrangers/P-515/CLP-785 have it;
+  every Kawai plays ch 10 as its piano (E5/F5); drum-less Yamaha P/Arius,
+  Casio, Korg undocumented.
+- **Unsigned.** macOS: one Open Anyway approval covers the nested node and
+  `.node` modules (tested 10-10, translocated). Windows: tested under Wine
+  only (boots, samples decode, MIDI enumerates) -- no real PC yet.
+- **Testing a built app on this Mac uses the real ~/.piano-by-ear** (profiles,
+  sync, run.log -- a test on 10-10 wiped run.log). Set `HOME` to a scratch dir.
+
 ## WHO IS PLAYING IS A CHORD (2026-09-19)
 
 There is no user menu any more, because a menu is not a keyboard. The drill
