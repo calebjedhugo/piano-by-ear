@@ -1027,8 +1027,11 @@ comes up.
   longer a named free bass. Every 9th
   plain slot is a `chord` from CHORD_SHAPES once harmonic tiers >= 2 (dom7
   at >= 5); each chord tone is framed for the harmonic engine as it is
-  graded (`q.chord`), never pre-asked; the chord's bass is still the free
-  anchor -- chords were outside the 09-20 spec. THE CHORD GATE IS 2, NOT 3, AND THE
+  graded (`q.chord`), never pre-asked; the free anchor is the chord's bass
+  BELOW the middle of the keyboard and its TOP above it (2026-10-17: bass-only
+  chords moved the hand up 6.7 semitones each, 41 of 44, and walked a
+  melody-only profile to A6; the lower tones carry `harmonicRef` = the held
+  note) -- chords were outside the 09-20 spec. THE CHORD GATE IS 2, NOT 3, AND THE
   REASON IS THE POINT OF THE FEATURE: TWO NOTES ARE AMBIGUOUS AND THREE ARE
   NOT. E-C is a m6 that could be C major, Am7 or F6; E-G-C is C major in
   first inversion and nothing else. Function appears at three notes, so
@@ -1339,7 +1342,12 @@ comes up.
   send early if the interface ever needs it; measured 2026-09-07 as
   unnecessary (median onset -45 ms against a -31 ms all-time baseline).
 - `src/range.js`  per-port range: guessed from a standalone key count in the
-  name, else 48..72; widening snaps to a standard layout while guessed.
+  name, else 48..72; widening ALWAYS snaps to a standard layout.
+  ONE RANGE PER KEYBOARD, SHARED BY EVERY PROFILE (2026-10-17):
+  `~/.piano-by-ear/ranges.json` (`fileStore`), not profile kv. Per-profile
+  ranges made the same 88 44..108 for one player, which moved
+  `centerPull`'s middle to E5. A profile's old kv `ranges` is folded in
+  (widen only) when it opens and never written again.
   A PORT SWITCH IS A RANGE CHANGE (`onNoteOn`, 2026-09-13): a session captures
   lo/hi once in startSession and `observe()` only fires on a note OUTSIDE the
   current port's range, so picking up a different controller mid-sitting used
@@ -1369,7 +1377,7 @@ comes up.
   predicted accuracies, and the previous sonority so a resolution reads as
   one; synced like the other event tables). kv: `engine`, `engine:harmonic`
   (restarted 09-20, the old state in `kv_archive`), `dyadRung`, `wideDyads`, `poly`,
-  `passageLen`, `phraseStats`, `polyStats`, `ranges`, `carry`, `stage`,
+  `passageLen`, `phraseStats`, `polyStats`, `ranges` (read-only since 10-17), `carry`, `stage`,
   `rounds`, `canon`, `migrations` (what `Db.runOnce` has already done). `backfillPassages()` builds `passages`
   from `attempts` once when the table is empty (main.js calls it at startup)
   so history exists from day one; attempts carry no voice, so backfilled

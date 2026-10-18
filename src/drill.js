@@ -1471,17 +1471,49 @@ export class Drill {
     return this.pairNotes('dyad', L, U, pick.lo, pick.hi, 'twohand');
   }
 
-  /** A chord shape above the anchor as a fixed bass; every note above it graded. */
+  /**
+   * A chord shape built on the note under the hand, every other note graded
+   * by its size from that note.
+   *
+   * CHORDS BUILD TOWARD THE MIDDLE (2026-10-17). A chord used to stand on the
+   * anchor as its bass, always, and the anchor afterwards is the top note he
+   * played -- so every chord moved the hand UP, by 6.7 semitones on average
+   * (41 of 44 on the C3-G3-E4-B4 profile), and nothing moved it down as hard
+   * (single intervals pull back -1.9; on a melody-only profile no placing
+   * does). With the top of the range open the walk climbed from E4 to A6 in
+   * two chords and stayed between G5 and A6 for 150 questions. Now, above the
+   * middle of the keyboard, the note he is on is the chord's TOP and the shape
+   * stacks below it: the same chord type (the shapes are fixed, McLachlan
+   * 2013), the hand stays put (or comes down to the top note he did play,
+   * when he does not strike the held one again), and each lower note is
+   * framed from the held note the way a placing frames the other hand
+   * (`harmonicRef`).
+   * Below the middle it builds up, as before. Whichever way does not fit the
+   * keyboard, the other is tried.
+   */
   chordQuestion() {
     const open = this.harmonic.state.tiersUnlocked >= 5 ? CHORD_SHAPES : CHORD_SHAPES.filter((s) => s.length === 2);
-    const fits = open.filter((s) => this.anchor + s[s.length - 1] <= this.hi);
+    const a = this.anchor;
+    const fitsUp = open.filter((s) => a + s[s.length - 1] <= this.hi);
+    const fitsDown = open.filter((s) => a - s[s.length - 1] >= this.lo);
+    const down = a > (this.lo + this.hi) / 2 ? fitsDown.length > 0 : fitsUp.length === 0;
+    const fits = down ? fitsDown : fitsUp;
     if (fits.length === 0) return null;
     const shape = fits[Math.floor(Math.random() * fits.length)];
-    const notes = [{ midi: this.anchor, b: 0, dur: 2, voice: 0, free: true }];
-    shape.forEach((iv, i) => notes.push({ midi: this.anchor + iv, b: 0, dur: 2, voice: i + 1 }));
+    const notes = [{ midi: a, b: 0, dur: 2, voice: 0, free: true }];
     // Each voice is framed for the harmonic engine as it is graded (gradeNote),
     // at passage scope: a chord tone is heard in a chord, not probed alone.
-    return { kind: 'chord', dyad: true, chord: true, optionalAnchor: true, notes, meter: 4, label: `chord: ${name(this.anchor)} + ${shape.map((iv) => `+${iv}`).join(' ')} together` };
+    if (!down) {
+      shape.forEach((iv, i) => notes.push({ midi: a + iv, b: 0, dur: 2, voice: i + 1 }));
+      return { kind: 'chord', dyad: true, chord: true, optionalAnchor: true, notes, meter: 4, label: `chord: ${name(a)} + ${shape.map((iv) => `+${iv}`).join(' ')} together` };
+    }
+    // The held note is no longer the group's bass, so name it as its own
+    // reference: its row stays "from the note he is on", as an upward chord's is.
+    notes[0].harmonicRef = a;
+    const bass = a - shape[shape.length - 1];
+    const below = [0, ...shape.slice(0, -1)].map((iv) => bass + iv - a); // below the held note, lowest first
+    below.forEach((d, i) => notes.push({ midi: a + d, b: 0, dur: 2, voice: i + 1, harmonicRef: a }));
+    return { kind: 'chord', dyad: true, chord: true, optionalAnchor: true, notes, meter: 4, label: `chord: ${name(a)} + ${below.map((d) => signed(d)).join(' ')} together (${name(a)} on top)` };
   }
 
   /**
@@ -2940,7 +2972,7 @@ export class Drill {
       this.log(`  missed ${name(exp.midi)}${chord}`);
       return;
     }
-    const why = correct ? '' : ` (${exp.unison ? 'the note you were on' : exp.melodicFrom !== null ? signed(exp.midi - exp.melodicFrom) : exp.harmonicFrom !== null ? `+${exp.midi - exp.harmonicFrom} above bass` : 'anchor'})`;
+    const why = correct ? '' : ` (${exp.unison ? 'the note you were on' : exp.melodicFrom !== null ? signed(exp.midi - exp.melodicFrom) : exp.harmonicFrom !== null ? (exp.midi > exp.harmonicFrom ? `+${exp.midi - exp.harmonicFrom} above bass` : `${exp.midi - exp.harmonicFrom} below`) : 'anchor'})`;
     const mark = correct ? 'correct' : credit ? `~ ${name(note)} wanted` : `x ${name(note)} wanted`;
     const creditNote = !correct && credit ? (heightErr ? ' -- right note, wrong octave' : this.stage.current === 'contour' || this.stage.current === 'echo' ? ' -- right direction' : ' -- close') : '';
     this.log(

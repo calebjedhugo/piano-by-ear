@@ -24,7 +24,7 @@ import { Audio } from './audio.js';
 import { Db } from './db.js';
 import { Midi } from './midi.js';
 import { MidiOut, hardwareSound, computerClicks } from './midiout.js';
-import { RangeTracker } from './range.js';
+import { RangeTracker, fileStore } from './range.js';
 import { AdaptiveEngine } from './engine.js';
 import { Drill } from './drill.js';
 import { Lobby, keepOrForget } from './lobby.js';
@@ -186,7 +186,9 @@ function openProfile(name) {
   const db = new Db(dbPath(name));
   const backfilled = db.backfillPassages();
   if (backfilled) log(`passages: rung summaries built for ${backfilled} earlier passages`);
-  const range = new RangeTracker(db.kv('ranges'));
+  // The keyboard's range, shared by every profile (src/range.js); the profile's
+  // own old record is folded in, never written again.
+  const range = new RangeTracker(fileStore(join(DATA, 'ranges.json')), db.kv('ranges').load());
   if (currentPort) range.setPort(currentPort);
   const phrases = new PhraseBank({ store: db.kv('phraseStats'), composer: args.composer, path: phraseFiles.mono });
   const poly = new PhraseBank({ store: db.kv('polyStats'), composer: args.composer, path: phraseFiles.poly });
