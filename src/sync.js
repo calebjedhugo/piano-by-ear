@@ -44,6 +44,10 @@ const LOCK_STALE_MS = 120000;
 // sleep, after leaving the house), a knock on its ssh port with a hard
 // PREFLIGHT_MS cap decides: it answers and the sync runs, or it does not and
 // the pi is marked offline. The worst case is one PREFLIGHT_MS, once.
+// IPV4 FIRST: a lookup of hugopi.local for ANY family waited 5 s on the
+// IPv6 (AAAA) answer that never comes over the VPN, and failed the 1.5 s
+// knock while ssh itself connected in 0.8 s; IPv4 alone answers in 80 ms.
+// A host with no IPv4 address falls back to any family.
 const CONTACT_FRESH_MS = 60000;
 const PREFLIGHT_MS = 1500;
 const OFFLINE_RECHECK_MS = 30000;
@@ -122,7 +126,7 @@ export class Sync {
   /** A blocking TCP knock on the pi's ssh port, capped at PREFLIGHT_MS (name lookup included). */
   knock() {
     const { host, port } = this.endpoint();
-    const probe = `require('net').connect(${JSON.stringify({ host, port })}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))`;
+    const probe = `const net=require('net');const go=(o,more)=>net.connect(o).on('connect',()=>process.exit(0)).on('error',(e)=>more&&e.code==='ENOTFOUND'?go(${JSON.stringify({ host, port })},false):process.exit(1));go(${JSON.stringify({ host, port, family: 4 })},true)`;
     try {
       execFileSync(process.execPath, ['-e', probe], { timeout: PREFLIGHT_MS, stdio: 'ignore' });
       return true;
@@ -162,9 +166,9 @@ export class Sync {
   }
 
   /** A non-blocking TCP knock on the pi's ssh port; clears the offline mark when it answers. */
-  probe() {
+  probe(family = 4) {
     const { host, port } = this.endpoint();
-    const sock = connect({ host, port });
+    const sock = connect({ host, port, family });
     const done = (up) => {
       sock.destroy();
       if (!this.offline) return;
@@ -176,7 +180,10 @@ export class Sync {
     };
     sock.setTimeout(PROBE_TIMEOUT_MS, () => done(false));
     sock.once('connect', () => done(true));
-    sock.once('error', () => done(false));
+    sock.once('error', (err) => {
+      if (family === 4 && err.code === 'ENOTFOUND') { sock.destroy(); this.probe(0); } // no IPv4 address: any family
+      else done(false);
+    });
   }
 
   /** Run a SQL script against a database on the pi with its sqlite3 CLI; stops at the first error. */
