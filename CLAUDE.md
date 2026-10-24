@@ -58,7 +58,9 @@ Free only, never charged. `packaging/build.sh` (run with the sandbox OFF:
   computer", `Switch metronome.cmd`, `src/metronome.js`). Researched 10-10
   from makers' MIDI charts: Roland, Yamaha arrangers/P-515/CLP-785 have it;
   every Kawai plays ch 10 as its piano (E5/F5); drum-less Yamaha P/Arius,
-  Casio, Korg undocumented.
+  Casio, Korg undocumented. Its level is `~/.piano-by-ear/click-volume`
+  (0-100, no file = 100), sent as ch 10 CC 7 on every port claim
+  (`clickVolume`, 2026-10-24); the call's channel stays full.
 - **Unsigned.** macOS: one Open Anyway approval covers the nested node and
   `.node` modules (tested 10-10, translocated). Windows: tested under Wine
   only (boots, samples decode, MIDI enumerates) -- no real PC yet.

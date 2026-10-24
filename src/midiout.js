@@ -88,6 +88,25 @@ export function hardwareSound() {
   }
 }
 
+const CLICK_VOLUME_FILE = join(homedir(), '.piano-by-ear', 'click-volume');
+
+/**
+ * THE KEYBOARD'S METRONOME LEVEL, AS A PERCENT (2026-10-24). Some pianos'
+ * woodblock is far louder than their piano (Caleb, away from home: "the
+ * metronome on this piano is very loud"). ~/.piano-by-ear/click-volume holds
+ * 0-100 and becomes channel 10's volume (CC 7) each time the port is claimed,
+ * so only the click moves and the call keeps its level. No file: full, as
+ * before. Read at every claim, so a change applies on the next reconnect.
+ */
+export function clickVolume() {
+  try {
+    const pct = Number(readFileSync(CLICK_VOLUME_FILE, 'utf8').trim());
+    return Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 100;
+  } catch {
+    return 100;
+  }
+}
+
 const CLICKS_FILE = join(homedir(), '.piano-by-ear', 'clicks');
 
 /**
@@ -174,8 +193,9 @@ export class MidiOut {
   /** Put our channels back where they belong, whatever left them elsewhere. */
   claim() {
     for (const ch of [CALL_CHANNEL, CLICK_CHANNEL]) {
+      const level = ch === CLICK_CHANNEL ? Math.round((FULL * clickVolume()) / 100) : FULL;
       this.send([CONTROL_CHANGE | (ch - 1), CC_PAN, CENTRE]);
-      this.send([CONTROL_CHANGE | (ch - 1), CC_VOLUME, FULL]);
+      this.send([CONTROL_CHANGE | (ch - 1), CC_VOLUME, level]);
     }
   }
 
