@@ -20,12 +20,26 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
+import { connect } from 'node:net';
 import { SYNCED_TABLES, LOCAL_KEYS } from './db.js';
 import { deltaSql, marksSql, applySql, schemaDdl, parseReport, COLUMNS_SQL, lit } from './delta.js';
 
 const CONNECT_S = 3;
 const OP_MS = 20000;
 const LOCK_STALE_MS = 120000;
+// FAIL FAST WHEN THE PI IS AWAY (2026-10-24). Away from home with no VPN,
+// every ssh paid ~5 s resolving hugopi.local and the 3 s ConnectTimeout, and
+// the sync is synchronous: a login made three or four of them in a row (the
+// roster, then the profile), so the drill sat ~25 s between a chord and the
+// click, and again at every session's end. Now the FIRST unreachable answer
+// marks the pi offline and every sync after it is skipped at once, while a
+// TCP probe that never blocks the drill (net.connect, port 22) checks
+// every OFFLINE_RECHECK_MS and clears the mark when the pi answers again.
+// Nothing is lost by skipping: the merge is row-level and the next sync
+// that reaches the pi carries everything.
+const OFFLINE_RECHECK_MS = 30000;
+const PROBE_TIMEOUT_MS = 5000;
+const UNREACHABLE = /Connection|timed out|ETIMEDOUT|Could not resolve|No route|refused|Network is unreachable/i;
 
 // OFF UNLESS A MACHINE SAYS OTHERWISE (2026-10-10). The app is shared with
 // people who have no pi; a default that dials an ssh host would cost every one
@@ -64,6 +78,8 @@ export class Sync {
     this.log = log;
     this.profiles = `${this.cfg.dir}/profiles`;
     this.locks = `${this.cfg.dir}/locks`;
+    this.offline = false;
+    this.probeTimer = null;
   }
 
   get enabled() {
@@ -71,9 +87,67 @@ export class Sync {
   }
 
   ssh(command, { timeout = OP_MS, input = null } = {}) {
-    return execFileSync('ssh', ['-o', `ConnectTimeout=${CONNECT_S}`, '-o', 'BatchMode=yes', ...MUX, this.cfg.host, command], {
-      timeout, encoding: 'utf8', stdio: [input === null ? 'ignore' : 'pipe', 'pipe', 'pipe'], ...(input === null ? {} : { input }),
-    });
+    this.guard();
+    try {
+      return execFileSync('ssh', ['-o', `ConnectTimeout=${CONNECT_S}`, '-o', 'BatchMode=yes', ...MUX, this.cfg.host, command], {
+        timeout, encoding: 'utf8', stdio: [input === null ? 'ignore' : 'pipe', 'pipe', 'pipe'], ...(input === null ? {} : { input }),
+      });
+    } catch (err) {
+      this.noteFailure(err);
+      throw err;
+    }
+  }
+
+  /** Known offline: fail now, without dialing (FAIL FAST above). */
+  guard() {
+    if (this.offline) throw Object.assign(new Error('Connection skipped: the pi was not reachable a moment ago'), { offline: true });
+  }
+
+  /** An ssh/scp that could not reach the pi marks it offline; a remote command that ran and failed does not. */
+  noteFailure(err) {
+    if (err?.offline) return;
+    const said = `${err?.stderr ?? ''} ${err?.code ?? ''}`;
+    if (!UNREACHABLE.test(said)) return;
+    this.offline = true;
+    this.log('  sync: the pi is not reachable -- skipping every sync until it answers (checking every 30 s in the background)');
+    this.scheduleProbe();
+  }
+
+  scheduleProbe() {
+    clearTimeout(this.probeTimer);
+    this.probeTimer = setTimeout(() => this.probe(), OFFLINE_RECHECK_MS);
+    this.probeTimer.unref?.();
+  }
+
+  /** Where ssh would connect, from its own config (`ssh -G` reads it locally: no network). */
+  endpoint() {
+    if (this.target) return this.target;
+    let host = this.cfg.host.split('@').pop();
+    let port = 22;
+    try {
+      const out = execFileSync('ssh', ['-G', this.cfg.host], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
+      host = out.match(/^hostname (.+)$/m)?.[1]?.trim() || host;
+      port = Number(out.match(/^port (\d+)$/m)?.[1]) || port;
+    } catch { /* keep the guess */ }
+    this.target = { host, port };
+    return this.target;
+  }
+
+  /** A non-blocking TCP knock on the pi's ssh port; clears the offline mark when it answers. */
+  probe() {
+    const { host, port } = this.endpoint();
+    const sock = connect({ host, port });
+    const done = (up) => {
+      sock.destroy();
+      if (!this.offline) return;
+      if (up) {
+        this.offline = false;
+        this.log('  sync: the pi is reachable again');
+      } else this.scheduleProbe();
+    };
+    sock.setTimeout(PROBE_TIMEOUT_MS, () => done(false));
+    sock.once('connect', () => done(true));
+    sock.once('error', () => done(false));
   }
 
   /** Run a SQL script against a database on the pi with its sqlite3 CLI; stops at the first error. */
@@ -82,9 +156,15 @@ export class Sync {
   }
 
   scp(from, to) {
-    execFileSync('scp', ['-q', '-o', `ConnectTimeout=${CONNECT_S}`, '-o', 'BatchMode=yes', ...MUX, from, to], {
-      timeout: OP_MS, stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    this.guard();
+    try {
+      execFileSync('scp', ['-q', '-o', `ConnectTimeout=${CONNECT_S}`, '-o', 'BatchMode=yes', ...MUX, from, to], {
+        timeout: OP_MS, stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (err) {
+      this.noteFailure(err);
+      throw err;
+    }
   }
 
   /**
