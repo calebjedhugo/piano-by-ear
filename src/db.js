@@ -247,7 +247,7 @@ export class Db {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`),
       recentIsolated: this.db.prepare(`
         SELECT anchor, target, CASE WHEN velocity > 0 THEN played ELSE NULL END played, stage FROM attempts
-        WHERE graded = 1 AND kind IN ('interval', 'round', 'discrimination', 'remediation', 'echo') ORDER BY id DESC LIMIT ?`),
+        WHERE graded = 1 AND kind IN ('interval', 'round', 'discrimination', 'remediation', 'rework', 'echo') ORDER BY id DESC LIMIT ?`),
       recentPlain: this.db.prepare(`
         SELECT correct, behind FROM attempts
         WHERE graded = 1 AND first_attempt = 1 AND kind = 'interval' ORDER BY ts DESC LIMIT ?`),
@@ -381,14 +381,14 @@ export class Db {
    * Every plain melodic answer on record, oldest first, for seeding the
    * engine's reflex records once (engine.js seedReflex, 2026-10-23): the
    * first attempts the engine scored at scope 'interval' -- plain intervals,
-   * remediation and discrimination. `quick` = started within `reflexBeats`;
+   * remediation, discrimination and (since 2026-10-24) rework. `quick` = started within `reflexBeats`;
    * `rt` = the normalized onset error the live path records (ms at 60 bpm),
    * null when the note was not in time.
    */
   plainMelodicHistory(reflexBeats) {
     return this.db.prepare(`
       SELECT ts, anchor, target, correct, behind, onset_ms, beat_ms, in_time FROM attempts
-      WHERE graded = 1 AND first_attempt = 1 AND kind IN ('interval', 'remediation', 'discrimination')
+      WHERE graded = 1 AND first_attempt = 1 AND kind IN ('interval', 'remediation', 'discrimination', 'rework')
       ORDER BY ts, id`).all().map((r) => ({
       interval: r.target - r.anchor,
       correct: Boolean(r.correct),

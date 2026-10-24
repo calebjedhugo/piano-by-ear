@@ -86,6 +86,11 @@
 //              named in the window and any you caught in flight. Cascade
 //              notes included: a note played in the right interval from a
 //              pitch you had already lost is still a place you never got to.
+//   rework:    past three missed notes on a first asking, in place of the
+//              correction and the retry: each interval you missed (up to
+//              three), asked on its own three times -- as it was in the
+//              passage, then from two other pitch classes -- graded as plain
+//              single intervals (REWORK, 2026-10-24).
 //   retry:     a failed passage comes straight back, SAME key and register
 //              (constant practice until correct: Lai et al. 2000), up to
 //              RETRY_MAX_TRIES while the rungs beneath exact pitch improve;
@@ -315,10 +320,12 @@ export const WRAP = { afterMs: 20 * 60e3, graceMs: 5 * 60e3 };
 // - GRADED EXACTLY LIKE A PLAIN INTERVAL: the ladder, confusions, the stage.
 //   Every answer has its own beat, so time says which call a note answers.
 const ROUND = { calls: 6, duoNotes: 8, reflexN: 40, reflexRate: 0.8, reflexBeats: 2, leads: [4, 3, 2], tempoStep: 6, tempoMax: 4 };
-// THE CHAIN. Past a certain number of missed notes the corrective loop stops
-// working, and the data says exactly where. Correction accuracy by how many
-// notes the passage missed (2026-09-11..18, first askings, the correction
-// served two questions later):
+// THE REWORK (2026-10-24, Caleb's design): PAST THREE MISSED NOTES, THE
+// INTERVALS HE MISSED ARE ASKED AGAIN, ON THEIR OWN, IN THREE KEYS.
+// Past a certain number of missed notes the corrective loop stops working,
+// and the data says exactly where. Correction accuracy by how many notes the
+// passage missed (2026-09-11..18, first askings, the correction served two
+// questions later):
 //
 //     missed   n    graded notes   note acc   whole correction right
 //        2     21       1.0           81%            81%
@@ -329,40 +336,43 @@ const ROUND = { calls: 6, duoNotes: 8, reflexN: 40, reflexRate: 0.8, reflexBeats
 //
 // At two it works, because the correction hands you the first note and asks
 // for one: a reference, then a step. At three and past it, the correction
-// turns into a list of pitches with no run-up and the answer is a guess. And
-// what the loop leaves behind falls off the same cliff -- the next COLD
-// asking of the same phrase, on a later day, is clean 60-63% of the time
-// after a clean or one-miss first try and 12% of the time after a deep one.
+// turns into a list of pitches with no run-up and the answer is a guess. So
+// `minMissed` stays where the cliff is, and what replaces the correction and
+// the retry past it is what changed.
 //
-// So past three, the correction and the retry are both replaced by a chain
-// (Ash & Holding 1990: on a keyboard task both part methods beat whole
-// training during training, on the whole task, and at one-week retention;
-// forward chaining won). It is cut from the passage AS PLACED AND HEARD --
-// the same pitches, rhythm and tempo -- and it runs over the SPAN: from the
-// note before the first miss through the last one, INCLUDING the notes in
-// between that were played correctly. Not the set of missed notes: half of
-// all multi-miss failures are scattered rather than contiguous, and serving
-// only the misses teaches a sequence that never occurs in the music.
+// HISTORY: THE CHAIN (2026-10-11..23) walked the missed span of the passage
+// as placed, one note longer per clean step (forward chaining, Ash & Holding
+// 1990). It met its declared target -- 91% of notes right inside the walk,
+// against >= 80% -- and the next COLD asking of that phrase on a later day
+// came back clean 31% (n=35, profile C3-G3-E4-B4) against 12% before chains
+// existed. But that is memory for ONE phrase: woodshedding a narrow motor
+// sequence, not the ear. Caleb, 2026-10-24: drill the intervals I missed, a
+// few times, in a variety of ways -- "Ask the intervals the way they were
+// when I missed them. Then in another key. Then another. Then move on. All
+// graded."
 //
-// Each step is the span's opening note (handed, ungraded -- the reference)
-// plus `len` notes after it. Clean and it grows by one; missed and it
-// SHRINKS by one, so the drill stays near the rate at which he is playing
-// rather than guessing (Wilson et al. 2019). At the shortest step it stops.
-//
-// NO RETRY FOLLOWS. A retry already records nothing (see the corrective loop
-// below: `const first = q.kind === 'passage'` gates every store), so dropping
-// it costs no measurement -- and re-serving a passage he just missed badly
-// keeps him far under the error band the rest of the drill aims at. The
-// phrase's retention test was, and remains, its next cold asking.
-//
-// WHAT THIS IS FOR, stated in advance so it is not re-scored later: the
-// target is SEGMENT ACCURACY >= 80% -- playing instead of guessing. The 12%
-// next-cold-clean is watched, not targeted.
-const CHAIN = {
-  minMissed: 3, // at two the correction already works; this starts past the cliff
-  maxSteps: 8,  // a span is 3-5 notes; this caps the walk even if it oscillates
+// So: the signed interval of each missed note, from the WRITTEN previous note
+// in its voice (a voice's first note has none and is skipped, as is a
+// unison), first occurrence order, de-duplicated, at most `maxIntervals`.
+// Each is asked three times as a plain single interval: (a) AS MISSED, from
+// the written note as placed (the hand is re-anchored there first), (b) from
+// another pitch class, (c) from a third -- the note under the hand when it
+// qualifies, else the nearest start that does, re-anchored. Then the next
+// interval, then the ordinary drill (nothing forces a passage).
+// GRADED AS REMEDIATION IS: scope 'interval', the interval's own record
+// (acc, reflex, secure) and the ratchet, the stage; secure or not -- it was
+// missed in context, so the hard pool's filter does not apply. Not the
+// block's (KEYED_KINDS): (b) and (c) are other keys on purpose, except at the
+// entry level, where both notes stay in the block key (C major).
+// NO RETRY FOLLOWS, as with the chain: the phrase's failed first asking has
+// already set it due tomorrow, and that next cold asking stays its test.
+const REWORK = {
+  minMissed: 3, // at two the correction already works; this starts past the cliff (table above)
+  maxIntervals: 3, // distinct missed intervals reworked per passage
+  asks: 3, // as missed, another key, a third key
 };
-// Kinds that use the block key: what a block counts.
+// Kinds that use the block key: what a block counts. Not 'rework': its second
+// and third asks are other keys by design (REWORK).
 const KEYED_KINDS = new Set(['interval', 'round', 'gesture', 'discrimination', 'remediation', 'passage', 'variant']);
 // Once a level is dropped, the interval-confidence gate cannot lift it again for this long.
 const POLY_DEMOTE_HOLD_MS = 24 * 60 * 60 * 1000;
@@ -783,8 +793,14 @@ export class Drill {
     // correction survives the end of a session.
     this.window = null; // { missed, clean, question, phraseId, sec, bpm, pressed }
     this.correction = null; // { notes, bpm }
-    this.chain = null; // { notes, onsets, len, steps, bpm, meter, phraseId } -- the walk out of a deep miss
-    this.reanchor = null; // { target, forRetry, served } -- transient, like the window
+    // The walk out of a deep miss (REWORK): { items: [{ iv, from, to }], i,
+    // step, used (pitch classes started from), reanchored, reanchorTo,
+    // phraseId }. Never
+    // carried, like the window: a burst resumed later starts clean, and a
+    // carry written by an older version (which never held a chain either) has
+    // no field this reads.
+    this.rework = null;
+    this.reanchor = null; // { target, forRetry, forRework, served } -- transient, like the window
     this.placing = null; // { kind, picked, suffix, target, dyad } -- the passage waiting behind its placing question
     this.retry = resumed?.retry ? this.replace(resumed.retry) : null; // { id, kind, tries, score, placed }
     this.variantQueue = (resumed?.variantQueue ?? []).map((v) => this.replace(v)).filter(Boolean);
@@ -956,7 +972,7 @@ export class Drill {
     // octave off is wrong, recorded as `height_err` for the reading only.
     // Isolated asks only: a placing or a recovery step that happens to span
     // more than an octave is not a compound question.
-    const compound = Math.abs(iv) > 12 && ['interval', 'discrimination', 'remediation'].includes(kind);
+    const compound = Math.abs(iv) > 12 && ['interval', 'discrimination', 'remediation', 'rework'].includes(kind);
     const label = compound ? `${signed(iv)}, compound` : signed(iv);
     return {
       kind,
@@ -2059,10 +2075,14 @@ export class Drill {
       this.correction = null;
       return this.correctionQuestion(c);
     }
-    // The chain stands in the correction's place and holds the floor until
-    // the span is walked (stepChain clears it), so nothing comes between the
-    // steps of one walk.
-    if (this.chain) return this.chainQuestion();
+    // The rework stands in the correction's place and holds the floor until
+    // its asks are done (REWORK; stepRework advances it), so nothing comes
+    // between the asks of one walk. A re-anchor it served is read here too,
+    // before the general re-anchor check below could mistake it for its own.
+    if (this.rework || this.reanchor?.forRework) {
+      const q = this.reworkQuestion();
+      if (q) return q;
+    }
     // The passage its placing dyad was served for, immediately: nothing may
     // come between the hand being placed and the call that needs it there.
     // Caleb, on the passage that followed the one he missed: "I didn't stand
@@ -2944,7 +2964,7 @@ export class Drill {
 
   /** Is this an isolated interval answer (the stage's business)? */
   isolatedKind(q = this.q) {
-    return ['interval', 'discrimination', 'remediation', 'round'].includes(q.kind) || q.echoOf;
+    return ['interval', 'discrimination', 'remediation', 'rework', 'round'].includes(q.kind) || q.echoOf;
   }
 
   /**
@@ -3318,7 +3338,7 @@ export class Drill {
       this.recovery = null;
       this.log('  (recovery dropped: back to the drill)');
     }
-    if (q.chain && this.chain) this.stepChain();
+    if (q.rework && this.rework) this.stepRework(q);
     // Did the hand get there? Read for EVERY placing question. It used to be
     // read only in the dyad branch below, so a melodic placing (the passage
     // starting away from the hand) never counted as landed and always
@@ -3419,10 +3439,16 @@ export class Drill {
    */
   openWindow(q) {
     const missed = [];
+    // `written`: the note before it IN ITS VOICE AS WRITTEN AND PLACED (the
+    // rework's "from"). Usually melodicFrom, but a keyed voice's first note is
+    // framed from the anchor, which is not in the music: it has none.
+    const lastInVoice = new Map();
     for (const g of this.groups) {
       for (const e of g.notes) {
+        const written = lastInVoice.get(e.voice) ?? null;
+        lastInVoice.set(e.voice, e.midi);
         if (e.free || e.silent || !e.graded || e.played === e.midi) continue;
-        missed.push({ midi: e.midi, played: e.played, from: e.melodicFrom, b: g.b, caught: Boolean(e.selfCorrected) });
+        missed.push({ midi: e.midi, played: e.played, from: e.melodicFrom, written, b: g.b, caught: Boolean(e.selfCorrected) });
       }
     }
     missed.sort((x, y) => x.b - y.b);
@@ -3431,13 +3457,10 @@ export class Drill {
       clean: this.pitchClean,
       question: this.questions,
       phraseId: q.phrase.id,
-      // The passage exactly as it was PLACED and heard -- the chain is cut
-      // from this, not rebuilt from the phrase, so it keeps the pitches, the
-      // rhythm and the re-metering of the call that was actually missed. Kept
-      // here because the window question that follows rebuilds this.groups.
-      notes: this.groups.flatMap((g) => g.notes.map((e) => ({ midi: e.midi, b: g.b, dur: e.dur, voice: e.voice }))),
-      meter: this.meter,
       first: q.kind === 'passage',
+      // How many remediation asks this passage queued (the last entries of
+      // the queue): a rework drops the ones it is about to serve itself.
+      remediated: this.remediated,
       sec: Math.max(WINDOW_SEC, WINDOW_BEATS * this.beat),
       bpm: this.bpm,
       pressed: [],
@@ -3516,10 +3539,9 @@ export class Drill {
     // he caught in flight. Nothing is played that he has already shown.
     const serve = [];
     for (const m of live) if (!named.has(m.midi) && !serve.includes(m.midi)) serve.push(m.midi);
-    // Past the cliff the list of pitches is replaced by the chain (see CHAIN).
-    // Only a FIRST asking spawns one: a retry is already a second look, and a
-    // chain of a chain is a hole to fall down.
-    if (w.first && serve.length >= CHAIN.minMissed && this.startChain(w, live.filter((m) => !named.has(m.midi)))) {
+    // Past the cliff the list of pitches is replaced by the rework (REWORK).
+    // Only a FIRST asking spawns one: a retry is already a second look.
+    if (w.first && serve.length >= REWORK.minMissed && this.startRework(w)) {
       this.correction = null;
       return;
     }
@@ -3534,79 +3556,143 @@ export class Drill {
   }
 
   /**
-   * Cut the chain out of the passage: the span from the note BEFORE the first
-   * miss (the handed reference -- a note he actually played right, so the run
-   * up to the error is real) through the last one. Returns false when there is
-   * nothing to walk, and the ordinary correction stands.
+   * THE REWORK STARTS (REWORK): the intervals the passage missed, each from
+   * the written note before it in its voice, as placed. Every missed graded
+   * note counts -- one he caught, or named in the window, was still missed
+   * in the line. Returns false when none has a written note before it (a
+   * voice's first notes only), and the ordinary correction stands.
    */
-  startChain(w, missed) {
-    if (!w.notes?.length || !missed.length) return false;
-    const all = [...new Set(w.notes.map((n) => n.b))].sort((a, b) => a - b);
-    const lo = Math.min(...missed.map((m) => m.b));
-    const hi = Math.max(...missed.map((m) => m.b));
-    const at = all.indexOf(lo);
-    const from = all[Math.max(0, at - 1)] ?? lo; // one note of run-up when there is one
-    const notes = w.notes.filter((n) => n.b >= from && n.b <= hi);
-    const onsets = [...new Set(notes.map((n) => n.b))].sort((a, b) => a - b);
-    if (onsets.length < 2) return false;
-    // The retry that retryVerdict just queued does not happen (see CHAIN).
+  startRework(w) {
+    const items = [];
+    for (const m of w.missed) {
+      if (m.written === null || m.written === undefined) continue;
+      const iv = m.midi - m.written;
+      // A unison is not an interval; past two octaves is no skill on either ladder.
+      if (iv === 0 || Math.abs(iv) > 24 || items.some((it) => it.iv === iv)) continue;
+      items.push({ iv, from: m.written, to: m.midi });
+      if (items.length >= REWORK.maxIntervals) break;
+    }
+    if (!items.length) return false;
+    // The retry that retryVerdict just queued does not happen (see REWORK).
     this.retry = null;
-    this.chain = { notes, onsets, len: 1, steps: 0, bpm: w.bpm, meter: w.meter, phraseId: w.phraseId };
-    this.log(`  chaining the span: ${onsets.length} notes from where it went wrong (no retry)`);
+    // NO DOUBLE-SERVING: the remediation asks THIS passage queued for an
+    // interval the rework is about to ask three times are dropped. Others
+    // stay (a missed interval past maxIntervals, an earlier passage's).
+    const mine = this.remediationQueue.splice(this.remediationQueue.length - (w.remediated ?? 0));
+    const reworked = new Set(items.map((it) => simpleOf(it.iv)));
+    const kept = mine.filter((iv) => !reworked.has(iv));
+    this.remediationQueue.push(...kept);
+    this.rework = { items, i: 0, step: 0, used: [pcOf(items[0].from)], reanchored: false, reanchorTo: null, phraseId: w.phraseId };
+    const dropped = mine.length - kept.length;
+    this.log(`  reworking the missed interval${items.length === 1 ? '' : 's'}: ${items.map((it) => `${signed(it.iv)} (${name(it.from)} -> ${name(it.to)})`).join(', ')} -- as missed, then two other keys (no retry${dropped ? `; ${dropped} remediation ask${dropped === 1 ? '' : 's'} folded in` : ''})`);
     return true;
   }
 
   /**
-   * One step of the walk: the span's opening note, handed back ungraded as the
-   * reference, plus `len` notes after it at the passage's own tempo and meter.
-   * Scored as a correction -- notes you were just given earn no credit, spend
-   * none, break no run and queue no remediation -- but logged as its own kind
-   * so the walk can be read apart from the loop it replaced.
+   * The rework's next ask, or the re-anchor in front of it; null once it is
+   * done (the drill carries on). A re-anchor it served is read first: missed,
+   * it is never asked twice -- the interval is asked from wherever the hand
+   * is (as missed), or from the hand if it qualifies (another key), else that
+   * ask is skipped.
    */
-  chainQuestion() {
-    const c = this.chain;
-    const upto = c.onsets[Math.min(c.len, c.onsets.length - 1)];
-    const within = c.notes.filter((n) => n.b <= upto);
-    const base = c.onsets[0];
-    const last = Math.max(...within.map((n) => n.b));
-    const notes = within.map((n) => ({
-      midi: n.midi, b: n.b - base, dur: n.b === last ? Math.max(n.dur, 2) : n.dur, voice: n.voice,
-    }));
-    const heard = [...within].sort((a, b) => a.b - b.b || a.midi - b.midi).map((n) => name(n.midi)).join(' ');
-    return {
-      kind: 'chain',
-      correction: true, // scored exactly like one: handed, not earned
-      chain: true,
-      tempo: c.bpm,
-      meter: c.meter,
-      notes,
-      label: `chain ${c.len}/${c.onsets.length - 1}: ${heard} -- from the note before it went wrong`,
-    };
+  reworkQuestion() {
+    // Read from the rework's own record (`reanchorTo`), not from
+    // this.reanchor: completeQuestion overwrites that with a window re-anchor
+    // when the note he landed on is outside the stage's window.
+    if (this.reanchor?.forRework) this.reanchor = null;
+    const r = this.rework;
+    if (!r) return null;
+    let missedReanchor = false;
+    if (r.reanchorTo !== null && r.reanchorTo !== undefined) {
+      missedReanchor = this.anchor !== r.reanchorTo;
+      if (missedReanchor) this.log(`  (re-anchor missed: asking it from where the hand is, ${name(this.anchor)})`);
+      r.reanchorTo = null;
+    }
+    // A window re-anchor the passage left pending is the rework's to make:
+    // every ask places the hand itself. Re-read at the end (below).
+    if (this.reanchor && !this.reanchor.served) this.reanchor = null;
+    while (r.i < r.items.length) {
+      const it = r.items[r.i];
+      if (r.step >= REWORK.asks) {
+        r.i += 1;
+        r.step = 0;
+        r.reanchored = false;
+        if (r.i < r.items.length) r.used = [pcOf(r.items[r.i].from)];
+        continue;
+      }
+      const q = this.reworkAsk(it, r, missedReanchor);
+      if (q) return q;
+      r.step += 1; // skipped: nothing fits
+      r.reanchored = false;
+      missedReanchor = false;
+    }
+    this.rework = null;
+    this.log('  (rework done: back to the drill)');
+    const inWindow = this.clampAnchor(this.anchor);
+    if (inWindow !== this.anchor) this.reanchor = { target: inWindow, forRetry: false, served: false };
+    return null;
   }
 
-  /**
-   * Grow on clean, SHRINK on a miss -- never repeat the step that just failed,
-   * which is what makes the walk terminate and what keeps him near the rate at
-   * which he is playing rather than guessing. The span is the whole of it:
-   * the walk stops there and the phrase is not asked again this sitting.
-   */
-  stepChain() {
-    const c = this.chain;
-    c.steps += 1;
-    if (this.pitchClean) c.len += 1;
-    else if (c.len > 1) c.len -= 1;
-    else {
-      this.chain = null;
-      this.log('  (chain done: the first step is still going wrong -- leaving it for tomorrow)');
-      return;
+  /** One ask of the rework (or the re-anchor that puts the hand on its start); null = skip it. */
+  reworkAsk(it, r, missedReanchor) {
+    const STEPS = ['as missed', 'another key', 'a third key'];
+    const entry = this.entryLevel() && this.block ? this.block.key : null;
+    const inKey = (m) => !entry || diatonicIn(m, entry);
+    const onKeys = (s) => s >= this.lo && s <= this.hi && s + it.iv >= this.lo && s + it.iv <= this.hi;
+    const ok = (s) => onKeys(s) && inKey(s) && inKey(s + it.iv) && (r.step === 0 || !r.used.includes(pcOf(s)));
+    let start = null;
+    if (r.step === 0) {
+      // AS MISSED: from the written note, as placed -- the hand goes there first.
+      if (this.anchor !== it.from && !r.reanchored) return this.reworkReanchor(r, it.from);
+      // On it, or the re-anchor missed: from wherever the hand is.
+      if (ok(this.anchor)) start = this.anchor;
+    } else if (ok(this.anchor)) {
+      start = this.anchor; // the note under the hand: no navigation needed
+    } else if (!r.reanchored && !missedReanchor) {
+      // The nearest start that qualifies, inside the stage's window when one
+      // does (where every other question lives), else anywhere on the keys.
+      const w = this.win;
+      const inWin = (s) => s >= w.lo && s <= w.hi && s + it.iv >= w.lo && s + it.iv <= w.hi;
+      const mid = (this.lo + this.hi) / 2;
+      for (const want of [(s) => ok(s) && inWin(s), ok]) {
+        for (let d = 1; d <= this.hi - this.lo && start === null; d += 1) {
+          // inward first: of two at the same distance, the one toward the middle
+          const both = [this.anchor + d, this.anchor - d].sort((x, y) => Math.abs(x - mid) - Math.abs(y - mid));
+          start = both.find(want) ?? null;
+        }
+        if (start !== null) break;
+      }
+      if (start !== null) return this.reworkReanchor(r, start);
     }
-    if (c.len > c.onsets.length - 1) {
-      this.chain = null;
-      this.log(`  (chain done: the whole span, in ${c.steps} step${c.steps === 1 ? '' : 's'})`);
-    } else if (c.steps >= CHAIN.maxSteps) {
-      this.chain = null;
-      this.log(`  (chain done: ${CHAIN.maxSteps} steps, leaving it for tomorrow)`);
+    if (start === null) {
+      this.log(`  (rework ${r.step + 1}/${REWORK.asks} of ${signed(it.iv)} skipped: no start ${entry ? `in ${keyName(entry)} ` : ''}fits from ${name(this.anchor)})`);
+      return null;
     }
+    const target = start + it.iv;
+    const prev = this.prevAnchor === null ? null : this.idx(this.prevAnchor);
+    // Framed like remediation: scope 'interval', the interval's own record.
+    this.engine.ask(it.iv, this.idx(start), prev);
+    const q = this.intervalQuestion('rework', target);
+    q.rework = true;
+    q.reworkStart = start;
+    q.label = `rework ${r.step + 1}/${REWORK.asks} (${STEPS[r.step]}): ${name(start)} -> ? (${signed(it.iv)}${q.compound ? ', compound' : ''})${r.items.length > 1 ? ` -- interval ${r.i + 1} of ${r.items.length}` : ''}`;
+    return q;
+  }
+
+  /** Put the hand on a rework ask's start: the ordinary re-anchor, read back in reworkQuestion. */
+  reworkReanchor(r, target) {
+    r.reanchored = true;
+    r.reanchorTo = target;
+    this.reanchor = { target, forRetry: false, forRework: true, served: true };
+    return this.reanchorQuestion(target);
+  }
+
+  /** A rework ask was answered (right or not -- it is asked once): on to the next. */
+  stepRework(q) {
+    const r = this.rework;
+    r.used.push(pcOf(q.reworkStart));
+    r.step += 1;
+    r.reanchored = false;
   }
 
   /**
@@ -3647,6 +3733,9 @@ export function name(midi) {
 }
 function signed(n) {
   return n > 0 ? `+${n}` : `${n}`;
+}
+function pcOf(midi) {
+  return ((midi % 12) + 12) % 12;
 }
 const INTERVAL_NAMES = ['unison', 'm2', 'M2', 'm3', 'M3', 'P4', 'tritone', 'P5', 'm6', 'M6', 'm7', 'M7', 'octave'];
 function intervalName(semitones) {

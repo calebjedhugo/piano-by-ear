@@ -685,9 +685,9 @@ comes up.
   is correct -- which is what the retry has always said: "constant practice
   until correct is what the evidence backs".
   KINDS: prime | interval | gesture | discrimination | exposure | remediation |
-  dyad | dyad discrimination | chord | passage | retry | variant | round |
-  echo | reanchor | placing | place hand | recovery | dyad retry | dyad
-  transfer. Question
+  rework | dyad | dyad discrimination | chord | passage | retry | variant |
+  round | echo | reanchor | placing | place hand | recovery | dyad retry |
+  dyad transfer (`chain` rows are history, 10-11..23). Question
   flags: `pair` (judged as a pair at group close), `regime` (departure |
   twohand | placing), `contains`; note flags `from` (the anchor a note is
   measured from), `unison` (a required common tone), `regime`.
@@ -807,7 +807,7 @@ comes up.
   that actually puts him there. A missed re-anchor of kind (2) falls back to
   moving the anchor, so the walk cannot run off the end and it never asks
   twice. Selection
-  order in `makeQuestion()`: round, window, correction, placed passage,
+  order in `makeQuestion()`: round, window, correction, rework, placed passage,
   recovery walk, re-anchor, retry (SAME
   placement as the miss: `retry.placed`), block prime, pair exposure, the melodic remediation queue
   (folded to simple intervals), due variant, passage (streak >= 3 or 6
@@ -844,30 +844,31 @@ comes up.
   passage, a false alarm). No press = "it was clean", right or a miss gone
   unnoticed. Then `correction`: the live misses minus the ones he named,
   served at the passage's tempo (`q.tempo`) to play back, cascade included.
-  THE CHAIN REPLACES BOTH PAST THREE MISSED NOTES (`CHAIN.minMissed`, first
-  askings only). Correction accuracy by how many notes the passage missed
-  (09-11..18): 2 -> 81%, 3 -> 62%, 4 -> 47%, 5 -> 20%, 6 -> 20%; and the next
-  COLD asking of that phrase on a later day is clean 60-63% after a clean or
-  one-miss try and 12% after a deep one. At two the correction works because
-  it hands you a note and asks for one; past that it is a list of pitches with
-  no run-up. `startChain` cuts the SPAN out of the passage as placed and heard
-  (`window.notes`) -- from the note BEFORE the first miss through the last
-  one, INCLUDING the correct notes between, because half of multi-miss
-  failures are scattered and serving only the misses teaches a sequence that
-  is not in the music. Each step = the span's opening note (handed, ungraded,
-  the reference) + `len` after it; clean GROWS it, a miss SHRINKS it (never
-  repeats -- that is what terminates the walk and keeps him near the rate at
-  which he is playing rather than guessing, Wilson 2019); done at the whole
-  span or `CHAIN.maxSteps`. NO RETRY FOLLOWS (`startChain` clears
-  `this.retry`): a retry records nothing anyway, and re-serving a passage he
-  just missed badly sits far under the error band. Scored exactly like a
-  correction (`correction: true`) but logged as `kind: 'chain'` so the walk
-  reads apart from the loop it replaced. Ash & Holding 1990 (keyboard task:
-  both part methods beat whole training in training, on the whole task and at
-  one-week retention; forward chaining won). DECLARED IN ADVANCE, do not
-  re-score it later: the target is SEGMENT ACCURACY >= 80% -- playing instead
-  of guessing -- and the 12% next-cold-clean is watched, not targeted.
-  Order in makeQuestion: round, WINDOW, CORRECTION, CHAIN, retry.
+  **THE REWORK REPLACES BOTH PAST THREE MISSED NOTES (2026-10-24, `REWORK`,
+  `startRework`/`reworkQuestion`, first askings only).** Correction accuracy
+  by how many notes the passage missed (09-11..18): 2 -> 81%, 3 -> 62%, 4 ->
+  47%, 5 -> 20%; so `REWORK.minMissed` = 3 (the trigger is unchanged). Then
+  each missed graded note's signed interval FROM THE WRITTEN NOTE BEFORE IT IN
+  ITS VOICE (a voice's first note has none; unisons and > 24 skipped), first
+  occurrence order, de-duplicated, at most `maxIntervals` 3. Each is asked
+  three times, then the next, then the ordinary drill (no passage forced):
+  (a) AS MISSED, from the written note as placed -- re-anchored there first
+  (`reanchor.forRework`, read back from `rework.reanchorTo`); missed, it is
+  asked from wherever the hand is, never twice; (b) ANOTHER KEY, a different
+  pitch class, from the note under the hand if it qualifies, else the nearest
+  start that does (stage window first), re-anchored; (c) A THIRD pitch class,
+  the same way. At the entry level (b)/(c) keep both notes in the block key or
+  are skipped. Kind `rework`, label `rework 2/3 (another key): ...`. GRADED
+  AS REMEDIATION: scope 'interval' (acc/reflex/secure, the ratchet, the
+  stage; `isolatedKind`, `recentIsolated`), secure or not; NOT a KEYED_KIND.
+  NO RETRY FOLLOWS; the phrase is due tomorrow as before. Remediation this
+  passage queued for a reworked interval is dropped (no double-serving). Not
+  carried across bursts. Caleb: "Ask the intervals the way they were when I
+  missed them. Then in another key. Then another. Then move on. All graded."
+  HISTORY: THE CHAIN (10-11..23) walked the missed span, one note longer per
+  clean step: 91% of notes right inside the walk (target >= 80%), next cold
+  asking clean 31% (n=35) vs 12% before -- memory for one phrase, not the ear.
+  Order in makeQuestion: round, WINDOW, CORRECTION, REWORK, retry.
   **PASSAGE LENGTH FOLLOWS THE OVERALL SCORE (2026-10-23, `LEN`,
   `updatePassageLength`, `noteGraded`).** A window of the last 60 GRADED FIRST
   ATTEMPTS OF EVERY KIND (kv `passageLen.recent`, carried across sittings,
@@ -1135,10 +1136,15 @@ comes up.
   only 30% of his plain answers that week were right within 2 beats.
   **ALL SINGLE INTERVALS HARD** (`nextTargetIndex({ hard })`, the plain slot
   only): the pool is open simple + open compound intervals that are NOT
-  secure; weights, centerPull, key lean and `only` apply inside it. Nothing
+  secure; weights, centerPull, key lean and `only` apply inside it. **An
+  ACCURATE BUT UNSECURED interval (n >= 3, record acc >= 0.9, not secure;
+  `accurateUnsecured`) gets the ZPD PEAK weight 2.2 in a hard pick** (2026-10-24),
+  not isMastered's review weight 0.2-0.9: those (-3 acc .99/reflex .61, -8
+  .98/.14) were rarely asked and single-interval accuracy sat low. On his
+  10-24 copy they went from 15% of hard picks to 37%. Nothing
   unsecured fitting falls back to the whole open pool (logged "(... asking
   from the whole open ladder)"). Not hard: the round (its first call and
-  successors), stage pools below exact, the focus pair, remediation, primes.
+  successors), stage pools below exact, the focus pair, remediation, rework, primes.
   **THE COMPOUND LADDER** (melodic only; `COMPOUND_WIDTHS` = TIER_WIDTHS + 12
   = `[14, 13, 15, 16, 17, 19, 24, 21, 20, 22, 23, 18]`, `state.compoundTiers`):
   signed skills 13..24 with their own stats, never credited to the simple

@@ -88,6 +88,8 @@ const MASTERED_ACC = 0.9;
 // calculation (Logan 1988): his plain intervals started within 2 beats were
 // 88% right, 3-4 beats 78%, 6+ 59% or worse.
 const SECURE_REFLEX = 0.8;
+// The top of the ZPD curve (baseWeight: ZPD_PEAK - 2 * |acc - 0.7|).
+const ZPD_PEAK = 2.2;
 const REFLEX_PRIOR = 0.5; // an unmeasured record starts where acc does
 export const REVIEW_FULL_MS = 3 * 24 * 60 * 60 * 1000;
 const CONFUSION_THRESHOLD = 2;
@@ -381,14 +383,31 @@ export class AdaptiveEngine {
     let w;
     if (s.n < 3) w = 1.5;
     else if (this.isMastered(s, acc)) w = 0.2 + 0.7 * Math.min(1, (now - s.last) / REVIEW_FULL_MS);
-    else w = 2.2 - 2 * Math.abs(acc - 0.7);
+    else w = ZPD_PEAK - 2 * Math.abs(acc - 0.7);
     return Math.max(w, 0.15);
   }
 
-  weight(interval, anchorIndex, now, prevIndex = this.prevAnchorIndex) {
+  /**
+   * ACCURATE BUT NOT SECURE (2026-10-24): seen three times and right at
+   * MASTERED_ACC on its own record, but not yet quick (isSecure). After the
+   * 10-23 build 23 of Caleb's 24 open intervals were unsecured and many of
+   * them were exactly this (-3: acc .99, reflex .61; -8: .98 / .14), and
+   * baseWeight filed them as review material (isMastered: 0.2-0.9) -- so
+   * inside the hard pool they were rarely asked, the low-accuracy ones took
+   * the slot, and single-interval accuracy sat low. Caleb: balance it by
+   * also asking the intervals not yet secure but highly accurate. In a HARD
+   * pick these get the ZPD peak; nothing else changes. Record acc, as
+   * isSecure reads it: the speed is what is missing, not the cell context.
+   */
+  accurateUnsecured(interval) {
+    const s = this.peekStats(interval);
+    return s.n >= 3 && s.acc >= MASTERED_ACC && !this.isSecure(interval);
+  }
+
+  weight(interval, anchorIndex, now, prevIndex = this.prevAnchorIndex, { hard = false } = {}) {
     const s = this.peekStats(interval);
     const acc = this.predictedAcc(interval, anchorIndex, prevIndex);
-    let w = this.baseWeight(interval, acc, now);
+    let w = hard && this.accurateUnsecured(interval) ? ZPD_PEAK : this.baseWeight(interval, acc, now);
     const warmLeft = WARMUP_QUESTIONS - this.questionInSession;
     if (warmLeft > 0 && s.n >= 3) w *= 1 + (warmLeft / WARMUP_QUESTIONS) * 1.5 * acc;
     return w * this.centerPull(anchorIndex, anchorIndex + interval);
@@ -552,7 +571,9 @@ export class AdaptiveEngine {
       if (pool.length === 0) pool = open;
     }
     if (pool.length === 0) return anchorIndex;
-    const weights = pool.map((i) => this.weight(i, anchorIndex, now, prevIndex) * (lean ? lean(anchorIndex + i) : 1));
+    // A hard pick weights accurate-but-slow intervals at the ZPD peak
+    // (accurateUnsecured); every other pick, and every other interval, as before.
+    const weights = pool.map((i) => this.weight(i, anchorIndex, now, prevIndex, { hard: hard && !poolOverride }) * (lean ? lean(anchorIndex + i) : 1));
     const total = weights.reduce((a, b) => a + b, 0);
     let roll = Math.random() * total;
     let interval = pool[pool.length - 1];
