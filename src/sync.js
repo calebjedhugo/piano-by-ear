@@ -37,6 +37,15 @@ const LOCK_STALE_MS = 120000;
 // every OFFLINE_RECHECK_MS and clears the mark when the pi answers again.
 // Nothing is lost by skipping: the merge is row-level and the next sync
 // that reaches the pi carries everything.
+// AND NEVER WAIT ON SSH'S OWN TIMEOUTS TO FIND OUT (same day). On the home
+// network the pi answers in tens of milliseconds, so the 8 s that first
+// failure took could only ever end in "unreachable". Before dialing, when
+// the pi has not been heard from in CONTACT_FRESH_MS (at startup, after a
+// sleep, after leaving the house), a knock on its ssh port with a hard
+// PREFLIGHT_MS cap decides: it answers and the sync runs, or it does not and
+// the pi is marked offline. The worst case is one PREFLIGHT_MS, once.
+const CONTACT_FRESH_MS = 60000;
+const PREFLIGHT_MS = 1500;
 const OFFLINE_RECHECK_MS = 30000;
 const PROBE_TIMEOUT_MS = 5000;
 const UNREACHABLE = /Connection|timed out|ETIMEDOUT|Could not resolve|No route|refused|Network is unreachable/i;
@@ -80,6 +89,7 @@ export class Sync {
     this.locks = `${this.cfg.dir}/locks`;
     this.offline = false;
     this.probeTimer = null;
+    this.lastContact = 0;
   }
 
   get enabled() {
@@ -89,18 +99,36 @@ export class Sync {
   ssh(command, { timeout = OP_MS, input = null } = {}) {
     this.guard();
     try {
-      return execFileSync('ssh', ['-o', `ConnectTimeout=${CONNECT_S}`, '-o', 'BatchMode=yes', ...MUX, this.cfg.host, command], {
+      const out = execFileSync('ssh', ['-o', `ConnectTimeout=${CONNECT_S}`, '-o', 'BatchMode=yes', ...MUX, this.cfg.host, command], {
         timeout, encoding: 'utf8', stdio: [input === null ? 'ignore' : 'pipe', 'pipe', 'pipe'], ...(input === null ? {} : { input }),
       });
+      this.lastContact = Date.now();
+      return out;
     } catch (err) {
       this.noteFailure(err);
       throw err;
     }
   }
 
-  /** Known offline: fail now, without dialing (FAIL FAST above). */
+  /** Known offline, or not answering a quick knock: fail now, without dialing (FAIL FAST above). */
   guard() {
+    if (!this.offline && Date.now() - this.lastContact > CONTACT_FRESH_MS) {
+      if (this.knock()) this.lastContact = Date.now();
+      else this.noteFailure({ stderr: 'Connection: no answer on the ssh port' });
+    }
     if (this.offline) throw Object.assign(new Error('Connection skipped: the pi was not reachable a moment ago'), { offline: true });
+  }
+
+  /** A blocking TCP knock on the pi's ssh port, capped at PREFLIGHT_MS (name lookup included). */
+  knock() {
+    const { host, port } = this.endpoint();
+    const probe = `require('net').connect(${JSON.stringify({ host, port })}).on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))`;
+    try {
+      execFileSync(process.execPath, ['-e', probe], { timeout: PREFLIGHT_MS, stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** An ssh/scp that could not reach the pi marks it offline; a remote command that ran and failed does not. */
@@ -142,6 +170,7 @@ export class Sync {
       if (!this.offline) return;
       if (up) {
         this.offline = false;
+        this.lastContact = Date.now();
         this.log('  sync: the pi is reachable again');
       } else this.scheduleProbe();
     };
@@ -161,6 +190,7 @@ export class Sync {
       execFileSync('scp', ['-q', '-o', `ConnectTimeout=${CONNECT_S}`, '-o', 'BatchMode=yes', ...MUX, from, to], {
         timeout: OP_MS, stdio: ['ignore', 'pipe', 'pipe'],
       });
+      this.lastContact = Date.now();
     } catch (err) {
       this.noteFailure(err);
       throw err;
