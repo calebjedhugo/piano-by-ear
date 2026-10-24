@@ -68,6 +68,9 @@ Free only, never charged. `packaging/build.sh` (run with the sandbox OFF:
   only (boots, samples decode, MIDI enumerates) -- no real PC yet.
 - **Testing a built app on this Mac uses the real ~/.piano-by-ear** (profiles,
   sync, run.log -- a test on 10-10 wiped run.log). Set `HOME` to a scratch dir.
+  **It also claims the real MIDI output**: a scratch HOME has no
+  click-volume/reverb file, so the test resets the piano's ch 10 volume to
+  full (10-24). Unplug the keyboard first, or restart the drill after.
 
 ## WHO IS PLAYING IS A CHORD (2026-09-19)
 
