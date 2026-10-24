@@ -25,6 +25,7 @@ const NOTE_ON = 0x90;
 const NOTE_OFF = 0x80;
 const CONTROL_CHANGE = 0xb0;
 const CC_VOLUME = 7;
+const CC_REVERB = 91; // reverb send (General MIDI)
 const CC_PAN = 10;
 const CC_ALL_NOTES_OFF = 123;
 
@@ -104,6 +105,25 @@ export function clickVolume() {
     return Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 100;
   } catch {
     return 100;
+  }
+}
+
+const REVERB_FILE = join(homedir(), '.piano-by-ear', 'reverb');
+
+/**
+ * THE REVERB ON THE DRILL'S OWN NOTES, AS A PERCENT (2026-10-24). A piano
+ * with a lot of reverb smears the call (Caleb, away from home: down to 10% on
+ * the call and the click). ~/.piano-by-ear/reverb holds 0-100 and becomes
+ * CC 91 on the call's and the click's channels at every port claim; the
+ * player's own playing keeps the piano's panel setting. No file: nothing is
+ * sent, so a piano nobody asked about keeps its own reverb.
+ */
+export function reverbLevel() {
+  try {
+    const pct = Number(readFileSync(REVERB_FILE, 'utf8').trim());
+    return Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : null;
+  } catch {
+    return null;
   }
 }
 
@@ -196,6 +216,8 @@ export class MidiOut {
       const level = ch === CLICK_CHANNEL ? Math.round((FULL * clickVolume()) / 100) : FULL;
       this.send([CONTROL_CHANGE | (ch - 1), CC_PAN, CENTRE]);
       this.send([CONTROL_CHANGE | (ch - 1), CC_VOLUME, level]);
+      const reverb = reverbLevel();
+      if (reverb !== null) this.send([CONTROL_CHANGE | (ch - 1), CC_REVERB, Math.round((FULL * reverb) / 100)]);
     }
   }
 

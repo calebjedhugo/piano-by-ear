@@ -61,6 +61,8 @@ Free only, never charged. `packaging/build.sh` (run with the sandbox OFF:
   Casio, Korg undocumented. Its level is `~/.piano-by-ear/click-volume`
   (0-100, no file = 100), sent as ch 10 CC 7 on every port claim
   (`clickVolume`, 2026-10-24); the call's channel stays full.
+  `~/.piano-by-ear/reverb` (0-100) sends CC 91 on the call's and the
+  click's channels; no file = nothing sent (`reverbLevel`).
 - **Unsigned.** macOS: one Open Anyway approval covers the nested node and
   `.node` modules (tested 10-10, translocated). Windows: tested under Wine
   only (boots, samples decode, MIDI enumerates) -- no real PC yet.
