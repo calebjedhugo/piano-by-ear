@@ -55,9 +55,11 @@
 //              beginner who wants to hear it plays it himself -- it is under
 //              his hand and free in the question -- so the scaffold is
 //              self-served and fades on its own (2026-09-21).
-//              A secure simple interval is sometimes asked an OCTAVE WIDER:
-//              the skill is still the simple interval, the octave is judged
-//              apart (a compound interval is not a skill of its own).
+//              ONLY WHAT IS NOT YET SECURE (2026-10-23): open simple widths
+//              and open compounds whose own record is not right-and-quick
+//              (engine.js isSecure). A compound is a skill of its own now,
+//              with its own ladder (COMPOUND_WIDTHS), never credited to the
+//              simple interval; an answer an octave off is simply wrong.
 //   gesture:   the same target, then a diatonic step in the block key, so the
 //              interval is heard in a line (no anchor echo first: the target
 //              comes when you are ready, as it does on a bare question).
@@ -175,9 +177,29 @@ const DUR_LONG_FRAC = 1.5;
 const DUR_LONG_PAD_S = 0.15;
 const FLUENT_NORM_MS = 120; // mastery: onset error <= 12% of a beat (ms at 60 bpm)
 const CALL_MAX_S = 2; // the longest a call note sounds; a hold is never graded against more
-// Passage length follows passage results, not the tier ladder: grow a note
-// after LEN.grow clean passages in a row, shrink after LEN.shrink failures in
-// a row, inside [min, ceiling] where the ceiling comes from the engines.
+// PASSAGE LENGTH FOLLOWS THE OVERALL SCORE (2026-10-23). A rolling window of
+// the last LEN.window GRADED FIRST ATTEMPTS OF EVERY KIND -- intervals,
+// passages, dyads, corrections, all of it -- persisted in kv `passageLen` as
+// `recent`, so it carries across sittings. After each first-asked passage
+// (never a retry or variant), once the window holds LEN.minWindow: overall >=
+// LEN.up -> that kind +1 note, < LEN.down -> -1, otherwise hold; at most one
+// change per kind per LEN.cooldown new graded attempts, so one bad minute
+// cannot walk it down three notes. Bounds as before, [LEN.min, lengthCeiling],
+// and heldShort still overrides. The aim is 80% overall; the 75-85% dead band
+// keeps the length from twitching. CLEAN RUNS NO LONGER VOTE.
+// WHY. The old rule -- grow after 2 clean in a row, shrink after 3 failures
+// in a row -- settles where p^2 = (1-p)^3, a passage clean ~43% of the time,
+// whatever the material. For Caleb that was 6.6 graded notes at 77% per note
+// and 41% clean (596 mono first askings, 10-14..10-23): LENGTH -- memory --
+// was setting the difficulty of the whole drill, and the length it chose was
+// the one where he fails more than half his phrases. Now the single
+// intervals stay hard by construction (engine.js nextTargetIndex `hard`: only
+// what is not secure), and passage length is the one dial that holds the
+// overall score in the 75-85% zone (Wilson et al. 2019, ~85% for learning).
+// When he struggles the passages get shorter; the intervals do not get easier.
+// Until 2026-10-23: grow a note after 2 clean passages in a row, shrink after
+// 3 failures in a row, inside [min, ceiling] where the ceiling comes from the
+// engines. The history of that rule follows.
 // THE LENGTH CONTROLLER SETS A LENGTH, NOT A CEILING. It used to pass its
 // value as `maxNotes` alone, so the bank returned ANY phrase at or under it
 // and the diet was everything from two notes to the ceiling. Two things
@@ -203,7 +225,8 @@ const CALL_MAX_S = 2; // the longest a call note sounds; a hold is never graded 
 //
 // So: `band` is how far under the target the bank may go, and only a passage
 // served INSIDE the band votes on growth or shrink -- a clean three-note
-// passage says nothing about nine and no longer gets to say it. Starts and
+// passage says nothing about nine and no longer gets to say it. (Since
+// 2026-10-23 no passage votes at all, so `band` only shapes the pick.) Starts and
 // minimums are set where the data puts him rather than where the ladder
 // wished he was (Wilson et al. 2019: aim near the rate at which he succeeds).
 // UNITS: these are CORPUS notes -- `phrase.notes.length`, what `maxNotes`
@@ -217,9 +240,12 @@ const CALL_MAX_S = 2; // the longest a call note sounds; a hold is never graded 
 const LEN = {
   start: { mono: 5, duo: 4, trio: 4, chorale: 4, poly: 4 },
   min: { mono: 4, duo: 4, trio: 4, chorale: 4, poly: 4 },
-  band: 1, // a pick may be this many notes under the target, and still votes
-  grow: 2,
-  shrink: 3,
+  band: 1, // a pick may be this many notes under the target
+  window: 60, // graded first attempts of every kind in the overall window
+  minWindow: 30, // no change on a thinner window
+  up: 0.85, // overall at or above: the finished passage's kind grows a note
+  down: 0.75, // overall below: it shrinks one
+  cooldown: 20, // graded attempts between two changes of one kind
 };
 // How many recent graded passage notes the tempo ceiling looks at (src/tempo.js).
 const FLOOR_WINDOW = 400;
@@ -490,6 +516,10 @@ export class Drill {
     this.wideStore = db.kv('wideDyads'); // wide spans as their own skills (WIDE)
     this.placingSpans = new Map(); // phrase id -> its placing span
     this.len = this.lenStore.load() || {};
+    // The overall window (LEN) starts from the history already on record, so
+    // an existing profile's lengths respond from its first passage.
+    if (!Array.isArray(this.len.recent)) this.len.recent = db.recentGraded(LEN.window).map((r) => (r.correct ? 1 : 0)).reverse();
+    if (!Number.isFinite(this.len.graded)) this.len.graded = 0;
     this.state = 'IDLE';
     this.clockOffset = performance.now() / 1000 - audio.now;
     this.stage = new Stage(db.recentIsolated(20), this.stageStore.load()?.name ?? null);
@@ -714,6 +744,17 @@ export class Drill {
     this.engine.startSession({ questionInSession: resumed?.questionInSession ?? 0 });
     this.harmonic = this.makeEngine(this.lo, this.hi, FLUENT_NORM_MS, 'harmonic');
     this.harmonic.startSession({ questionInSession: resumed?.questionInSession ?? 0 });
+    this.wireEngines();
+    // THE REFLEX RECORDS START FROM HISTORY (2026-10-23, once per profile):
+    // every plain answer on record replayed into the new `reflex` field (and
+    // the melodic compounds into records of their own), so a secure interval
+    // leaves the plain slot from the first question rather than after five
+    // more right answers it has already given. acc and n are not touched.
+    this.db.runOnce('reflex-seed-2026-10-23', () => {
+      const m = this.engine.seedReflex(this.db.plainMelodicHistory(WIDE.reflexBeats));
+      const h = this.harmonic.seedReflex(this.db.plainDyadHistory(WIDE.reflexBeats));
+      this.log(`  reflex records seeded from history: ${m.simple} plain intervals, ${m.compound} compound, ${h.simple} dyads`);
+    });
     this.polyState = this.polyLevel();
     this.polyStore.save(this.polyState);
     this.polyMove = null; // a pending level-change line, flushed after the verdict
@@ -772,7 +813,7 @@ export class Drill {
     this.state = 'QUESTION';
     const level = this.polyState.level;
     const dyads = this.dyadsOpen();
-    this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms), tiers ${this.engine.state.tiersUnlocked}${dyads ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, ${dyads ? 'dyads and chords, ' : ''}passages ${LEVEL_NAMES[level]}${this.polyState.short ? ' (held short)' : ''}, stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}`);
+    this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms), tiers ${this.engine.state.tiersUnlocked}${this.engine.state.compoundTiers ? ` (+${this.engine.state.compoundTiers} compound)` : ''}${dyads ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, ${dyads ? 'dyads and chords, ' : ''}passages ${LEVEL_NAMES[level]}${this.polyState.short ? ' (held short)' : ''}, stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}`);
 
     // The anchor rings for a beat, then the grid starts on an accented downbeat.
     this.nextBarAt = this.audio.now + this.beat;
@@ -909,12 +950,17 @@ export class Drill {
   }
 
   /** Notes are { midi, b, dur, voice, free, silent }. */
-  intervalQuestion(kind, target, { wide = false } = {}) {
+  intervalQuestion(kind, target) {
     const iv = target - this.anchor;
-    const label = wide ? `${signed(simpleOf(iv))} +8ve` : signed(iv);
+    // A COMPOUND is its own skill (engine.js COMPOUND_WIDTHS): an answer an
+    // octave off is wrong, recorded as `height_err` for the reading only.
+    // Isolated asks only: a placing or a recovery step that happens to span
+    // more than an octave is not a compound question.
+    const compound = Math.abs(iv) > 12 && ['interval', 'discrimination', 'remediation'].includes(kind);
+    const label = compound ? `${signed(iv)}, compound` : signed(iv);
     return {
       kind,
-      wide,
+      compound,
       optionalAnchor: true, // a wrong first note is a wrong target, never a wrong anchor
       // The anchor is the note you just played, so the call sounds only the
       // target, on the downbeat. The anchor stays in the question, a beat
@@ -1825,35 +1871,51 @@ export class Drill {
 
   /** Current passage length for a kind: the controller's value, inside its bounds. */
   passageLength(kind) {
-    const st = this.len[kind] || { notes: LEN.start[kind], cleanRun: 0, failRun: 0 };
+    const st = this.len[kind] || { notes: LEN.start[kind] };
     this.len[kind] = st;
     if (this.heldShort(kind)) return LEN.min[kind];
     return Math.max(LEN.min[kind], Math.min(this.lengthCeiling(kind), st.notes));
   }
 
+  /** One graded first attempt, of any kind, into the overall window (LEN). */
+  noteGraded(correct) {
+    const r = this.len.recent;
+    r.push(correct ? 1 : 0);
+    if (r.length > LEN.window) r.splice(0, r.length - LEN.window);
+    this.len.graded += 1;
+    this.lenStore.save(this.len);
+  }
+
+  /** The overall window's score, or null while it is thinner than LEN.minWindow. */
+  overallScore() {
+    const r = this.len.recent;
+    return r.length >= LEN.minWindow ? r.reduce((t, x) => t + x, 0) / r.length : null;
+  }
+
   /**
-   * A passage of this kind (first asking, not a retry) ended clean or not, on
-   * pitch. ONLY A PASSAGE SERVED AT THE TARGET LENGTH VOTES: a clean short one
-   * is not evidence about a long one, and letting it vote is what walked the
-   * mono ceiling to nine and the duo ceiling to eight (see LEN).
+   * A first-asked passage of this kind has finished: move that kind's length
+   * by the OVERALL score (LEN), not by whether this passage was clean.
    */
-  updatePassageLength(kind, clean, served = null) {
+  updatePassageLength(kind) {
     const before = this.passageLength(kind); // also creates the kind's state
+    const st = this.len[kind];
     if (this.heldShort(kind)) {
       // HELD SHORT: the controller restarts from the shortest length when
       // the hold lifts, so the climb back is the same gradual one as before.
-      Object.assign(this.len[kind], { notes: LEN.min[kind], cleanRun: 0, failRun: 0 });
+      st.notes = LEN.min[kind];
       this.lenStore.save(this.len);
       return;
     }
-    if (served !== null && served < before - LEN.band) return;
-    const st = this.len[kind];
-    if (clean) { st.cleanRun += 1; st.failRun = 0; } else { st.failRun += 1; st.cleanRun = 0; }
-    if (st.cleanRun >= LEN.grow) { st.notes = before + 1; st.cleanRun = 0; }
-    else if (st.failRun >= LEN.shrink) { st.notes = before - 1; st.failRun = 0; }
+    const score = this.overallScore();
+    if (score === null) return;
+    if (st.changedAt !== undefined && this.len.graded - st.changedAt < LEN.cooldown) return;
+    const step = score >= LEN.up ? 1 : score < LEN.down ? -1 : 0;
+    if (step === 0) return;
+    st.notes = Math.max(LEN.min[kind], Math.min(this.lengthCeiling(kind), before + step));
+    if (st.notes === before) return; // at a bound: nothing moved, no cooldown spent
+    st.changedAt = this.len.graded;
     this.lenStore.save(this.len);
-    const after = this.passageLength(kind);
-    if (after !== before) this.log(`  ${kind} passages now up to ${after} notes`);
+    this.log(`  ${kind} passages now up to ${st.notes} notes (overall ${Math.round(score * 100)}% of the last ${this.len.recent.length} graded)`);
   }
 
   pickPassage() {
@@ -2198,8 +2260,17 @@ export class Drill {
     const w = this.win;
     const key = this.block.key;
     const inKey = (t) => diatonicIn(t + this.lo, key);
+    // A plain interval question is sometimes a gesture instead: the same
+    // drilled interval, continued in the key. Never at the lower stages.
+    // Decided BEFORE the target now, because the round's first call is not
+    // the hard pool's to choose: THE ROUND STAYS AS IT WAS (2026-10-23).
+    const gesture = top && Math.random() < GESTURE_RATE;
+    const round = !gesture && this.roundsOpen();
     const target = engine.nextTargetIndex(a, prev, {
-      allowWide: top,
+      // ALL SINGLE INTERVALS HARD (2026-10-23): only open intervals --
+      // simple and compound -- that are not secure (engine.js `hard`). The
+      // octave-wider coin flip is gone; compounds come from their own ladder.
+      hard: !round,
       pool: this.stage.pool ? this.stage.pool.flatMap((x) => [x, -x]) : null,
       bounds: { lo: this.idx(w.lo), hi: this.idx(w.hi) },
       lean: this.keyLean(a),
@@ -2209,12 +2280,14 @@ export class Drill {
       // the key. Below DIATONIC_TIERS the target must actually be in it.
       only: engine.state.tiersUnlocked < DIATONIC_TIERS ? inKey : null,
     }) + this.lo;
+    if (engine.lastFallback) this.log(`  (${engine.lastFallback}: asking from the whole open ladder)`);
     if (engine.servedQueue) return this.intervalQuestion('discrimination', target);
-    if (engine.lastWide) return this.intervalQuestion('interval', target, { wide: true });
-    // A plain interval question is sometimes a gesture instead: the same
-    // drilled interval, continued in the key. Never at the lower stages.
-    if (top && Math.random() < GESTURE_RATE) return this.gestureQuestion(target);
-    if (this.roundsOpen()) return this.startRound(target);
+    // A COMPOUND IS ALWAYS A PLAIN QUESTION: in a gesture it would be scored
+    // at passage scope, folded onto the simple interval, which is exactly the
+    // crediting the compound ladder exists to stop.
+    if (Math.abs(target - this.anchor) > 12) return this.intervalQuestion('interval', target);
+    if (gesture) return this.gestureQuestion(target);
+    if (round) return this.startRound(target);
     return this.intervalQuestion('interval', target);
   }
 
@@ -2508,6 +2581,20 @@ export class Drill {
     this.groups = groups;
   }
 
+  /**
+   * Tier openings go to the log: the ladders only ratchet now (engine.js
+   * adjustTiers), and until 2026-10-23 no tier change was logged at all.
+   */
+  wireEngines() {
+    const say = ({ ladder, width, tier, of }) => {
+      const what = ladder === 'compound' ? 'compound interval' : ladder === 'harmonic' ? 'harmonic interval' : 'interval';
+      const size = ladder === 'harmonic' ? `${width}` : `±${width}`; // the harmonic engine's skills are sizes
+      this.log(`  ${what} opened: ${size} (${ladder === 'compound' ? 'compound' : 'tier'} ${tier} of ${of})`);
+    };
+    this.engine.onOpen = say;
+    this.harmonic.onOpen = say;
+  }
+
   rebuildEngine() {
     const { lo, hi } = this.range.current;
     const newLo = Math.min(lo, this.anchor);
@@ -2521,6 +2608,7 @@ export class Drill {
       this[which] = this.makeEngine(newLo, newHi, FLUENT_NORM_MS, which);
       this[which].adopt(old, this.lo - newLo);
     }
+    this.wireEngines();
     this.lo = newLo;
     this.hi = newHi;
     this.rangeDirty = false;
@@ -2898,9 +2986,11 @@ export class Drill {
     // (`primeProbe` above).
     if ((isolated || q.prime || q.recovery) && exp.melodicFrom !== null) {
       credit = this.stage.credit(exp.melodicFrom, exp.midi, played);
-      // A compound ask: the interval skill is judged on pitch class, the
-      // octave on its own.
-      if (q.wide && !correct && played !== null && Math.abs(played - exp.midi) === 12) { heightErr = true; credit = true; }
+      // A COMPOUND ASK AN OCTAVE OFF IS SIMPLY WRONG (2026-10-23). It used to
+      // be credited on pitch class, the octave judged apart; a compound is
+      // its own skill now, so the row records the octave error and nothing
+      // is credited for it.
+      if (q.compound && !correct && played !== null && Math.abs(played - exp.midi) === 12) heightErr = true;
     }
     // A PAIR QUESTION (a dyad, a placing, the harmonic exposure) is judged
     // when its group closes (judgeSonority): two notes carry two degrees of
@@ -2909,7 +2999,11 @@ export class Drill {
     if (exp.graded && !q.navigation && !q.pair) {
       if (exp.melodicFrom !== null && exp.melodicFrom !== exp.midi) {
         const raw = exp.midi - exp.melodicFrom;
-        const iv = q.wide || Math.abs(raw) > 12 ? simpleOf(raw) : raw; // the ladder knows simple intervals only
+        // Passage scope folds a compound onto its simple interval (scoreInterval
+        // does too). An ISOLATED compound was framed as itself by
+        // nextTargetIndex and resolves against its own record, so `iv` is not
+        // read for it.
+        const iv = Math.abs(raw) > 12 ? simpleOf(raw) : raw;
         const prev = exp.melodicPrev;
         if (passage) this.engine.ask(iv, this.idx(exp.melodicFrom), prev === null ? null : this.idx(prev), { scope: 'passage' });
         else if (primeProbe) this.engine.ask(iv, this.idx(exp.melodicFrom), null, { scope: 'interval' });
@@ -2921,8 +3015,14 @@ export class Drill {
             this.remediated += 1;
           }
         }
-        this.engine.reportResolved(rtNorm);
-        if (q.wide && (correct || heightErr)) this.engine.reportHeight(!heightErr);
+        // QUICK = started within WIDE.reflexBeats of the call: the reflex that
+        // makes an interval SECURE (engine.js isSecure). `this.behind` is set
+        // by startResponse on his first note, before any note is graded; an
+        // unplayed answer has none and is never quick. A ROUND's beat is
+        // pinned to its lead (2-4 beats by design), so there quick is right
+        // AND on that beat -- the round's own test.
+        const quick = correct && (q.round ? inTime : (this.behind ?? 99) <= WIDE.reflexBeats);
+        this.engine.reportResolved(rtNorm, { quick });
       }
       if (exp.harmonicFrom !== null) {
         // By SIZE: a placing dyad's note sits below its reference, and a
@@ -2934,7 +3034,7 @@ export class Drill {
           this.harmonic.reportMiss(this.idx(exp.harmonicFrom), played === null ? this.idx(exp.harmonicFrom) : this.idx(note), { confuse: dyad });
           this.queueRecovery(exp.harmonicFrom, exp.midi);
         }
-        this.harmonic.reportResolved(rtNorm);
+        this.harmonic.reportResolved(rtNorm, { quick: correct && (this.behind ?? 99) <= WIDE.reflexBeats });
       }
     }
     // The stage sees isolated answers, a round's included: since 2026-10-05 a
@@ -2943,11 +3043,12 @@ export class Drill {
     if (isolated && exp.graded && exp.melodicFrom !== null) {
       if (this.stage.observe(exp.melodicFrom, exp.midi, played)) this.stageMoved();
     }
+    if (exp.graded) this.noteGraded(correct); // the overall window that sets passage length (LEN)
     const rowId = this.db.attempt({
       sessionId: this.sessionId, anchor: from, target: exp.midi, played: note, velocity, correct,
       firstAttempt: true, onsetMs, question: this.questions, kind: q.kind,
       phraseId: q.phrase?.id ?? null, position: g.index, graded: exp.graded, inTime, beatMs: this.beat * 1000,
-      credit: isolated || q.prime ? credit : null, stage: isolated || q.prime ? this.stage.current : null, heightErr: q.wide ? heightErr : null,
+      credit: isolated || q.prime ? credit : null, stage: isolated || q.prime ? this.stage.current : null, heightErr: q.compound ? heightErr : null,
       voice: exp.voice ?? null, behind: this.behind, afterCall: this.afterCall,
       key: this.block ? keyName(this.block.key) : null,
       regime: exp.regime ?? q.regime ?? null, containsAnchor: q.pair ? exp.unison : null,
@@ -2974,7 +3075,7 @@ export class Drill {
     }
     const why = correct ? '' : ` (${exp.unison ? 'the note you were on' : exp.melodicFrom !== null ? signed(exp.midi - exp.melodicFrom) : exp.harmonicFrom !== null ? (exp.midi > exp.harmonicFrom ? `+${exp.midi - exp.harmonicFrom} above bass` : `${exp.midi - exp.harmonicFrom} below`) : 'anchor'})`;
     const mark = correct ? 'correct' : credit ? `~ ${name(note)} wanted` : `x ${name(note)} wanted`;
-    const creditNote = !correct && credit ? (heightErr ? ' -- right note, wrong octave' : this.stage.current === 'contour' || this.stage.current === 'echo' ? ' -- right direction' : ' -- close') : '';
+    const creditNote = heightErr ? ' -- an octave off (a compound: wrong)' : !correct && credit ? (this.stage.current === 'contour' || this.stage.current === 'echo' ? ' -- right direction' : ' -- close') : '';
     this.log(
       `  ${mark} ${name(exp.midi)}${why}${chord}, onset ${onsetMs >= 0 ? '+' : ''}${onsetMs.toFixed(0)}ms${correct && !inTime ? (onsetMs < 0 ? ' EARLY' : ' LATE') : ''}${creditNote}`,
     );
@@ -3060,7 +3161,9 @@ export class Drill {
       this.queueRecovery(harmonicMiss.from, harmonicMiss.missed);
     } else if (ok(lo) && ok(hi) && !wide) {
       this.harmonic.ask(simpleOf(spanExpected), this.idx(lo.midi), null, { scope: harmonicScope });
-      this.harmonic.reportResolved(null);
+      // QUICK for the span's reflex (engine.js isSecure): both right and
+      // started within WIDE.reflexBeats, the line the WIDE records draw too.
+      this.harmonic.reportResolved(null, { quick: (this.behind ?? 99) <= WIDE.reflexBeats });
     }
     // The rung controller reads the slot's own dyads, per retrieval, never the unison.
     // Wide dyads stay out of it: their difficulty is the span's, not the rung's.
@@ -3262,7 +3365,7 @@ export class Drill {
         if (first) {
           bank.record(q.phrase.id, this.pitchClean);
           this.recordPolyOutcome(q.phrase.kind, this.pitchClean, rungs.exact, rungs.notes);
-          this.updatePassageLength(q.phrase.kind, this.pitchClean, q.phrase.notes.length);
+          this.updatePassageLength(q.phrase.kind);
         }
         const verdict = this.retryVerdict(q, rungs, bank);
         const tail = this.pitchClean ? (verdict ? ` -- ${verdict}` : '') : ` -- ${describeRungs(rungs)}; ${verdict}`;

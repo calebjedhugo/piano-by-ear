@@ -377,6 +377,56 @@ export class Db {
     return this.stmts.recentPlain.all(limit);
   }
 
+  /**
+   * Every plain melodic answer on record, oldest first, for seeding the
+   * engine's reflex records once (engine.js seedReflex, 2026-10-23): the
+   * first attempts the engine scored at scope 'interval' -- plain intervals,
+   * remediation and discrimination. `quick` = started within `reflexBeats`;
+   * `rt` = the normalized onset error the live path records (ms at 60 bpm),
+   * null when the note was not in time.
+   */
+  plainMelodicHistory(reflexBeats) {
+    return this.db.prepare(`
+      SELECT ts, anchor, target, correct, behind, onset_ms, beat_ms, in_time FROM attempts
+      WHERE graded = 1 AND first_attempt = 1 AND kind IN ('interval', 'remediation', 'discrimination')
+      ORDER BY ts, id`).all().map((r) => ({
+      interval: r.target - r.anchor,
+      correct: Boolean(r.correct),
+      quick: r.behind !== null && r.behind <= reflexBeats,
+      ts: r.ts,
+      rt: r.in_time && r.beat_ms && r.onset_ms !== null ? Math.min(Math.abs(r.onset_ms), r.beat_ms) / (r.beat_ms / 1000) : null,
+    }));
+  }
+
+  /**
+   * Every plain dyad the harmonic engine scored, oldest first (the same
+   * seeding): a sonority of kind dyad / dyad discrimination within an octave
+   * (wider is a WIDE record), right when both notes were, and counted only
+   * where judgeSonority gave the harmonic engine the trial -- both notes
+   * right, or the miss charged to the harmonic ear. `behind` comes from the
+   * question's attempts rows (a sonority row does not carry it).
+   */
+  plainDyadHistory(reflexBeats) {
+    return this.db.prepare(`
+      SELECT s.ts, s.span_expected span, s.lo_ok, s.hi_ok, s.charged,
+             (SELECT MAX(a.behind) FROM attempts a WHERE a.session_id = s.session_id AND a.question = s.question) behind
+      FROM sonorities s
+      WHERE s.kind IN ('dyad', 'dyad discrimination') AND s.span_expected BETWEEN 1 AND 12
+        AND ((s.lo_ok = 1 AND s.hi_ok = 1) OR s.charged = 'harmonic')
+      ORDER BY s.ts, s.id`).all().map((r) => ({
+      interval: r.span,
+      correct: Boolean(r.lo_ok && r.hi_ok),
+      quick: r.behind !== null && r.behind <= reflexBeats,
+      ts: r.ts,
+      rt: null,
+    }));
+  }
+
+  /** The last graded first attempts of every kind, newest first: the passage-length window (drill.js LEN). */
+  recentGraded(limit = 60) {
+    return this.db.prepare('SELECT correct FROM attempts WHERE graded = 1 AND first_attempt = 1 ORDER BY ts DESC, id DESC LIMIT ?').all(limit);
+  }
+
   /** One judgment window: what he offered in the silence, and what was true. */
   window(w) {
     this.stmts.window.run(w.sessionId, w.question ?? null, Date.now(), w.phraseId ?? null, nb(w.passageClean),

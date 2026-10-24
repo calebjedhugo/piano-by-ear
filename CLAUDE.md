@@ -822,7 +822,7 @@ comes up.
   than she can do by answering; which of the two kinds of player is on the
   bottom rung is settled by `echoEmpty`, not by the stage),
   dyad/chord slot, then a plain target (discrimination
-  from the pair focus, wide ask, gesture GESTURE_RATE, or interval). The
+  from the pair focus, compound ask, gesture GESTURE_RATE, or interval). The
   harmonic engine's pair focus gets its exposure call too (as dyads).
   PITCH AND TIME ARE SEPARATE: `pitchClean` drives streak, retry, length,
   poly promotion, variants; `timeClean`/`timing` are logged beside it
@@ -868,8 +868,20 @@ comes up.
   re-score it later: the target is SEGMENT ACCURACY >= 80% -- playing instead
   of guessing -- and the 12% next-cold-clean is watched, not targeted.
   Order in makeQuestion: round, WINDOW, CORRECTION, CHAIN, retry.
-  PASSAGE LENGTH IS A TARGET, NOT A CEILING (`LEN`, `passageLength`,
-  `updatePassageLength`). It used to pass its value as `maxNotes` alone, so the
+  **PASSAGE LENGTH FOLLOWS THE OVERALL SCORE (2026-10-23, `LEN`,
+  `updatePassageLength`, `noteGraded`).** A window of the last 60 GRADED FIRST
+  ATTEMPTS OF EVERY KIND (kv `passageLen.recent`, carried across sittings,
+  seeded from the attempts table). After each first-asked passage, with >= 30
+  in the window: overall >= 85% -> that kind +1 note, < 75% -> -1, else hold;
+  at most one change per kind per 20 graded attempts (`changedAt` against
+  `passageLen.graded`). Bounds and heldShort unchanged. CLEAN RUNS NO LONGER
+  VOTE: the old rule (+1 after 2 clean, -1 after 3 failures) settles where
+  p^2 = (1-p)^3, ~43% of passages clean, so length (memory) set the drill's
+  difficulty -- Caleb sat at 6.6 graded notes, 77% per note, 41% clean
+  (10-14..10-23). Now single intervals stay hard (only unsecured ones) and
+  length holds the overall score at 75-85%. **Struggling shortens passages;
+  it never makes the intervals easier.** HISTORY of the rule it replaced:
+  PASSAGE LENGTH IS A TARGET, NOT A CEILING. It used to pass its value as `maxNotes` alone, so the
   bank returned ANY phrase under it, and `grow` counted clean passages without
   caring how long they were -- a clean TWO-note passage raised the ceiling that
   admits NINE-note ones (09-18 20:40: clean at 2,7,6,7,7 -> ceiling 7->8->9 ->
@@ -898,8 +910,10 @@ comes up.
   THE ROUND (rebuilt 2026-10-05, Caleb's design; see the ROUND comment in
   drill.js). **Earned once, never taken away**: duo passages at 8 notes AND
   the last 40 plain intervals >= 80% right and started within 2 beats
-  (`roundsOpen`, kv `canon` {unlockedAt, levels}). From then on every plain
-  interval slot (after gestures; discrimination and wide asks stay) is a
+  (`roundsOpen`, kv `canon` {unlockedAt, levels}). Since 2026-10-23 plain
+  intervals are only UNSECURED ones, so that bar is far harder to reach than
+  when it was set (Caleb: 30% right within 2 beats that week). From then on every plain
+  interval slot (after gestures; discrimination and compound asks stay) is a
   round: kind `round`, SIX calls, each call SOUNDING ON THE BEAT ITS PREVIOUS
   ANSWER IS DUE (`successorNote`, picked in `roundCall` from the note asked
   for, scheduled by beginQuestion, flushed if the lookahead missed it). The
@@ -921,7 +935,7 @@ comes up.
   target a beat later -- never at b -1, that note would already be in the
   past), the stage's pool replaces the ladder, questions stay inside
   `stage.window()` (the anchor is clamped where it is set, completeQuestion),
-  timeout is longer, no passages, gestures, wide asks, dyads/chords or
+  timeout is longer, no passages, gestures, compounds, dyads/chords or
   rounds. Question flag `optionalAnchor` (interval kinds) is what lets a
   wrong first note count as a wrong target; the echo ask-back has no free
   note at all (its first note is framed from the playback's last note and
@@ -942,9 +956,12 @@ comes up.
   follows ends it in the usual way if the player really has left. DO NOT put
   a level gate on this -- William understood the game perfectly well; the
   only thing wrong was the session dying under him.
-  COMPOUND ASKS: `engine.lastWide` marks a target an octave wider than the
-  asked simple interval (label "+8ve"); pitch class right but octave wrong
-  = `height_err`, credited to the interval, debited to `engine.state.height`.
+  COMPOUND ASKS (2026-10-23): a compound is ITS OWN SKILL on the compound
+  ladder (engine.js), asked from the hard pool as a plain 'interval' (never a
+  gesture or a round's first call; label "+14, compound"). **An answer an
+  octave off is WRONG** -- `height_err` is still recorded, credits nothing.
+  The octave-wider coin flip, `q.wide` and `reportHeight` are gone and
+  `state.height` is no longer read or written (the dyad slot keeps its own wide ask).
   BURSTS ARE ONE SITTING: kv `carry` (endedAt, block key + number, warm-up
   count, retry and variants as id/shift/key re-placed from the bank and
   dropped if they no longer fit, remediation, asked ids)
@@ -952,9 +969,9 @@ comes up.
   itself is NOT carried, only its number: a resumed sitting opens a fresh
   block on the note the player has just sat down on, because the prime is a
   call and a call starts under the hand. The streak resets per burst.
-  PASSAGE LENGTH is a controller (kv `passageLen`, +1 after 2 clean
-  first-askings, -1 after 3 failures, bounded by LEN.min and the tier
-  ceiling). TEMPO IS NOT A CONTROLLER and must never become one.
+  PASSAGE LENGTH is a controller (kv `passageLen`: per kind `notes`, plus the
+  overall window -- see above), bounded by LEN.min and the tier ceiling.
+  TEMPO IS NOT A CONTROLLER and must never become one.
   GRADING IS BY ONSET GROUP (`buildGroups`): notes with the same offset form
   a group; a key press matches any pending note of the current group by
   pitch, a wrong note consumes the nearest pending graded note, and a press
@@ -1098,9 +1115,39 @@ comes up.
   99% seconds kept full weight, and the failing m3 got ~24% of dyads, never
   enough to learn it or to lift the ladder past 85% to the M3; now ~60%). Any scope other than `interval`
   is cells only: `passage`, `round`, and the dyad rungs `departure` and
-  `twohand`. TIER_WIDTHS is
-  SIMPLE INTERVALS ONLY (12 tiers; `simpleOf()` folds compounds; a loaded
-  state with more tiers is clamped). IT IS ORDERED BY HOW HARD THE INTERVAL
+  `twohand`.
+  **THE LADDERS RATCHET (2026-10-23, both engines, `adjustTiers`).**
+  `tiersUnlocked` NEVER DECREASES, and the overall EWMA no longer moves it
+  (kept as a reading): the next tier opens when the FRONTIER
+  (`TIER_WIDTHS[tiers-1]`) IS SECURE -- `isSecure`: n >= 3, acc >= 0.9 AND
+  `reflex` >= 0.8, where `reflex` is a per-interval EWMA (alpha 0.3) of right
+  AND started within 2 beats (`reportResolved(rt, { quick })`, drill.js passes
+  `behind <= WIDE.reflexBeats`; a round answer is quick when right and on its
+  pinned beat). `rt` is onset error, NOT latency, and cannot stand in. Signed
+  above DIATONIC_TIERS: both directions secure; unsigned/entry: either.
+  Cooldown 8 stays. `isMastered`/`masteredCount` (the dyad gate, simple
+  intervals only) are unchanged in meaning. Openings are LOGGED
+  ("interval opened: ±6 (tier 12 of 12)", "compound interval opened: ...",
+  "harmonic interval opened: ..."). The reflex field was SEEDED once per
+  profile from history (`seedReflex`, runOnce `reflex-seed-2026-10-23`): plain
+  intervals/remediation/discrimination, and plain dyads the harmonic engine
+  scored; acc/n untouched. Caleb seeded: ONE secure melodic interval (+1) --
+  only 30% of his plain answers that week were right within 2 beats.
+  **ALL SINGLE INTERVALS HARD** (`nextTargetIndex({ hard })`, the plain slot
+  only): the pool is open simple + open compound intervals that are NOT
+  secure; weights, centerPull, key lean and `only` apply inside it. Nothing
+  unsecured fitting falls back to the whole open pool (logged "(... asking
+  from the whole open ladder)"). Not hard: the round (its first call and
+  successors), stage pools below exact, the focus pair, remediation, primes.
+  **THE COMPOUND LADDER** (melodic only; `COMPOUND_WIDTHS` = TIER_WIDTHS + 12
+  = `[14, 13, 15, 16, 17, 19, 24, 21, 20, 22, 23, 18]`, `state.compoundTiers`):
+  signed skills 13..24 with their own stats, never credited to the simple
+  interval, never moving the simple ladder. The first opens with the octave
+  (tiers >= 7; a profile already there started at 1); each next one when the
+  newest is secure both ways AND its simple counterpart is open. Never
+  closes. Passage scoring still folds compounds (`scoreInterval`).
+  TIER_WIDTHS is the SIMPLE ladder (12 tiers; a loaded state with more tiers
+  is clamped). IT IS ORDERED BY HOW HARD THE INTERVAL
   IS TO PLAY, NOT TO NAME (2026-09-14): `[2, 1, 3, 4, 5, 7, 12, 9, 8, 10, 11, 6]`
   -- steps, thirds, fourth/fifth, octave, sixths, sevenths, tritone. It used
   to open octave-then-fifth (the ear-training-class order, which is an
@@ -1151,7 +1198,8 @@ comes up.
   after 535 (41 counted); the violinist had 59 of 667 answers count. Three
   fixes, all ONLY below DIATONIC_TIERS: the key-block PRIME counts as an
   isolated probe (`primeProbe` in gradeNote -- in-key there, the same ask as
-  a plain question); the frontier needs 3 trials in EITHER direction, not 3
+  a plain question); the frontier needs 3 trials in EITHER direction (since
+  2026-10-23: EITHER direction SECURE), not 3
   each (in C the half step exists only at E-F and B-C); passages are picked
   `openOnly` (a locked interval is a FILTER, not LOCKED_PENALTY -- the
   guitarist got an octave four minutes in). Evidence scopes: interval questions
@@ -1171,12 +1219,12 @@ comes up.
   near-misses count half and only for |asked| >= 3 (a wrong step in a phrase
   is the key's degree, not the interval's category: the first real session's
   focus was -1 vs -2, harvested from gesture tails, while P4/P5 got none).
-  `nextTargetIndex(a, prev, {allowWide, pool, bounds, extraTiers, lean,
+  `nextTargetIndex(a, prev, {hard, allowWide, wideRate, pool, bounds, extraTiers, lean,
   scope})`: pool = a stage's signed list instead of the ladder; bounds = an
   index window; extraTiers = the round's escalation; lean = per-target
-  weight (diatonic); allowWide = may return the simple interval an octave
-  wider (`lastWide`, `reportHeight()` -> `state.height`), only for secure
-  intervals <= WIDE_MAX_SIMPLE. `masteredCount()` gates dyads.
+  weight (diatonic); hard = the plain slot's unsecured pool (above);
+  allowWide + wideRate = the DYAD slot's octave-wider span (`lastWide`), only
+  for secure spans <= wideMax. `masteredCount()` gates dyads.
   `inwardVariant()` keeps remediation from walking the anchor to an edge.
   rt is NORMALIZED onset error (ms at 60 bpm), `fluentMs` 120.
   `scoreInterval()` is the read-only scorer for phrases.
@@ -1377,7 +1425,7 @@ comes up.
   predicted accuracies, and the previous sonority so a resolution reads as
   one; synced like the other event tables). kv: `engine`, `engine:harmonic`
   (restarted 09-20, the old state in `kv_archive`), `dyadRung`, `wideDyads`, `poly`,
-  `passageLen`, `phraseStats`, `polyStats`, `ranges` (read-only since 10-17), `carry`, `stage`,
+  `passageLen` (per-kind `notes`/`changedAt`, the overall window `recent` + `graded`, 10-23), `phraseStats`, `polyStats`, `ranges` (read-only since 10-17), `carry`, `stage`,
   `rounds`, `canon`, `migrations` (what `Db.runOnce` has already done). `backfillPassages()` builds `passages`
   from `attempts` once when the table is empty (main.js calls it at startup)
   so history exists from day one; attempts carry no voice, so backfilled
