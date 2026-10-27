@@ -422,6 +422,38 @@ export class Db {
     }));
   }
 
+  /**
+   * The chord ladder's windows from history, oldest first (drill.js
+   * CHORD_LADDER, seeded once 2026-10-27). Each entry is 1 when the answer
+   * was fully right AND started within `reflexBeats`, else 0:
+   *   spans   per simple span 1..12, the last `spanLimit` plain dyads of that
+   *           span (sonorities kind 'dyad'), right = both notes (lo_ok AND
+   *           hi_ok); `behind` from the question's attempts rows (a sonority
+   *           row does not carry it)
+   *   triad   the last `limit` chord questions with 2 graded tones, right = every one
+   *   seventh the last `limit` with 3 graded tones, the same
+   */
+  chordLadderHistory(reflexBeats, limit, spanLimit) {
+    const quick = (b) => b !== null && b <= reflexBeats;
+    const spans = {};
+    for (let w = 1; w <= 12; w += 1) spans[w] = [];
+    const dyads = this.db.prepare(`
+      SELECT s.span_expected span, s.lo_ok, s.hi_ok,
+             (SELECT MAX(a.behind) FROM attempts a WHERE a.session_id = s.session_id AND a.question = s.question) behind
+      FROM sonorities s
+      WHERE s.kind = 'dyad' AND s.span_expected BETWEEN 1 AND 12
+      ORDER BY s.ts, s.id`).all();
+    for (const r of dyads) spans[r.span].push(r.lo_ok && r.hi_ok && quick(r.behind) ? 1 : 0);
+    for (let w = 1; w <= 12; w += 1) spans[w] = spans[w].slice(-spanLimit);
+    const chords = this.db.prepare(`
+      SELECT COUNT(*) g, SUM(correct) c, MAX(behind) behind, MIN(ts) ts, MIN(id) id FROM attempts
+      WHERE kind = 'chord' AND graded = 1
+      GROUP BY session_id, question
+      ORDER BY ts, id`).all();
+    const of = (g) => chords.filter((r) => r.g === g).slice(-limit).map((r) => (r.c === r.g && quick(r.behind) ? 1 : 0));
+    return { spans, triad: of(2), seventh: of(3) };
+  }
+
   /** The last graded first attempts of every kind, newest first: the passage-length window (drill.js LEN). */
   recentGraded(limit = 60) {
     return this.db.prepare('SELECT correct FROM attempts WHERE graded = 1 AND first_attempt = 1 ORDER BY ts DESC, id DESC LIMIT ?').all(limit);

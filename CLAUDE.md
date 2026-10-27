@@ -262,6 +262,17 @@ is now asked an octave wider 1/3 of the time, up to two octaves (engine
 trials; superseded. Caleb's double place-hand misses on 09-24 were all
 EXACTLY a fifth below his wrong note ("I was calculating instead of
 listening") -- watch for that signature.
+**ONLY AN OPEN SIZE (2026-10-27, `WIDE_LADDER`, kv `wideDyads.open`).** The
+wide ask draws from the OPEN compound sizes that fit from the anchor (engine
+`wideSizes`; none fits = the simple span), in the melodic compound order,
+unsigned (`COMPOUND_WIDTHS` 14, 13, 15, ...). Every profile starts with both
+ninths open (`start` 2, Caleb's choice); the next opens when the NEWEST open
+size's own WIDE record is secure (n >= 3, acc >= 0.9, reflex >= 0.8) --
+newest only, as on the melodic ladders (15 waits on 13, not on the M9).
+RATCHETS, never closes; logged "wide two-note chord opened: 15 (3 of 12)".
+Placings feed the same records, so they can open a size too. Why: the old
+gate (simple span acc >= 0.8) admitted every size 13..24 -- since 10-24
+21:56 wide dyads 4 of 50 both right (all four m9), spans 14-24 0 of 42.
 
 A WIDE SPAN IS ITS OWN SKILL, AND THE SKILL IS A REFLEX (`WIDE`, kv
 `wideDyads`). NOT credited to the simple span or the harmonic engine
@@ -297,7 +308,11 @@ cannot feed itself); to the harmonic engine at ISOLATED scope from the
 slot's own dyads only (retry, transfer, placing and exposure: passage scope).
 The harmonic engine's old state is ARCHIVED to `kv_archive` once per profile
 (`Db.runOnce`, kv `migrations`): it measured the wrong thing. It restarts at
-three tiers, so the chord gate (>= 2) stays open.
+three tiers (the chord gate it fed was replaced 2026-10-27: CHORD LADDER).
+**THE HARMONIC ENGINE'S ACC IS NOT A MASTERY MEASURE FOR DYADS** under this
+rule: a dyad miss lands on the melodic ear, so every harmonic size reads acc
+1.00 (n 13-24 on C3-G3-E4-B4) and its 12 tiers never close. Gates that need
+dyad mastery (the chord ladder, the wide ladder) read the dyads themselves.
 
 THE PLACING is rung 1 by shape and stays what it was: passage-scope
 evidence, off the rung controller (the corpus picks its widths, 23% sixths).
@@ -1050,8 +1065,8 @@ comes up.
   harmonic pair-focus exposure.
   DYADS ARE DEPARTURES (2026-09-20, the section above): the anchor is no
   longer a named free bass. Every 9th
-  plain slot is a `chord` from CHORD_SHAPES once harmonic tiers >= 2 (dom7
-  at >= 5); each chord tone is framed for the harmonic engine as it is
+  plain slot is a `chord` from CHORD_SHAPES as far as the CHORD LADDER has
+  opened (below; a dyad otherwise); each chord tone is framed for the harmonic engine as it is
   graded (`q.chord`), never pre-asked; the free anchor is the chord's bass
   BELOW the middle of the keyboard and its TOP above it (2026-10-17: bass-only
   chords moved the hand up 6.7 semitones each, 41 of 44, and walked a
@@ -1070,8 +1085,30 @@ comes up.
   which is something I haven't done much of." Opening the chords is also the
   sixths bias, delivered structurally -- half the CHORD_SHAPES triads carry
   a sixth -- so do NOT also weight the harmonic pool toward sixths without
-  re-reading the data first, or they are counted twice. KEYED PASSAGES grade the pivot too
-  (it is not the note under the hand): buildGroups frames it from the
+  re-reading the data first, or they are counted twice.
+  **THE CHORD LADDER (2026-10-27, `CHORD_LADDER`, `openChordShapes`, kv
+  `chordLadder`) SUPERSEDES THAT GATE.** Caleb: "dyads are mastered before
+  triads and triads are mastered before seven chords"; no triads at all until
+  the dyads are mastered. PER INTERVAL: each simple span 1..12 keeps its last
+  6 plain dyads (kind 'dyad'; entry = both notes right AND started within 2
+  beats); MASTERED = >= 5 entries at >= 80%. A shape is OPEN when every pair
+  of its notes is a mastered span ([4,7] -> 3,4,7; [3,8] -> 3,5,8; [4,9] ->
+  4,5,9; [4,7,10] -> 3,4,6,7,10), so triads open one by one and a shape closes
+  the moment a span drops out. The seventh also needs the triads to have
+  EARNED it (last 12 triads full and >= 80%). No open shape = the slot serves a
+  dyad. CHORDS CAN BE TAKEN AWAY (only interval ladders ratchet): sevenths
+  under 65% (>= 6 since earned) -> unearned; triads under 65% (>= 6 served
+  since a triad last opened) -> every span must be mastered again on dyads
+  played after the close. Windows read only entries since their last reset;
+  seeded chords set where he starts, never what closes it. Logged per shape
+  ("chords: major triad opened (dyads 3, 4, 7 mastered)"). Seeded once
+  (runOnce `chord-ladder-seed-2026-10-27`); Caleb's 10-27 copy: only spans 1,
+  2, 6 mastered, no shape open. Why: harmonic tiers were always open (above);
+  since his switch to reflex answers (10-24 21:56) sevenths 1 of 12 fully
+  right (14/22 before, slowly), triads 8 of 42 (44/95), and dyads by span
+  1: 6/6, 2: 4/4, 3: 3/8, 4: 4/7, 5: 2/8, 6: 5/5, 7: 2/4, 8: 2/4, 9: 3/6, 10:
+  3/5, 11: 2/7, 12: 4/6 -- his best sizes are the ones triads do not use.
+  KEYED PASSAGES grade the pivot too (it is not the note under the hand): buildGroups frames it from the
   anchor: the duo's BASS first note (its pivot voice starts on the anchor
   and is free). A KEYED PASSAGE STILL STARTS ON THE NOTE UNDER YOUR HAND --
   `PhraseBank.pick` with a key REQUIRES the pivot to land on the anchor and
@@ -1237,7 +1274,8 @@ comes up.
   index window; extraTiers = the round's escalation; lean = per-target
   weight (diatonic); hard = the plain slot's unsecured pool (above);
   allowWide + wideRate = the DYAD slot's octave-wider span (`lastWide`), only
-  for secure spans <= wideMax. `masteredCount()` gates dyads.
+  for secure spans <= wideMax, and only a size in `wideSizes` (the open WIDE
+  ladder, 2026-10-27). `masteredCount()` gates dyads.
   `inwardVariant()` keeps remediation from walking the anchor to an edge.
   rt is NORMALIZED onset error (ms at 60 bpm), `fluentMs` 120.
   `scoreInterval()` is the read-only scorer for phrases.
@@ -1437,7 +1475,7 @@ comes up.
   span_expected/played, harmonic_ok, which ear was `charged`, both engines'
   predicted accuracies, and the previous sonority so a resolution reads as
   one; synced like the other event tables). kv: `engine`, `engine:harmonic`
-  (restarted 09-20, the old state in `kv_archive`), `dyadRung`, `wideDyads`, `poly`,
+  (restarted 09-20, the old state in `kv_archive`), `dyadRung`, `wideDyads` (+ `open`, the wide ladder, 10-27), `chordLadder` (per-span dyad windows, triad/seventh windows, `since`, `sevenths`, `open`; 10-27), `poly`,
   `passageLen` (per-kind `notes`/`changedAt`, the overall window `recent` + `graded`, 10-23), `phraseStats`, `polyStats`, `ranges` (read-only since 10-17), `carry`, `stage`,
   `rounds`, `canon`, `migrations` (what `Db.runOnce` has already done). `backfillPassages()` builds `passages`
   from `attempts` once when the table is empty (main.js calls it at startup)

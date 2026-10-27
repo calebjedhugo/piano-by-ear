@@ -489,8 +489,9 @@ export class AdaptiveEngine {
    * @param {string} [opts.scope]      evidence scope for the ask ('interval' | 'round')
    * @param {number} [opts.wideMax]    widest simple interval that may be asked wide
    * @param {number} [opts.wideRate]   how often a secure one is asked wide (0 = never)
+   * @param {number[]|null} [opts.wideSizes]  the compound sizes the wide ask may produce (null = the drawn span + 12)
    */
-  nextTargetIndex(anchorIndex, prevIndex = this.prevAnchorIndex, { hard = false, allowWide = false, pool: poolOverride = null, bounds = null, extraTiers = 0, lean = null, only = null, scope = 'interval', wideMax = WIDE_MAX_SIMPLE, wideRate = 0 } = {}) {
+  nextTargetIndex(anchorIndex, prevIndex = this.prevAnchorIndex, { hard = false, allowWide = false, pool: poolOverride = null, bounds = null, extraTiers = 0, lean = null, only = null, scope = 'interval', wideMax = WIDE_MAX_SIMPLE, wideRate = 0, wideSizes = null } = {}) {
     this.servedQueue = false;
     this.lastWide = false;
     this.lastFallback = null;
@@ -588,13 +589,29 @@ export class AdaptiveEngine {
     // wide ask (drill.js DYAD_WIDE_RATE; the span is judged there as a WIDE
     // record). The melodic plain slot stopped doing this on 2026-10-23: its
     // compounds are skills of their own now (COMPOUND_WIDTHS).
-    if (allowWide && wideRate > 0 && this.state.tiersUnlocked >= WIDE_MIN_TIERS && Math.abs(interval) <= wideMax) {
-      const wide = interval + (interval < 0 ? -12 : 12);
-      const s = this.peekStats(interval);
-      if (s.n >= 3 && s.acc >= 0.8 && this.feasible(anchorIndex, wide) && inBounds(anchorIndex + wide) && Math.random() < wideRate) {
+    // ONLY AN OPEN WIDE SIZE (2026-10-27, drill.js WIDE_LADDER): `wideSizes`
+    // is the dyad slot's open compound sizes (unsigned, 13..24). The coin is
+    // tossed first and the size drawn from the open ones that fit from this
+    // anchor, so the wide share stays wideRate whatever simple span was just
+    // drawn; none fitting = no wide ask, the simple span is served. Until
+    // 2026-10-27 the wide size was the drawn span + 12, gated only on that
+    // span's harmonic acc >= 0.8 -- which reads 1.00 for every size under the
+    // one-ear rule, so every compound 13..24 was served: Caleb 4 of 50 wide
+    // dyads both-notes-right since 10-24 21:56, spans 14-24 0 of 42.
+    // `wideSizes` null keeps the old behaviour (the drawn span, an octave up).
+    if (allowWide && wideRate > 0 && this.state.tiersUnlocked >= WIDE_MIN_TIERS && Math.random() < wideRate) {
+      const dir = interval < 0 ? -1 : 1;
+      const fits = (wideSizes ?? [Math.abs(interval) + 12]).filter((size) => {
+        const simple = size - 12;
+        if (simple < 1 || simple > wideMax) return false;
+        const s = this.peekStats(dir * simple);
+        return s.n >= 3 && s.acc >= 0.8 && this.feasible(anchorIndex, dir * size) && inBounds(anchorIndex + dir * size);
+      });
+      if (fits.length > 0) {
+        const size = fits[Math.floor(Math.random() * fits.length)];
         this.lastWide = true;
-        this.ask(interval, anchorIndex, prevIndex, { scope });
-        return anchorIndex + wide;
+        this.ask(dir * (size - 12), anchorIndex, prevIndex, { scope });
+        return anchorIndex + dir * size;
       }
     }
     return this.ask(interval, anchorIndex, prevIndex, { scope });

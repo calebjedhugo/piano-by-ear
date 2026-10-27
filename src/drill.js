@@ -72,7 +72,8 @@
 //   dyad/chord: (polyphony level >= 1) the anchor as a fixed bass with one or
 //              more notes above it, all together; each voice scored on its own.
 //              The top voice is heard for free (Fujioka 2005); the inner ones
-//              are the target.
+//              are the target. Chords only as far as CHORD_LADDER has opened
+//              them (2026-10-27: none, triads, then seventh chords).
 //   passage:   a real phrase in the block key, in its own meter with its
 //              pickup ('mono' one voice; 'duo', 'trio', 'chorale', 'poly' more).
 //   window:    after EVERY passage the pulse DROPS for two seconds (or two
@@ -150,7 +151,7 @@
 // piano under your keys (the controller has no sound of its own). See the
 // rule at the top: nothing else sounds, ever.
 
-import { DIATONIC_TIERS, TIER_WIDTHS, WARMUP_QUESTIONS, simpleOf } from './engine.js';
+import { COMPOUND_WIDTHS, DIATONIC_TIERS, TIER_WIDTHS, WARMUP_QUESTIONS, simpleOf } from './engine.js';
 import { MAX_CALL_S, callSeconds, capHolds, floorFromHistory, passageTempo, remeterNotes, remeterPlan, toleranceMsFor } from './tempo.js';
 import { summarizeRungs, describeRungs, rungScore } from './rungs.js';
 import { BLOCK_QUESTIONS, NAMES, chooseKey, chordFor, keyName, nearestPc, primeSet, diatonicIn, diatonicStep, modeSwap } from './keyblock.js';
@@ -421,6 +422,7 @@ const POLY = {
   melodicTiersForDyads: 6, // melodic tiers unlocked before dyads begin (through the M6)
   masteredForDyads: 6, // ...and this many intervals mastered: dyads wait for interval confidence, not passages
   harmonicTiersForChorale: 4, // harmonic tiers unlocked before anything past two voices (trio, then chorale)
+  // HISTORY (the chord gate until 2026-10-27; CHORD_LADDER replaces it).
   // Harmonic tiers before three-note chords join the dyads. TWO, not three:
   // the tier ladder was tuned on the melodic engine, which has 30x the data,
   // and a rung of it means very little at n=81. More to the point, TWO NOTES
@@ -431,13 +433,65 @@ const POLY = {
   // meaning (McLachlan 2013: hearing out chord tones tracks familiarity with
   // the TYPE). Caleb, 2026-09-12, on why decades of naming bare sixths never
   // took: "I need to hear and play them in a chord to learn them."
-  harmonicTiersForChords: 2,
+  // That gate (`harmonicTiersForChords: 2`, sevenths at tiers >= 5) never
+  // closed: see CHORD_LADDER for why, and for what reads the chords now.
   dyadEvery: 3, // at level >= 1, every third plain question is a dyad (or a chord)
   historyMax: 200,
 };
 // A small, repeated set of chord shapes above a fixed bass (McLachlan 2013:
 // hearing out chord tones tracks familiarity with the TYPE).
 const CHORD_SHAPES = [[4, 7], [3, 7], [3, 8], [4, 9], [4, 7, 10]];
+// THE CHORD LADDER: A SHAPE OPENS WHEN EVERY INTERVAL INSIDE IT IS MASTERED
+// AS A DYAD (2026-10-27, `openChordShapes`, kv `chordLadder`). Caleb: "dyads
+// are mastered before triads and triads are mastered before seven chords",
+// and triads should not be on at all until the dyads are mastered.
+// PER INTERVAL. Every simple span 1..12 has its own window of the last
+// `spanWindow` plain dyads of that span (kind 'dyad', within an octave), entry
+// 1 when both notes were right AND the answer started within
+// WIDE.reflexBeats. A span is MASTERED with >= `spanMin` entries at >= `open`.
+// A shape is OPEN when every pair of its notes is a mastered span: [4,7] ->
+// 4, 7, 3; [3,7] -> 3, 7, 4; [3,8] -> 3, 8, 5; [4,9] -> 4, 9, 5; [4,7,10] ->
+// 4, 7, 10, 3, 6, 3 -- so triads open one by one, and a shape stops being
+// served the moment one of its spans falls out of mastery. THE SEVENTH CHORD
+// also needs the triads to have earned it (`sevenths`): the triad window (b),
+// the last `window` triads, full and >= `open`. Order: dyads -> triads ->
+// sevenths. No open shape -> the chord slot serves a dyad (the dyadSlot
+// fallback it always had). Slot cadence (every POLY.dyadEvery * 3 plain
+// question) and build direction unchanged.
+// CHORDS CAN BE TAKEN AWAY (only interval ladders ratchet: "everything else
+// can be taken away"): (c) the seventh window under `close` with >= `minClose`
+// entries since sevenths were earned -> sevenths closed (and re-earning needs
+// 12 fresh triads); (b) the triad window under `close` with >= `minClose`
+// entries since the triads last closed -> TRIADS CLOSED: every span must be
+// mastered again on dyads played after the close (`spanSince` reset), so
+// they cannot reopen on the very answers that preceded the failure. Every
+// window is read only on entries since its last reset (`since`); every
+// change is logged, per shape ("chords: major triad opened (dyads 3, 4, 7
+// mastered)").
+// WHY. The chords were gated on HARMONIC TIERS (>= 2, sevenths >= 5), and the
+// one-ear charging rule (judgeSonority) puts a dyad miss on the MELODIC ear,
+// so the harmonic engine has never recorded a miss: every harmonic size reads
+// acc 1.00 (n 13-24), and since the 10-23 ratchet its 12 tiers never close.
+// THE HARMONIC ENGINE'S ACC IS NOT A MASTERY MEASURE FOR DYADS under the
+// one-ear rule, so both gates were always open. Since he switched to
+// answering by reflex (2026-10-24 21:56; every single-interval answer now
+// starts within 2 beats), C3-G3-E4-B4: seventh chords 1 of 12 fully right
+// (14/22 before, slowly), triads 8 of 42 (44/95 before), dyads within an
+// octave 40 of 70 right (54.3% right AND quick). By span, both notes right:
+// 1: 6/6, 2: 4/4, 3: 3/8, 4: 4/7, 5: 2/8, 6: 5/5, 7: 2/4, 8: 2/4, 9: 3/6,
+// 10: 3/5, 11: 2/7, 12: 4/6 -- THE SIZES HE IS BEST AT ARE THE ONES TRIADS DO
+// NOT USE, which a single pooled dyad window (this rule's first draft) hid.
+// Seeded once from history (runOnce 'chord-ladder-seed-2026-10-27'); on his
+// 10-27 copy no shape is open.
+const CHORD_LADDER = { window: 12, spanWindow: 6, spanMin: 5, open: 0.8, close: 0.65, minClose: 6 };
+const CHORD_NAMES = { '4,7': 'major triad', '3,7': 'minor triad', '3,8': 'major triad, first inversion', '4,9': 'minor triad, first inversion', '4,7,10': 'dominant seventh' };
+/** Every pair of a shape's notes (bass 0 + the shape), as simple sizes, distinct, ascending. */
+const shapeSpans = (shape) => {
+  const notes = [0, ...shape];
+  const out = new Set();
+  for (let i = 0; i < notes.length; i += 1) for (let j = i + 1; j < notes.length; j += 1) out.add(simpleOf(notes[j] - notes[i]));
+  return [...out].sort((x, y) => x - y);
+};
 // Passage TEXTURE only: the dyads left this ladder on 2026-09-12 (dyadsOpen).
 const LEVEL_NAMES = ['melody only', 'two voices', 'three voices', 'four-part chorales', 'both hands'];
 // THE DYAD RUNGS (Caleb, 2026-09-20; see dyadSlot). A dyad is a DEPARTURE from
@@ -468,6 +522,7 @@ const DYAD_RUNG = { high: 0.85, low: 0.65, cooldown: 8, alpha: 0.15, lowerShare:
 // simple span like every dyad (judgeSonority folds it); an octave-only miss
 // is harmonicOk and charged to the departure, as it already was. The 09-20
 // note "wide cold dyads were 9/9" was nine trials; 337 placings supersede it.
+// Since 2026-10-27 only an OPEN compound size is asked (WIDE_LADDER).
 const DYAD_WIDE_RATE = 1 / 3;
 // A WIDE SPAN IS ITS OWN SKILL, AND THE SKILL IS A REFLEX (2026-09-24).
 // Interval class is not a first-order percept (Deutsch: octave-scrambled
@@ -487,6 +542,25 @@ const DYAD_WIDE_RATE = 1 / 3;
 //   (7% on 09-24) and placing accuracy (64%) should rise, duo per-note
 //   accuracy should not fall. If they do not move, the theory is wrong.
 const WIDE = { alpha: 0.15, reflexBeats: 2, window: 12, entry: 0.65, floor: 0.15 };
+// THE WIDE DYAD LADDER (2026-10-27, `wideOpenSizes`, kv `wideDyads.open`). The
+// dyad slot's wide ask may only produce a compound size that is OPEN, in the
+// melodic compound order, unsigned (COMPOUND_WIDTHS: 14, 13, 15, 16, 17, 19,
+// 24, 21, 20, 22, 23, 18). WHY: the wide ask required only the simple span's
+// harmonic acc >= 0.8, which reads 1.00 for every size (see CHORD_LADDER), so
+// every size 13..24 was served: C3-G3-E4-B4 since 10-24 21:56, wide dyads 4 of
+// 50 both notes right -- all four minor ninths; spans 14-24 0 of 42. Caleb:
+// "ninths, tenths, and elevenths are mastered before twelfths."
+// It RATCHETS (it is intervals): `start` 2 = both ninths open, for every
+// profile (his choice: minor ninths are the only wide dyads he gets, major
+// ninths 0 of 4, and in the melodic order M9 comes first). The next size opens
+// when the NEWEST open size's own WIDE record is secure -- n >= `n`, acc >=
+// `acc`, reflex >= `reflex` (the engines' isSecure numbers) -- and never
+// closes. ONLY THE NEWEST is read, as on the melodic ladders: with both ninths
+// open the third (15) waits on 13, not on the M9, which stays in the draw and
+// is asked as often as any open size. Placings feed the same per-size records
+// (noteWide), so a placing can open the next size too; placings, the duo
+// entry gate and placingLean read the records exactly as before.
+const WIDE_LADDER = { start: 2, n: 3, acc: 0.9, reflex: 0.8 };
 const WIDE_KINDS = new Set(['dyad', 'dyad discrimination', 'placing']);
 
 export class Drill {
@@ -524,6 +598,7 @@ export class Drill {
     this.canonStore = db.kv('canon'); // { unlockedAt, levels }: the round, once earned (ROUND)
     this.rungStore = db.kv('dyadRung'); // the dyad rung controller (DYAD_RUNG)
     this.wideStore = db.kv('wideDyads'); // wide spans as their own skills (WIDE)
+    this.chordStore = db.kv('chordLadder'); // which chord shapes are open (CHORD_LADDER)
     this.placingSpans = new Map(); // phrase id -> its placing span
     this.len = this.lenStore.load() || {};
     // The overall window (LEN) starts from the history already on record, so
@@ -765,6 +840,13 @@ export class Drill {
       const h = this.harmonic.seedReflex(this.db.plainDyadHistory(WIDE.reflexBeats));
       this.log(`  reflex records seeded from history: ${m.simple} plain intervals, ${m.compound} compound, ${h.simple} dyads`);
     });
+    // THE CHORD LADDER STARTS FROM HISTORY (2026-10-27, once per profile; CHORD_LADDER).
+    this.db.runOnce('chord-ladder-seed-2026-10-27', () => {
+      const st = this.seedChordLadder(this.db.chordLadderHistory(WIDE.reflexBeats, CHORD_LADDER.window, CHORD_LADDER.spanWindow));
+      const read = (w) => (w.length ? `${w.reduce((t, x) => t + x, 0)}/${w.length}` : '-');
+      const spans = Object.entries(st.spans).map(([w, xs]) => `${w}: ${read(xs)}${this.spanMastered(st, Number(w)) ? '*' : ''}`).join(', ');
+      this.log(`  chord ladder seeded from history (right and quick; * = mastered): dyads ${spans}; triads ${read(st.windows.triad)}, seventh chords ${read(st.windows.seventh)}${st.sevenths ? ' (earned)' : ''}; shapes open: ${st.open.length ? st.open.map((k) => CHORD_NAMES[k]).join(', ') : 'none'}; wide two-note chords open: ${this.wideOpenSizes().join(', ')}`);
+    });
     this.polyState = this.polyLevel();
     this.polyStore.save(this.polyState);
     this.polyMove = null; // a pending level-change line, flushed after the verdict
@@ -829,7 +911,7 @@ export class Drill {
     this.state = 'QUESTION';
     const level = this.polyState.level;
     const dyads = this.dyadsOpen();
-    this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms), tiers ${this.engine.state.tiersUnlocked}${this.engine.state.compoundTiers ? ` (+${this.engine.state.compoundTiers} compound)` : ''}${dyads ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, ${dyads ? 'dyads and chords, ' : ''}passages ${LEVEL_NAMES[level]}${this.polyState.short ? ' (held short)' : ''}, stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}`);
+    this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms), tiers ${this.engine.state.tiersUnlocked}${this.engine.state.compoundTiers ? ` (+${this.engine.state.compoundTiers} compound)` : ''}${dyads ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, ${dyads ? `dyads and ${this.openChordShapes().length || 'no'} chord shape${this.openChordShapes().length === 1 ? '' : 's'}, ` : ''}passages ${LEVEL_NAMES[level]}${this.polyState.short ? ' (held short)' : ''}, stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}`);
 
     // The anchor rings for a beat, then the grid starts on an accented downbeat.
     this.nextBarAt = this.audio.now + this.beat;
@@ -1354,9 +1436,16 @@ export class Drill {
     return st || { rung: 1, ewma: { 1: 0.75, 2: 0.75, 3: 0.75 }, n: { 1: 0, 2: 0, 3: 0 }, since: 0 };
   }
 
-  /** The wide-span record (WIDE): per size, accuracy and reflex; the recent reflex run. */
+  /** The wide-span record (WIDE): per size, accuracy and reflex; the recent reflex run; how many sizes are open (WIDE_LADDER). */
   wideState() {
-    return this.wideStore.load() || { sizes: {}, recent: [] };
+    const st = this.wideStore.load() || { sizes: {}, recent: [] };
+    if (!Number.isFinite(st.open)) st.open = WIDE_LADDER.start;
+    return st;
+  }
+
+  /** The compound sizes the dyad slot's wide ask may produce (WIDE_LADDER), in opening order. */
+  wideOpenSizes() {
+    return COMPOUND_WIDTHS.slice(0, this.wideState().open);
   }
 
   /** One cold wide sonority (dyad or placing): right, and right within reflexBeats. */
@@ -1368,7 +1457,132 @@ export class Drill {
     z.reflex = z.reflex * (1 - WIDE.alpha) + (reflex ? WIDE.alpha : 0);
     st.sizes[span] = z;
     st.recent = [...st.recent, reflex ? 1 : 0].slice(-WIDE.window);
+    // THE WIDE LADDER RATCHETS (WIDE_LADDER): the newest open size secure on
+    // its own record opens the next. One per answer; never closes.
+    if (st.open < COMPOUND_WIDTHS.length) {
+      const newest = st.sizes[COMPOUND_WIDTHS[st.open - 1]];
+      if (newest && newest.n >= WIDE_LADDER.n && newest.acc >= WIDE_LADDER.acc && newest.reflex >= WIDE_LADDER.reflex) {
+        st.open += 1;
+        this.log(`  wide two-note chord opened: ${COMPOUND_WIDTHS[st.open - 1]} (${st.open} of ${COMPOUND_WIDTHS.length})`);
+      }
+    }
     this.wideStore.save(st);
+  }
+
+  /** The chord ladder's state (CHORD_LADDER): per-span dyad windows, the triad and seventh windows, what each has seen since its last reset, sevenths earned, the shapes open at the last look. */
+  chordState() {
+    const st = this.chordStore.load() || {};
+    const spans = {};
+    const spanSince = {};
+    for (let w = 1; w <= 12; w += 1) { spans[w] = st.spans?.[w] ?? []; spanSince[w] = st.spanSince?.[w] ?? spans[w].length; }
+    return {
+      spans,
+      spanSince,
+      windows: { triad: [], seventh: [], ...(st.windows || {}) },
+      since: { triad: 0, seventh: 0, ...(st.since || {}) },
+      sevenths: Boolean(st.sevenths),
+      open: Array.isArray(st.open) ? st.open : [],
+      changedAt: st.changedAt ?? null,
+    };
+  }
+
+  /** The last `since` entries of a window (never slice(-0): that is the whole array). */
+  static fresh(xs, since) {
+    const k = Math.min(since, xs.length);
+    return k > 0 ? xs.slice(-k) : [];
+  }
+
+  /** Is this simple span mastered as a dyad (CHORD_LADDER)? */
+  spanMastered(st, w) {
+    const xs = Drill.fresh(st.spans[w], st.spanSince[w]);
+    return xs.length >= CHORD_LADDER.spanMin && xs.reduce((t, x) => t + x, 0) / xs.length >= CHORD_LADDER.open;
+  }
+
+  /** The CHORD_SHAPES that may be served now (CHORD_LADDER): every pair a mastered span; the seventh also earned by the triads. */
+  openChordShapes(st = this.chordState()) {
+    return CHORD_SHAPES.filter((shape) => (shape.length < 3 || st.sevenths) && shapeSpans(shape).every((w) => this.spanMastered(st, w)));
+  }
+
+  /**
+   * One answer into the chord ladder (CHORD_LADDER): `which` is 'dyad' (a
+   * plain dyad within an octave, `span` its size), 'triad' or 'seventh'; `ok`
+   * = fully right AND started within WIDE.reflexBeats. Then at most one
+   * window rule, and every shape that opened or closed is logged.
+   */
+  noteChordLadder(which, ok, span = null) {
+    const st = this.chordState();
+    if (which === 'dyad') {
+      st.spans[span] = [...st.spans[span], ok ? 1 : 0].slice(-CHORD_LADDER.spanWindow);
+      st.spanSince[span] += 1;
+    } else {
+      st.windows[which] = [...st.windows[which], ok ? 1 : 0].slice(-CHORD_LADDER.window);
+      st.since[which] += 1;
+    }
+    const fresh = (w) => Drill.fresh(st.windows[w], st.since[w]);
+    const mean = (xs) => xs.reduce((t, x) => t + x, 0) / xs.length;
+    const pct = (xs) => Math.round(100 * mean(xs));
+    const closes = (w) => { const xs = fresh(w); return xs.length >= CHORD_LADDER.minClose && mean(xs) < CHORD_LADDER.close; };
+    // Only what is open can close: the triad rule reads triads only while a
+    // triad is being served (and its window restarts when one opens, below).
+    const triadsOpen = (keys) => keys.some((k) => k.split(',').length === 2);
+    const triadsWereOpen = triadsOpen(st.open);
+    if (st.sevenths && closes('seventh')) {
+      this.log(`  chords: seventh chords closed (${pct(fresh('seventh'))}% over the last ${fresh('seventh').length})`);
+      st.sevenths = false;
+      st.since = { triad: 0, seventh: 0 }; // re-earning them takes a fresh window of triads
+      st.changedAt = Date.now();
+    } else if (triadsWereOpen && closes('triad')) {
+      this.log(`  chords: triads closed (${pct(fresh('triad'))}% over the last ${fresh('triad').length}) -- every two-note size to be mastered again`);
+      st.sevenths = false;
+      st.since = { triad: 0, seventh: 0 };
+      for (let w = 1; w <= 12; w += 1) st.spanSince[w] = 0;
+      st.changedAt = Date.now();
+    } else if (!st.sevenths && fresh('triad').length >= CHORD_LADDER.window && mean(fresh('triad')) >= CHORD_LADDER.open) {
+      this.log(`  chords: seventh chords earned (triads ${pct(fresh('triad'))}% right and quick over the last ${CHORD_LADDER.window})`);
+      st.sevenths = true;
+      st.since.seventh = 0;
+      st.changedAt = Date.now();
+    }
+    const now = this.openChordShapes(st).map(String);
+    // A FRESH LEVEL IS NOT JUDGED ON OLD ANSWERS: the first triad to open
+    // (again) restarts the triad window's count, so the 65% rule reads only
+    // triads served since.
+    if (!triadsWereOpen && triadsOpen(now)) st.since.triad = 0;
+    for (const shape of CHORD_SHAPES) {
+      const k = String(shape);
+      const spans = shapeSpans(shape);
+      if (now.includes(k) && !st.open.includes(k)) this.log(`  chords: ${CHORD_NAMES[k]} opened (dyads ${spans.join(', ')} mastered)`);
+      if (!now.includes(k) && st.open.includes(k)) {
+        const lost = spans.filter((w) => !this.spanMastered(st, w));
+        this.log(`  chords: ${CHORD_NAMES[k]} closed (${lost.length ? `dyad${lost.length > 1 ? 's' : ''} ${lost.join(', ')} no longer mastered` : 'seventh chords not earned'})`);
+      }
+    }
+    st.open = now;
+    this.chordStore.save(st);
+  }
+
+  /**
+   * THE CHORD LADDER STARTS FROM HISTORY (once per profile, 2026-10-27): the
+   * per-span dyad windows and the triad / seventh windows from the record,
+   * the dyad entries counted as "since" (nothing has been reset yet);
+   * sevenths earned when the seeded triad window is full and >= open. What is
+   * open then follows from the same rule as ever (openChordShapes); the triad
+   * and seventh counts then start from zero.
+   */
+  seedChordLadder(history) {
+    const st = this.chordState();
+    for (let w = 1; w <= 12; w += 1) { st.spans[w] = history.spans[w] ?? []; st.spanSince[w] = st.spans[w].length; }
+    st.windows = { triad: history.triad, seventh: history.seventh };
+    st.since = { triad: history.triad.length, seventh: history.seventh.length };
+    const t = history.triad;
+    st.sevenths = t.length >= CHORD_LADDER.window && t.reduce((a, x) => a + x, 0) / t.length >= CHORD_LADDER.open;
+    st.open = this.openChordShapes(st).map(String);
+    // The seeded chords decide only where he starts; what follows is judged
+    // on chords played from here (the triad and seventh rules count afresh).
+    st.since = { triad: 0, seventh: 0 };
+    st.changedAt = null;
+    this.chordStore.save(st);
+    return st;
   }
 
   /** C: may a player who has never reached duo start it? */
@@ -1470,7 +1684,8 @@ export class Drill {
     // The pool is simple spans, so the wider bound only admits the wide ask (DYAD_WIDE_RATE).
     const spanHi = Math.min(this.idx(this.hi), a + 24);
     if (a + 1 > spanHi) return null;
-    const span = this.harmonic.nextTargetIndex(a, null, { bounds: { lo: a + 1, hi: spanHi }, allowWide: true, wideMax: 12, wideRate: DYAD_WIDE_RATE }) - a;
+    // The wide ask may only produce an OPEN compound size (WIDE_LADDER).
+    const span = this.harmonic.nextTargetIndex(a, null, { bounds: { lo: a + 1, hi: spanHi }, allowWide: true, wideMax: 12, wideRate: DYAD_WIDE_RATE, wideSizes: this.wideOpenSizes() }) - a;
     if (span <= 0) return null;
     const kind = this.harmonic.servedQueue ? 'dyad discrimination' : 'dyad';
     return (rung === 2 ? this.departingDyad(kind, span) : null) ?? this.containingDyad(kind, span);
@@ -1554,7 +1769,8 @@ export class Drill {
    * keyboard, the other is tried.
    */
   chordQuestion() {
-    const open = this.harmonic.state.tiersUnlocked >= 5 ? CHORD_SHAPES : CHORD_SHAPES.filter((s) => s.length === 2);
+    // THE CHORD LADDER decides the shapes (CHORD_LADDER), not the harmonic tiers.
+    const open = this.openChordShapes();
     const a = this.anchor;
     const fitsUp = open.filter((s) => a + s[s.length - 1] <= this.hi);
     const fitsDown = open.filter((s) => a - s[s.length - 1] >= this.lo);
@@ -1567,7 +1783,7 @@ export class Drill {
     // at passage scope: a chord tone is heard in a chord, not probed alone.
     if (!down) {
       shape.forEach((iv, i) => notes.push({ midi: a + iv, b: 0, dur: 2, voice: i + 1 }));
-      return { kind: 'chord', dyad: true, chord: true, optionalAnchor: true, notes, meter: 4, label: `chord: ${name(a)} + ${shape.map((iv) => `+${iv}`).join(' ')} together` };
+      return { kind: 'chord', dyad: true, chord: true, chordTones: shape.length, optionalAnchor: true, notes, meter: 4, label: `chord: ${name(a)} + ${shape.map((iv) => `+${iv}`).join(' ')} together` };
     }
     // The held note is no longer the group's bass, so name it as its own
     // reference: its row stays "from the note he is on", as an upward chord's is.
@@ -1575,7 +1791,7 @@ export class Drill {
     const bass = a - shape[shape.length - 1];
     const below = [0, ...shape.slice(0, -1)].map((iv) => bass + iv - a); // below the held note, lowest first
     below.forEach((d, i) => notes.push({ midi: a + d, b: 0, dur: 2, voice: i + 1, harmonicRef: a }));
-    return { kind: 'chord', dyad: true, chord: true, optionalAnchor: true, notes, meter: 4, label: `chord: ${name(a)} + ${below.map((d) => signed(d)).join(' ')} together (${name(a)} on top)` };
+    return { kind: 'chord', dyad: true, chord: true, chordTones: shape.length, optionalAnchor: true, notes, meter: 4, label: `chord: ${name(a)} + ${below.map((d) => signed(d)).join(' ')} together (${name(a)} on top)` };
   }
 
   /**
@@ -2270,7 +2486,9 @@ export class Drill {
     }
     this.plainQuestions += 1;
     if (dyads && top && this.plainQuestions % POLY.dyadEvery === 0) {
-      if (this.harmonic.state.tiersUnlocked >= POLY.harmonicTiersForChords && this.plainQuestions % (POLY.dyadEvery * 3) === 0) {
+      // Chords only as far as the chord ladder has opened them (CHORD_LADDER);
+      // closed, this slot is a dyad like the others.
+      if (this.plainQuestions % (POLY.dyadEvery * 3) === 0 && this.openChordShapes().length > 0) {
         const q = this.chordQuestion();
         if (q) return q;
       }
@@ -3189,6 +3407,9 @@ export class Drill {
     // Wide dyads stay out of it: their difficulty is the span's, not the rung's.
     if (plain && !wide) for (const e of [lo, hi]) if (!e.unison) this.noteRungRetrieval(regime === 'twohand' ? 3 : q.contains ? 1 : 2, ok(e));
     if (wide && WIDE_KINDS.has(q.kind)) this.noteWide(spanExpected, ok(lo) && ok(hi), ok(lo) && ok(hi) && (this.behind ?? 99) <= WIDE.reflexBeats);
+    // The chord ladder's per-span windows (CHORD_LADDER): a plain dyad within
+    // an octave, both notes right and started within WIDE.reflexBeats.
+    if (q.kind === 'dyad' && !wide && spanExpected > 0) this.noteChordLadder('dyad', ok(lo) && ok(hi) && (this.behind ?? 99) <= WIDE.reflexBeats, spanExpected);
     const prev = this.prevSonority && (this.prevSonority.question === this.questions || (this.prevSonority.question === this.questions - 1 && q.dyad)) ? this.prevSonority : null;
     this.db.sonority({
       sessionId: this.sessionId, question: this.questions, kind: q.kind, regime, position: g.index,
@@ -3403,6 +3624,13 @@ export class Drill {
       // the ones you nailed. (Unless the session is ending here: WRAP.)
       if (!wrap) this.openWindow(q);
     } else if (q.kind === 'gesture' || q.dyad) {
+      // A chord into its window of the chord ladder (CHORD_LADDER): every
+      // graded tone right, and started within WIDE.reflexBeats.
+      if (q.kind === 'chord' && q.chordTones) {
+        const tones = this.groups.flatMap((g) => g.notes).filter((e) => e.graded);
+        const right = tones.length > 0 && tones.every((e) => e.played === e.midi);
+        this.noteChordLadder(q.chordTones === 3 ? 'seventh' : 'triad', right && (this.behind ?? 99) <= WIDE.reflexBeats);
+      }
       const timing = this.timing.notes && !this.timeClean ? ` (timing ${this.timing.inTime}/${this.timing.notes})` : '';
       if (timing) this.log(`  ${this.pitchClean ? 'right' : 'wrong'} notes${timing}`);
       // Rung 3 follows a clean departure with both hands still down.
