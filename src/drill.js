@@ -328,6 +328,19 @@ const QUIET_BEATS = { retry: 2, variant: 2 };
 // silence means you are done" then cuts an answer off in four tenths of a
 // second. Every wait measured in beats gets this floor in real time.
 const MIN_QUIET_S = 0.8;
+// ANSWER WITHIN FOUR BEATS OR THE SESSION ENDS (2026-10-27, Caleb's rule, to
+// keep answers reflexive rather than worked out). At the exact stage, a
+// question whose call has finished and whose answer has not STARTED within
+// this many of its own beats ends the session, exactly as the ten seconds of
+// silence always did: the drill cannot tell a blank from a player who has
+// walked away, so it neither records a miss nor asks into an empty room.
+// Since he switched to answering by reflex (10-24 21:56) he started within
+// 4 beats of the call's end on 1,580 of 1,581 questions. Exempt: the
+// judgment window (nothing is an answer there), the echo game's empty
+// collect, a wait that cannot end (a stuck key keeps the stage timeout), the
+// lower stages (beginners keep their long timeouts), and the lobby's wait for
+// an anchor after a chord (lobby.js keeps the stage timeout).
+const ANSWER_START_BEATS = 4;
 // A SESSION ENDS ON ITS OWN, ON A SUCCESS (2026-09-28). Everyone who tried it
 // asked for a clean way to stop; the only way out was ten seconds of silence
 // with the pulse still running, mid-question. Past `afterMs` the session ends
@@ -2938,6 +2951,12 @@ export class Drill {
     // Silence there is the same silence: nothing pressed for the timeout.
     if (!this.answered || this.nextQuestionAt === Infinity) {
       const idleSince = Math.max(this.lastInputAt, this.audioToPerf(this.callEndAt));
+      const unstarted = !this.answered && this.behind === null && this.stage.current === 'exact' && !this.q.window && !this.q.collect;
+      const startMs = ANSWER_START_BEATS * this.beat * 1000;
+      if (unstarted && startMs < this.stage.timeoutMs && performance.now() - idleSince > startMs) {
+        this.endSession(`no answer within ${ANSWER_START_BEATS} beats`);
+        return;
+      }
       if (performance.now() - idleSince > this.stage.timeoutMs) {
         // THE ECHO WINDOW IS THE ONE QUESTION WHERE THE DRILL HAS PLAYED
         // NOTHING, so silence there means "I have not thought of anything

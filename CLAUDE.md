@@ -113,6 +113,15 @@ correction or a placing), so a player who never gets a phrase clean is not
 held there. Same end clicks, same profile close: no cue. Silence still ends it
 sooner. `WRAP_S=after,grace` (seconds) on `scripts/sim.mjs` shortens it.
 
+**AT THE EXACT STAGE AN ANSWER MUST START WITHIN 4 BEATS** (2026-10-27,
+`ANSWER_START_BEATS`, Caleb's rule for reflexive answers): a call that has
+finished with no first note within 4 of its own beats ends the session, as
+the ten seconds did -- a blank and a player who walked away look the same, so
+no miss is recorded and nothing is asked into an empty room. Exempt: the
+judgment window, the echo game's empty collect, a stuck key, the lower stages,
+and the lobby's wait for an anchor. He started within 4 beats on 1,580 of
+1,581 questions since 10-24 21:56. Sim-checked: ends 4.02 beats after the call.
+
 A profile nobody has played for 30 days is SOFT DELETED: the db moves to
 `profiles/retired/` and the chord stops matching, so playing it starts a
 fresh profile. Restoring one is deliberate -- move the file back and clear
