@@ -164,14 +164,53 @@ const TICK_MS = 25;
 // fraction of the gap between them.
 const CALL_GAP_MIN_S = 0.03;
 const CALL_GAP_FRAC = 0.12;
-const STREAK_FOR_PASSAGE = 3;
-const CLEAN_NOTES_FOR_PASSAGE = 6; // clean graded notes (any kind) also earn a passage
+// PASSAGE SHARE FOLLOWS MASTERY (2026-10-27, `CADENCE`, `passageCadence`,
+// `elements`). A first-asked passage is due once N ELEMENT QUESTIONS have
+// been asked since the last one, N = clamp(round(4 - 3f), 1, 4), f = the
+// share of the 24 signed simple melodic intervals (+-1..+-12) the engine
+// calls SECURE (isSecure: right and quick on its own record), open or not.
+// Recomputed whenever it is read: mastery moves, so does the cadence.
+// IT REPLACES "streak >= 3 or 6 clean notes, < 3 in a row". A clean passage
+// is itself 6+ clean notes, so passages EARNED PASSAGES: the better the
+// lines went, the more lines he got, whatever the elements underneath were
+// doing. Profile C3-G3-E4-B4 since 2026-10-24 21:56 (answering by reflex):
+// session time passages 20.0%, key setup (primes) 15.6%, variants 10.7%,
+// retries 5.9% -- 36.6% on phrases and their follow-ups -- against single
+// intervals + remediation + rework 15.6% and dyads/chords/discrimination
+// ~18%. The September CONTEXT GAP has closed (2026-09-12: every interval
+// 20-37 points worse in a phrase than cold); in context vs cold now: steps
+// 84 vs 90, thirds 76 vs 76, 4th-5th 59 vs 65, 6th-octave 57 vs 43. So
+// passages stay, at a share that grows with mastery. Caleb: "Shouldn't we
+// be focusing on the elements before putting things in context?" and
+// earlier "at these beginner stages, the passages have diminishing returns
+// ... the corpus overtakes the drills once the rudiments are learned.
+// Amount should be dynamic." A beginner with only the steps secure still
+// gets N = 4; 6 of 24 secure (his 10-27 copy) is N = 3.
+// ELEMENT QUESTIONS are graded isolated asks of one interval or one
+// two/three-note sonority: 'interval', 'round' (each call: it IS the plain
+// interval slot once rounds are earned, graded like one), 'discrimination'
+// (a plain interval from the pair focus, scope 'interval' -- an element by
+// every measure), 'remediation', 'rework', 'dyad' (the two-hand rung too),
+// 'dyad discrimination', 'chord'. NOT 'gesture': the interval inside a line
+// in the key, scored at PASSAGE scope -- context in miniature, which is the
+// thing being rationed. Not exposure, primes, navigation (re-anchor, place
+// hand), placings, windows, corrections, recovery walks (and their 'dyad
+// retry'/'dyad transfer'), retries, variants or echoes.
+// The count restarts when a first asking is CHOSEN (so a passage dropped at
+// its placing still used the slot) and N >= 1, so two first askings are
+// never back to back; a passage's own retries, windows, corrections and
+// variants follow it exactly as before and count as neither. Carried across
+// bursts in kv `carry` (`elements`; an older carry has none: 0). Only the
+// earning rule changed: still `top` (the exact stage) and phrases loaded.
+// WATCH, declared in advance: re-measure the in-context vs cold gap after a
+// week; if it reopens, the floor (N = 4) is too low a passage share.
+const CADENCE = { most: 4, fewest: 1, intervals: 24 };
+const ELEMENT_KINDS = new Set(['interval', 'round', 'discrimination', 'remediation', 'rework', 'dyad', 'dyad discrimination', 'chord']);
 // The corrective loop (see retryVerdict): a failed passage comes straight back,
 // this many attempts in all, and rests this long once it proves too hard.
 const RETRY_MAX_TRIES = 3;
 const TOO_HARD_REST_MS = 2 * 24 * 60 * 60 * 1000;
 const REMEDIATE_MAX_PER_PASSAGE = 2;
-const MAX_PASSAGES_IN_A_ROW = 3; // interval questions are what move the tier ladder
 const DEBOUNCE_S = 0.06;
 const QUIET_BEATS_BEFORE_NEXT = 1; // the next call starts on the first click after this much silence
 // Note duration: a held note should last about its written value. Cutting
@@ -861,8 +900,10 @@ export class Drill {
     this.plainQuestions = 0;
     this.echoEmpty = 0; // windows in a row the player left silent
     this.passagesDone = 0;
-    this.streak = 0;
-    this.cleanNotes = 0;
+    this.streak = 0; // clean answers in a row: reported beside a passage's verdict, nothing reads it now
+    // Element questions since the last first-asked passage (CADENCE): carried
+    // with the sitting, so a burst does not buy a passage by starting over.
+    this.elements = resumed?.elements ?? 0;
     this.round = null;
     // The unlock's interval half: the last ROUND.reflexN plain intervals, oldest first.
     this.reflex = this.db.recentPlain(ROUND.reflexN).reverse()
@@ -893,7 +934,6 @@ export class Drill {
     this.priming = null; // { key, tonic, set, left, step, total, lastIv } while the key is being walked
     this.blockN = resumed?.block?.n ?? 0;
     this.askedThisSession = new Set(resumed?.asked ?? []);
-    this.passagesInARow = 0;
     this.anchor = anchor;
     this.prevAnchor = null;
     // TWO ANCHORS, after a dyad in which both notes were struck: [lower,
@@ -912,6 +952,8 @@ export class Drill {
     const level = this.polyState.level;
     const dyads = this.dyadsOpen();
     this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms), tiers ${this.engine.state.tiersUnlocked}${this.engine.state.compoundTiers ? ` (+${this.engine.state.compoundTiers} compound)` : ''}${dyads ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, ${dyads ? `dyads and ${this.openChordShapes().length || 'no'} chord shape${this.openChordShapes().length === 1 ? '' : 's'}, ` : ''}passages ${LEVEL_NAMES[level]}${this.polyState.short ? ' (held short)' : ''}, stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}`);
+    this.passageN = null;
+    this.noteCadence();
 
     // The anchor rings for a beat, then the grid starts on an accented downbeat.
     this.nextBarAt = this.audio.now + this.beat;
@@ -938,6 +980,7 @@ export class Drill {
       variantQueue: this.variantQueue.map(slim),
       remediationQueue: this.remediationQueue,
       asked: [...this.askedThisSession],
+      elements: this.elements,
     });
     if (!silent) this.audio.sessionOver();
     // a key still "down" now is one whose release never came: say which, and
@@ -2150,6 +2193,31 @@ export class Drill {
     this.log(`  ${kind} passages now up to ${st.notes} notes (overall ${Math.round(score * 100)}% of the last ${this.len.recent.length} graded)`);
   }
 
+  /**
+   * How many element questions a first-asked passage waits for (CADENCE):
+   * the share of the 24 signed simple melodic intervals that are SECURE on
+   * the melodic engine, open or not, mapped 0 -> 4 and all -> 1.
+   */
+  passageCadence() {
+    let secure = 0;
+    for (let w = 1; w <= 12; w += 1) for (const iv of [w, -w]) if (this.engine.isSecure(iv)) secure += 1;
+    const f = secure / CADENCE.intervals;
+    const n = Math.max(CADENCE.fewest, Math.min(CADENCE.most, Math.round(CADENCE.most - (CADENCE.most - CADENCE.fewest) * f)));
+    return { n, secure };
+  }
+
+  /** Log the cadence at session start and whenever it moves (no sound: what is asked changes). */
+  noteCadence() {
+    if (!this.phrases) return;
+    const { n, secure } = this.passageCadence();
+    if (n === this.passageN) return;
+    const first = this.passageN === null;
+    this.passageN = n;
+    const since = first && this.elements ? `, ${this.elements} asked since the last` : '';
+    const where = this.stage.current === 'exact' ? '' : ' -- once the exact stage is reached';
+    this.log(`  passages${first ? ':' : ' now'} one per ${n} element question${n === 1 ? '' : 's'} (${secure} of ${CADENCE.intervals} intervals secure)${since}${where}`);
+  }
+
   pickPassage() {
     for (const kind of this.passageKinds()) {
       const bank = kind === 'mono' ? this.phrases : this.poly;
@@ -2452,10 +2520,13 @@ export class Drill {
       const q = this.variantQuestion(v);
       if (q) return q;
     }
-    if (this.phrases && top) {
-      if ((this.streak >= STREAK_FOR_PASSAGE || this.cleanNotes >= CLEAN_NOTES_FOR_PASSAGE) && this.passagesInARow < MAX_PASSAGES_IN_A_ROW) {
-        const picked = this.pickPassage();
-        if (picked) return this.serveWithPlacement('passage', picked);
+    // PASSAGE SHARE FOLLOWS MASTERY (CADENCE): due after N element questions,
+    // N read fresh. The count restarts when one is chosen, before its placing.
+    if (this.phrases && top && this.elements >= this.passageCadence().n) {
+      const picked = this.pickPassage();
+      if (picked) {
+        this.elements = 0;
+        return this.serveWithPlacement('passage', picked);
       }
     }
     // The echo game: every third plain question at the two lowest stages.
@@ -3301,9 +3372,6 @@ export class Drill {
       this.timing.notes += 1;
       if (inTime) this.timing.inTime += 1;
     }
-    if (q.correction) { /* handed to you: neither earns nor spends the passage credit */ }
-    else if (credit && exp.graded) this.cleanNotes += 1;
-    else if (!credit) this.cleanNotes = 0;
     if (!credit) this.pitchClean = false;
     if (!inTime) this.timeClean = false;
     const chord = g.notes.length > 1 ? ` [chord ${g.index + 1}]` : '';
@@ -3550,9 +3618,8 @@ export class Drill {
     const clean = this.pitchClean && this.timeClean;
     const wrap = this.wrapReason(q); // read once: the clock must not cross between the window and the end
     // A correction is notes you were just handed: playing them back is not a
-    // clean answer, and it must not count toward earning the next passage.
-    // A window has no notes at all, and neither of them breaks a run of
-    // passages -- they are part of the passage that spawned them.
+    // clean answer, so it neither extends nor breaks the streak. (Passages are
+    // no longer earned by it: CADENCE counts element questions instead.)
     // ONE MISS ANYWHERE IN THE WALK AND IT IS DROPPED: no stacking failures,
     // and the retry he never knew was coming simply does not come.
     if (q.recovery && !this.pitchClean && this.recovery) {
@@ -3566,8 +3633,8 @@ export class Drill {
     // dropped its passage, even when he played the note.
     if (q.placing && this.placing) this.placing.landed = this.pitchClean;
     if (!q.correction) this.streak = this.pitchClean ? this.streak + 1 : 0;
-    if (q.phrase) this.passagesInARow += 1;
-    else if (!q.correction && !q.window) this.passagesInARow = 0;
+    if (ELEMENT_KINDS.has(q.kind)) this.elements += 1;
+    this.noteCadence(); // this answer may have made an interval secure
     // A round call counts on pitch AND its beat (holds are not the game).
     if (q.round) this.roundStep(q, this.groups.every((g) => g.notes.every((e) => e.free || e.silent || (e.played === e.midi && e.inTime))));
     if (q.kind === 'interval') {
@@ -3575,7 +3642,6 @@ export class Drill {
       if (this.reflex.length > ROUND.reflexN) this.reflex.shift();
     }
     if (q.phrase) {
-      this.cleanNotes = 0;
       this.passagesDone += 1;
       const bank = q.phrase.kind === 'mono' ? this.phrases : this.poly;
       const rungs = summarizeRungs(

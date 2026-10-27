@@ -37,7 +37,7 @@ only ever touch the keys.
    and the reply is the next question. A phrase you missed comes back; a
    phrase you nailed comes back somewhere new; when you are on top of it the
    caller stops waiting. You hear where you stand in what you are given.
-5. Three clean answers in a row earn a **real passage**: a Bach chorale
+5. Every few single intervals and chords comes a **real passage**: a Bach chorale
    phrase, a bit of a Mozart sonata, or a hymn tune, in its own meter in the
    current key. Then **the pulse drops** for a couple of seconds — the one
    thing in the drill that never moves, stopping. Play the note you think you
@@ -79,7 +79,11 @@ Everything adapts:
   of the keyboard, and every third question is an echo game: the drill goes
   quiet, you make up two or three notes, and it asks for them straight
   back — your own figure becomes the call.
-- **When you get a passage** is the clean streak above. An interval you miss
+- **When you get a passage** follows how many intervals you have down cold
+  (right and quick): one passage per four interval/dyad/chord questions
+  while you are learning them, down to one per question once nearly all
+  24 (up and down, half step to octave) are secure. Never two passages in
+  a row. An interval you miss
   inside a passage is drilled on its own right after. Notes inside passages
   train a separate in-melody model, so a step you can sing inside a chorale
   never masquerades as a step you can name cold. A phrase you failed is due
@@ -90,10 +94,10 @@ Everything adapts:
   same phrase as often as it likes without flattering your record.
 - **Which kind of passage** follows your polyphony level, from single lines
   to four-part chords and two-hand passages.
-- **How long a passage** is follows your passages, not your intervals: it
-  starts at five notes, grows by one after two clean passages in a row,
-  shrinks by one after three failures in a row, and never exceeds a ceiling
-  set by the unlocked tiers.
+- **How long a passage** is follows your overall score: over your last 60
+  graded answers, 85% or better adds a note and under 75% takes one away,
+  inside a ceiling set by the unlocked tiers. Struggling shortens passages;
+  it never makes the intervals easier.
 - **Tempo** belongs to the music, never to you: each excerpt sets its own
   from its style and its fastest note, interval questions sit at a calm 72,
   and nothing you play makes the next question faster (the round excepted,

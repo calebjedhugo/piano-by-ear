@@ -793,8 +793,8 @@ comes up.
   voice's first note is free only if the voice goes on, or a placing put it
   under a hand: before, a one-chord retry graded NOTHING (6 of 6 "nailed on
   try 2" with zero notes asked). It cannot
-  ping-pong: a missed dyad resets `streak` to 0, so another passage has to be
-  earned again. Not in KEYED_KINDS (no block question spent) and not an
+  ping-pong: the element count restarts at every first asking, so another
+  passage waits for N element questions (CADENCE, below). Not in KEYED_KINDS (no block question spent) and not an
   isolatedKind (the tier ladder never sees it). It is drained at the TOP of
   `makeQuestion` so nothing can come between the hand being placed and the
   call that needs it there. TUNE LATER if it gets tedious when he is more
@@ -832,8 +832,8 @@ comes up.
   order in `makeQuestion()`: round, window, correction, rework, placed passage,
   recovery walk, re-anchor, retry (SAME
   placement as the miss: `retry.placed`), block prime, pair exposure, the melodic remediation queue
-  (folded to simple intervals), due variant, passage (streak >= 3 or 6
-  clean notes, < 3 in a row; top stage only), echo game (every 2nd plain
+  (folded to simple intervals), due variant, passage (CADENCE, below; top
+  stage only), echo game (every 2nd plain
   question at the echo stage, every 3rd at contour, and never after two
   unfilled windows in a sitting -- `this.echoEmpty`; it used to be EVERY question at the echo
   stage, which is a dead end: the plain slot could produce nothing else, so a
@@ -891,6 +891,30 @@ comes up.
   clean step: 91% of notes right inside the walk (target >= 80%), next cold
   asking clean 31% (n=35) vs 12% before -- memory for one phrase, not the ear.
   Order in makeQuestion: round, WINDOW, CORRECTION, REWORK, retry.
+  **PASSAGE SHARE FOLLOWS MASTERY (2026-10-27, `CADENCE`, `passageCadence`,
+  `elements`).** A first-asked passage is due after N ELEMENT QUESTIONS since
+  the last one, N = clamp(round(4 - 3f), 1, 4), f = secure (`isSecure`) of
+  the 24 signed simple melodic intervals, open or not; read fresh each time,
+  logged at session start ("passages: one per 3 element questions (6 of 24
+  intervals secure)") and when it moves ("passages now ..."). Element kinds:
+  interval, round (each call), discrimination, remediation, rework, dyad,
+  dyad discrimination, chord. NOT gesture (passage-scope: context in
+  miniature), exposure, prime, placing, navigation, window, correction,
+  recovery, retry, variant, echo. The count restarts when a first asking is
+  CHOSEN (a passage dropped at its placing used the slot); N >= 1, so never
+  two first askings back to back; retries/variants follow as before. Carried
+  in kv `carry.elements`. REPLACED "streak >= 3 or 6 clean notes, < 3 in a
+  row" (`cleanNotes`, `passagesInARow` gone; `streak` is only logged now): a
+  clean passage is 6+ clean notes, so passages earned passages. Caleb's
+  profile since 10-24 21:56: passages 20.0% of session time + variants 10.7%
+  + retries 5.9%, primes 15.6%, against single intervals/remediation/rework
+  15.6% and dyads/chords/discrimination ~18%; in-context vs cold steps 84/90,
+  thirds 76/76, 4th-5th 59/65, 6th-octave 57/43 -- the 09-12 context gap
+  (20-37 points everywhere) is closed. Caleb: "Shouldn't we be focusing on the
+  elements before putting things in context?" / "Amount should be dynamic."
+  His 10-27 copy: 6 of 24 secure, N = 3. **WATCH (declared 10-27): re-measure
+  the in-context vs cold gap after a week; if it reopens, N = 4 is too low a
+  passage share.**
   **PASSAGE LENGTH FOLLOWS THE OVERALL SCORE (2026-10-23, `LEN`,
   `updatePassageLength`, `noteGraded`).** A window of the last 60 GRADED FIRST
   ATTEMPTS OF EVERY KIND (kv `passageLen.recent`, carried across sittings,
@@ -921,7 +945,7 @@ comes up.
   which is what made long phrases recur; it is a symptom of the target, not a
   separate bug. Variants and retries do not go through the band (a nailed
   phrase's length is proven for that phrase). Neither moves the
-  streak, cleanNotes, passagesInARow or the ladder; a correction is scored at
+  streak, the element count (CADENCE) or the ladder; a correction is scored at
   passage scope and queues no remediation. The CUED judge window it replaces
   is dead (`judgments`, historical) -- a cue is a note you are not asked to
   play, which is how this drill got its one rule. QUIET_BEATS: a retry or variant answer ends
@@ -987,8 +1011,8 @@ comes up.
   `state.height` is no longer read or written (the dyad slot keeps its own wide ask).
   BURSTS ARE ONE SITTING: kv `carry` (endedAt, block key + number, warm-up
   count, retry and variants as id/shift/key re-placed from the bank and
-  dropped if they no longer fit, remediation, asked ids)
-  is restored by a session started within CARRY_MS (30 min). The block
+  dropped if they no longer fit, remediation, asked ids, the CADENCE element
+  count) is restored by a session started within CARRY_MS (30 min). The block
   itself is NOT carried, only its number: a resumed sitting opens a fresh
   block on the note the player has just sat down on, because the prime is a
   call and a call starts under the hand. The streak resets per burst.
