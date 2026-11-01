@@ -576,6 +576,9 @@ const DYAD_RUNG = { high: 0.85, low: 0.65, cooldown: 8, alpha: 0.15, lowerShare:
 // note "wide cold dyads were 9/9" was nine trials; 337 placings supersede it.
 // Since 2026-10-27 only an OPEN compound size is asked (WIDE_LADDER).
 const DYAD_WIDE_RATE = 1 / 3;
+// A close dyad span already mastered (CHORD_LADDER) is drawn this much less
+// often than one that is not, until it slips (see dyadSlot, 2026-10-31).
+const MASTERED_SPAN_LEAN = 0.25;
 // A WIDE SPAN IS ITS OWN SKILL, AND THE SKILL IS A REFLEX (2026-09-24).
 // Interval class is not a first-order percept (Deutsch: octave-scrambled
 // melodies go unrecognised) and harmonic intervals are identified by the
@@ -1741,7 +1744,18 @@ export class Drill {
     const spanHi = Math.min(this.idx(this.hi), a + 24);
     if (a + 1 > spanHi) return null;
     // The wide ask may only produce an OPEN compound size (WIDE_LADDER).
-    const span = this.harmonic.nextTargetIndex(a, null, { bounds: { lo: a + 1, hi: spanHi }, allowWide: true, wideMax: 12, wideRate: DYAD_WIDE_RATE, wideSizes: this.wideOpenSizes() }) - a;
+    // CLOSE DYADS FIRST (2026-10-31, Caleb). Until a triad has opened (its
+    // spans mastered as dyads, CHORD_LADDER), there is NO wide ask, and a
+    // close span already mastered is drawn at MASTERED_SPAN_LEAN: the reps go
+    // to the sizes the triads are waiting on. The harmonic engine cannot do
+    // this weighting itself -- its acc reads 1.00 on every size (one-ear
+    // rule), so it drew spans evenly. Since 10-27 a third of his dyads were
+    // wide (m9 49% right / 31% right-and-quick, M9 38% / 8%) while the 4th
+    // was 40/20 and only spans 1 and 2 were mastered.
+    const ladder = this.chordState();
+    const triadOpen = this.openChordShapes(ladder).some((shape) => shape.length === 2);
+    const lean = (t) => (t - a >= 1 && t - a <= 12 && this.spanMastered(ladder, t - a) ? MASTERED_SPAN_LEAN : 1);
+    const span = this.harmonic.nextTargetIndex(a, null, { bounds: { lo: a + 1, hi: spanHi }, allowWide: triadOpen, wideMax: 12, wideRate: triadOpen ? DYAD_WIDE_RATE : 0, wideSizes: this.wideOpenSizes(), lean }) - a;
     if (span <= 0) return null;
     const kind = this.harmonic.servedQueue ? 'dyad discrimination' : 'dyad';
     return (rung === 2 ? this.departingDyad(kind, span) : null) ?? this.containingDyad(kind, span);

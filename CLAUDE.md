@@ -279,7 +279,12 @@ ninths open (`start` 2, Caleb's choice); the next opens when the NEWEST open
 size's own WIDE record is secure (n >= 3, acc >= 0.9, reflex >= 0.8) --
 newest only, as on the melodic ladders (15 waits on 13, not on the M9).
 RATCHETS, never closes; logged "wide two-note chord opened: 15 (3 of 12)".
-Placings feed the same records, so they can open a size too. Why: the old
+Placings feed the same records, so they can open a size too.
+**CLOSE DYADS FIRST (2026-10-31, `dyadSlot`, `MASTERED_SPAN_LEAN`).** No wide
+ask at all until a triad has opened (its spans mastered as dyads), and a
+close span already mastered is drawn at 0.25 weight. Since 10-27 a third of
+his dyads were wide (m9 49% right / 31% quick, M9 38/8) while the 4th sat at
+40/20; the harmonic engine (acc 1.00 everywhere) drew spans evenly. Why: the old
 gate (simple span acc >= 0.8) admitted every size 13..24 -- since 10-24
 21:56 wide dyads 4 of 50 both right (all four m9), spans 14-24 0 of 42.
 
