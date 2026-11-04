@@ -26,6 +26,10 @@ running drill, empty for nobody), sound in `~/.piano-by-ear/sound`; log always
 Restart after every code change with `launcher/pbe.sh start`; the log is
 where a session is reviewed afterwards.
 
+**Another household Mac:** follow `SETUP-ANOTHER-MAC.md` (sync key, private
+files staged on the pi in `~/piano-by-ear-setup/`, launcher). Once one
+exists, every push must be pulled there by hand too (see DEPLOYING below).
+
 ```bash
 npm start                      # flags: --port <substr> --profiles <dir> --debug-midi
 node src/main.js --user Caleb  # skip the chord: development only
