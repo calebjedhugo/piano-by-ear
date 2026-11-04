@@ -8,6 +8,8 @@ exactly as on the main Mac, sharing the same profiles through the pi. Read
 - **NEVER copy `~/.piano-by-ear/` from another machine.** `device-id` is this
   machine's identity in every synced row; a copied one corrupts the merge.
   Profiles and the roster come from the pi on their own.
+- **NEVER sync as chugo.** The profiles live under the pi's `pbe` user; a
+  sync as chugo creates an empty `~/piano-by-ear` there and splits them.
 - **NEVER type the pi's password.** Caleb runs `ssh-copy-id` himself (step 2).
 - **NEVER commit `corpus/local/`** (git-ignored, not redistributable; this
   repo is public).
@@ -28,35 +30,62 @@ Same path as the main Mac, so the skill and docs work unchanged.
 
 ## 2. The pi (profile sync)
 
-Make a key and add a host entry:
+**Sync runs as `pbe`, a no-sudo user whose home holds only the profiles.**
+The pi is also the house's Pi-hole DNS, and the sync key must work without a
+finger (lid-closed play), so any agent on the Mac can use it: it may reach
+the piano data and nothing else. Two ssh entries, two keys, both made in
+[Secretive](https://github.com/maxgoedjen/secretive) (Secure Enclave; the
+private key never exists as a file):
 
-```bash
-ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_pi -N ""
-```
+| entry | user | Secretive key | for |
+|---|---|---|---|
+| `hugopi` | chugo | Touch ID per use | admin, the step 3 copies; never sync |
+| `pbe-hugopi` | pbe | Notify (Touch ID cannot be tapped with the lid closed) | sync only |
+
+Append to `~/.ssh/config` (`<…>.pub` = each key's file in Secretive's
+`PublicKeys` folder):
 
 ```
 Host hugopi hugopi.local
     HostName hugopi.local
     User chugo
-    IdentityFile ~/.ssh/id_ed25519_pi
+    IdentityAgent ~/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
+    IdentityFile <chugo key>.pub
+    IdentitiesOnly yes
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+
+Host pbe-hugopi
+    HostName hugopi.local
+    User pbe
+    IdentityAgent ~/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
+    IdentityFile <pbe key>.pub
+    IdentitiesOnly yes
     ServerAliveInterval 60
     ServerAliveCountMax 3
 ```
 
-(append to `~/.ssh/config`). Then **Caleb** installs the key (it asks for
-the pi's password):
+**Caleb** installs the chugo key (it asks for the pi's password; `-f`
+because there is no private key file):
 
 ```bash
-ssh-copy-id -i ~/.ssh/id_ed25519_pi.pub chugo@hugopi
+ssh-copy-id -f -i "<chugo key>.pub" chugo@hugopi
 ```
 
-Verify with `ssh hugopi true` (no prompt). Then turn sync on; it is OFF by
-default:
+pbe has no password, so `ssh-copy-id` cannot install its key. Someone logged
+in as chugo appends the public key to `/home/pbe/.ssh/authorized_keys`
+(owner pbe, mode 600) with a `restrict ` prefix (no forwarding, no pty;
+commands and scp still work).
+
+Turn sync on; it is OFF by default:
 
 ```bash
 mkdir -p ~/.piano-by-ear
-printf '{\n  "enabled": true,\n  "host": "chugo@hugopi",\n  "dir": "piano-by-ear"\n}\n' > ~/.piano-by-ear/sync.json
+printf '{\n  "enabled": true,\n  "host": "pbe-hugopi",\n  "dir": "piano-by-ear"\n}\n' > ~/.piano-by-ear/sync.json
 ```
+
+Verify: `ssh pbe-hugopi 'ls piano-by-ear/profiles'` lists the profiles with
+no Touch ID prompt.
 
 ## 3. Private files from the pi
 

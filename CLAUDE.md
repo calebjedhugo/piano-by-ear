@@ -26,8 +26,8 @@ running drill, empty for nobody), sound in `~/.piano-by-ear/sound`; log always
 Restart after every code change with `launcher/pbe.sh start`; the log is
 where a session is reviewed afterwards.
 
-**Another household Mac:** follow `SETUP-ANOTHER-MAC.md` (sync key, private
-files staged on the pi in `~/piano-by-ear-setup/`, launcher). Once one
+**Another household Mac:** follow `SETUP-ANOTHER-MAC.md` (sync as `pbe`,
+private files staged in chugo's `~/piano-by-ear-setup/` on the pi, launcher). Once one
 exists, every push must be pulled there by hand too (see DEPLOYING below).
 
 ```bash
@@ -222,6 +222,16 @@ only keep one of the names.
 
 Config: `~/.piano-by-ear/sync.json` (`{enabled, host, dir}`), machine identity
 `~/.piano-by-ear/device-id`.
+
+**SYNC RUNS AS `pbe`, NEVER chugo (2026-11-04).** The profiles live in
+`pbe@hugopi:~/piano-by-ear` (no-sudo user; every key in its
+`authorized_keys` is prefixed `restrict`); both Macs set `"host":
+"pbe-hugopi"`, an ssh alias for that user. Why: the pi is also the house's
+Pi-hole DNS and the sync key works without a finger (lid-closed play), so it
+must reach only the piano data. A sync as chugo would `mkdir -p` an empty
+`~/piano-by-ear` in chugo's home and split the profiles. `DEFAULTS.host` in
+`src/sync.js` still says `chugo@hugopi` (sync is off unless `sync.json`
+turns it on).
 
 ## A DYAD IS A DEPARTURE FROM THE ANCHOR (2026-09-20)
 
