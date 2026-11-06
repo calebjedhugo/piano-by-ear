@@ -285,6 +285,11 @@ const CALL_MAX_S = 2; // the longest a call note sounds; a hold is never graded 
 const LEN = {
   start: { mono: 5, duo: 4, trio: 4, chorale: 4, poly: 4 },
   min: { mono: 4, duo: 4, trio: 4, chorale: 4, poly: 4 },
+  // THE LONGEST A SINGLE LINE GETS (2026-11-05, corpus notes, so 8 graded). The
+  // tier ceiling is 15 with the ladder open, so only the corpus (12) stopped it.
+  // Since 10-24 21:56: 7-8 graded 72% per note, 34% clean (n=73); 9 graded 46%,
+  // 0 of 12. Past here it tests his memory, not his ear.
+  monoMax: 9,
   band: 1, // a pick may be this many notes under the target
   window: 60, // graded first attempts of every kind in the overall window
   minWindow: 30, // no change on a thinner window
@@ -2163,7 +2168,7 @@ export class Drill {
 
   /** The tier ladder's ceiling on passage length for a kind. */
   lengthCeiling(kind) {
-    return kind === 'mono' ? 3 + this.engine.state.tiersUnlocked : 6 + 2 * this.harmonic.state.tiersUnlocked;
+    return kind === 'mono' ? Math.min(LEN.monoMax, 3 + this.engine.state.tiersUnlocked) : 6 + 2 * this.harmonic.state.tiersUnlocked;
   }
 
   /** The level's own kind while its window is under POLY.shortNote (see POLY). */

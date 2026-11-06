@@ -96,7 +96,8 @@ Everything adapts:
   to four-part chords and two-hand passages.
 - **How long a passage** is follows your overall score: over your last 60
   graded answers, 85% or better adds a note and under 75% takes one away,
-  inside a ceiling set by the unlocked tiers. Struggling shortens passages;
+  inside a ceiling set by the unlocked tiers (a single line never passes nine
+  notes). Struggling shortens passages;
   it never makes the intervals easier.
 - **Tempo** belongs to the music, never to you: each excerpt sets its own
   from its style and its fastest note, interval questions sit at a calm 72,

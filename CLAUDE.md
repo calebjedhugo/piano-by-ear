@@ -1045,7 +1045,12 @@ comes up.
   block on the note the player has just sat down on, because the prime is a
   call and a call starts under the hand. The streak resets per burst.
   PASSAGE LENGTH is a controller (kv `passageLen`: per kind `notes`, plus the
-  overall window -- see above), bounded by LEN.min and the tier ceiling.
+  overall window -- see above), bounded by LEN.min and the tier ceiling. A
+  SINGLE LINE STOPS AT 9 CORPUS NOTES, 8 GRADED (2026-11-05, `LEN.monoMax`):
+  with 12 tiers the ceiling is 15, so only the corpus (12) stopped it. His
+  record since 10-24 21:56: 7-8 graded 72% per note, 34% clean (n=73); 9
+  graded 46%, 0 of 12. A variant or retry keeps the length of its phrase. At
+  the cap nothing pulls an overall score above 85% down; accepted.
   TEMPO IS NOT A CONTROLLER and must never become one.
   GRADING IS BY ONSET GROUP (`buildGroups`): notes with the same offset form
   a group; a key press matches any pending note of the current group by
