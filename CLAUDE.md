@@ -615,8 +615,8 @@ comes up.
   behind the call (>=1); on interval questions a wrong first note is a wrong
   TARGET (anchor skipped), on passages the old pivot rule holds.
   TEMPO IS PER QUESTION (`src/tempo.js`), set in `beginQuestion()`; interval
-  questions are a flat INTERVAL_BPM 72 (the round's tempo dimension is the
-  one exception and resets after). Tolerance = beat/8 clamped 45..110 ms
+  questions are INTERVAL_BPM 72 (the round's tempo dimension resets after;
+  before two voices the interval pulse moves, `INTERVAL_TEMPO`, below). Tolerance = beat/8 clamped 45..110 ms
   and never more than 40% of the note's gap.
   RE-METERING (2026-09-14): an excerpt whose fastest note would still go by
   under REMETER_BELOW_S (0.32s) is RE-QUANTISED ONTO A 0.4s CLICK -- the
@@ -1069,7 +1069,22 @@ comes up.
   record since 10-24 21:56: 7-8 graded 72% per note, 34% clean (n=73); 9
   graded 46%, 0 of 12. A variant or retry keeps the length of its phrase. At
   the cap nothing pulls an overall score above 85% down; accepted.
-  TEMPO IS NOT A CONTROLLER and must never become one.
+  TEMPO IS NOT A CONTROLLER -- with ONE exception, the interval pulse
+  before two voices (`INTERVAL_TEMPO`, 2026-11-09, Caleb's call): 72 is the
+  floor; 5 answers in a row right and started within 2 beats (single
+  intervals, gestures, remediation, rework, discrimination, dyads, chords)
+  -> +4 bpm, to 140; each miss -> -4; right but slow breaks the run. Every
+  interval-paced question (primes too) uses it; each sitting starts at 72 (a
+  resumed burst keeps it, `carry.intervalBpm`); from polyphony level 1 it is
+  72 again. The beat rules SCALE WITH IT ON PURPOSE (Caleb: "scale with
+  speed"): "quick" (2 beats) and the 4-beat session end tighten as it
+  climbs, so reflex/secure and `behind` read stricter at speed -- compare
+  across days in SECONDS (`attempts.beat_ms`), not beats. Why it is not the
+  old ratchet: that one never came down and set the PASSAGE tempo (hiding
+  fast-note phrases); here there are no passages, never two leaps in a row,
+  both hands free. Logged "interval tempo up/down to N bpm"; the session
+  line shows "interval pulse N bpm". Not under `bpmOverride` (the sim needs
+  `auto` to exercise it).
   GRADING IS BY ONSET GROUP (`buildGroups`): notes with the same offset form
   a group; a key press matches any pending note of the current group by
   pitch, a wrong note consumes the nearest pending graded note, and a press

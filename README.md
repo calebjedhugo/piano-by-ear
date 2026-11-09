@@ -103,9 +103,11 @@ Everything adapts:
   notes). Struggling shortens passages;
   it never makes the intervals easier.
 - **Tempo** belongs to the music, never to you: each excerpt sets its own
-  from its style and its fastest note, interval questions sit at a calm 72,
-  and nothing you play makes the next question faster (the round excepted,
-  and it resets).
+  from its style and its fastest note, and interval questions sit at a calm
+  72. The one exception: until two voices are earned, five quick right
+  answers in a row speed the interval pulse up 4 bpm (to 140), and each miss
+  slows it 4, never below 72. Each sitting starts at 72 (the round also
+  speeds up, and resets).
 
 Progress is judged on **next-day first attempts**, not on how a session
 felt: `node scripts/progress.mjs` prints them per day.

@@ -34,7 +34,9 @@ export const DEFAULT_BAND = { pref: 76, max: 100 };
 export const TEXTURE = { mono: 1, duo: 0.94, trio: 0.91, chorale: 0.88, poly: 0.82 };
 
 // An interval question is not an excerpt and has no tempo of its own. It gets
-// a calm pulse, because the task is hearing rather than execution.
+// a calm pulse, because the task is hearing rather than execution. (Before two
+// voices it is the FLOOR of a pulse that quickens on a run of quick right
+// answers: drill.js INTERVAL_TEMPO. Passages never follow it.)
 export const INTERVAL_BPM = 72;
 
 // The fastest a note may go by and still be heard as a pitch rather than a

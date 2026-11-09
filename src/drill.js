@@ -303,6 +303,21 @@ const FLOOR_WINDOW = 400;
 // and the calm pulse of every interval question (hearing, not speed).
 const LEAD_IN_BPM = 72;
 const INTERVAL_BPM = 72;
+// THE INTERVAL PULSE QUICKENS ON A ROLL, BEFORE TWO VOICES (2026-11-09,
+// Caleb). 72 is the floor: `run` answers in a row right AND started within
+// WIDE.reflexBeats -> +`step` bpm, to `max`; each miss -> -`step`; right but
+// slow only breaks the run. Counted on TEMPO_KINDS; every interval-paced
+// question (primes too) is asked at it. Starts at 72 each sitting (a resumed
+// burst keeps it, `carry.intervalBpm`); from polyphony level 1 it is
+// INTERVAL_BPM again. The beat-measured rules scale with it on purpose --
+// quick (2 beats) and the 4-beat session end tighten as it climbs.
+// NOT the old ratchet (09-xx, removed): that one never came down and set the
+// PASSAGE tempo, hiding the fast-note phrases. Here there are no passages, no
+// two leaps in a row and both hands free: the only thing speed asks for is
+// the reaction itself. Caleb: "If the user is doing well, then we want to
+// increase their reaction time."
+const INTERVAL_TEMPO = { min: INTERVAL_BPM, max: 140, step: 4, run: 5 };
+const TEMPO_KINDS = new Set(['interval', 'discrimination', 'remediation', 'rework', 'gesture', 'dyad', 'dyad discrimination', 'chord']);
 // A gesture -- the target and then a diatonic step in the block key -- this
 // often among plain interval questions. Caleb: "play two or three notes in a
 // row once in a while... make the whole thing a musical experience."
@@ -744,7 +759,7 @@ export class Drill {
     return floorFromHistory(rows);
   }
 
-  /** The tempo for a question: what its music wants, never what you earned. */
+  /** The tempo for a question: what its music wants; before two voices, the interval pulse (INTERVAL_TEMPO). */
   questionTempo(q) {
     if (this.bpmOverride) return this.bpmOverride;
     if (q.tempo) return q.tempo; // a window or its correction keeps the passage's pulse
@@ -752,7 +767,32 @@ export class Drill {
     // A round on the tempo dimension is the one place a question is quicker
     // than its music wants: the tempo returns to INTERVAL_BPM when it is over.
     if (q.round && q.roundDim === 'tempo') return INTERVAL_BPM + ROUND.tempoStep * q.roundLevel;
-    return INTERVAL_BPM;
+    return this.intervalTempoOn() ? this.intervalBpm : INTERVAL_BPM;
+  }
+
+  /** The interval pulse moves only before two voices are earned (INTERVAL_TEMPO). */
+  intervalTempoOn() {
+    return !this.bpmOverride && (this.polyState?.level || 0) === 0;
+  }
+
+  /** One answer into the interval pulse: a run of quick right answers speeds it, a miss slows it. */
+  stepIntervalTempo(right, quick) {
+    if (!this.intervalTempoOn()) return;
+    const t = INTERVAL_TEMPO;
+    const before = this.intervalBpm;
+    if (!right) {
+      this.tempoRun = 0;
+      this.intervalBpm = Math.max(t.min, before - t.step);
+    } else if (quick) {
+      this.tempoRun += 1;
+      if (this.tempoRun >= t.run) {
+        this.tempoRun = 0;
+        this.intervalBpm = Math.min(t.max, before + t.step);
+      }
+    } else {
+      this.tempoRun = 0;
+    }
+    if (this.intervalBpm !== before) this.log(`  interval tempo ${this.intervalBpm > before ? 'up' : 'down'} to ${this.intervalBpm} bpm (${right ? `${t.run} right and quick in a row` : 'a miss'})`);
   }
 
   // --- polyphony level -----------------------------------------------------
@@ -892,6 +932,8 @@ export class Drill {
     this.rangeDirty = false;
     const carry = this.carryStore.load();
     const resumed = carry && Date.now() - carry.endedAt < CARRY_MS ? carry : null;
+    this.intervalBpm = Math.min(INTERVAL_TEMPO.max, Math.max(INTERVAL_TEMPO.min, resumed?.intervalBpm ?? INTERVAL_TEMPO.min));
+    this.tempoRun = 0;
     this.engine = this.makeEngine(this.lo, this.hi, FLUENT_NORM_MS, 'engine');
     this.engine.startSession({ questionInSession: resumed?.questionInSession ?? 0 });
     this.harmonic = this.makeEngine(this.lo, this.hi, FLUENT_NORM_MS, 'harmonic');
@@ -980,7 +1022,7 @@ export class Drill {
     this.state = 'QUESTION';
     const level = this.polyState.level;
     const dyads = this.dyadsOpen();
-    this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms), tiers ${this.engine.state.tiersUnlocked}${this.engine.state.compoundTiers ? ` (+${this.engine.state.compoundTiers} compound)` : ''}${dyads ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, ${dyads ? `dyads and ${this.openChordShapes().length || 'no'} chord shape${this.openChordShapes().length === 1 ? '' : 's'}, ` : ''}passages ${LEVEL_NAMES[level]}${this.polyState.short ? ' (held short)' : ''}, stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}`);
+    this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms)${this.intervalTempoOn() ? `, interval pulse ${this.intervalBpm} bpm` : ''}, tiers ${this.engine.state.tiersUnlocked}${this.engine.state.compoundTiers ? ` (+${this.engine.state.compoundTiers} compound)` : ''}${dyads ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, ${dyads ? `dyads and ${this.openChordShapes().length || 'no'} chord shape${this.openChordShapes().length === 1 ? '' : 's'}, ` : ''}passages ${LEVEL_NAMES[level]}${this.polyState.short ? ' (held short)' : ''}, stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}`);
     this.passageN = null;
     this.noteCadence();
 
@@ -1010,6 +1052,7 @@ export class Drill {
       remediationQueue: this.remediationQueue,
       asked: [...this.askedThisSession],
       elements: this.elements,
+      intervalBpm: this.intervalBpm,
     });
     if (!silent) this.audio.sessionOver();
     // a key still "down" now is one whose release never came: say which, and
@@ -3692,6 +3735,7 @@ export class Drill {
     if (q.placing && this.placing) this.placing.landed = this.pitchClean;
     if (!q.correction) this.streak = this.pitchClean ? this.streak + 1 : 0;
     if (ELEMENT_KINDS.has(q.kind)) this.elements += 1;
+    if (TEMPO_KINDS.has(q.kind)) this.stepIntervalTempo(this.pitchClean, (this.behind ?? 99) <= WIDE.reflexBeats);
     this.noteCadence(); // this answer may have made an interval secure
     // A round call counts on pitch AND its beat (holds are not the game).
     if (q.round) this.roundStep(q, this.groups.every((g) => g.notes.every((e) => e.free || e.silent || (e.played === e.midi && e.inTime))));
