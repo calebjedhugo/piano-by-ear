@@ -307,6 +307,13 @@ const INTERVAL_BPM = 72;
 // often among plain interval questions. Caleb: "play two or three notes in a
 // row once in a while... make the whole thing a musical experience."
 const GESTURE_RATE = 0.34;
+// NO SINGLE-LINE PASSAGES BEFORE TWO VOICES (2026-11-09, Caleb; "I may change
+// my mind", so it is one switch). At level 0 the passage family took 49% of
+// his sitting (passages 20%, variants 12%, retries 7%, re-anchors 7%) while
+// in-phrase accuracy sat flat since October and the single intervals and
+// dyads moved. Passages start with duos; from level 1 up everything is as
+// before, mono included at its equal share.
+const MONO_PASSAGES_BEFORE_DUO = false;
 // Plain targets land diatonic in the block key: the ladder still picks the
 // width, the SIGN is chosen so the target is in the key whenever either
 // direction would be (a 1.3 weight on a 24-entry pool moved nothing).
@@ -947,6 +954,7 @@ export class Drill {
     this.reanchor = null; // { target, forRetry, forRework, served } -- transient, like the window
     this.placing = null; // { kind, picked, suffix, target, dyad } -- the passage waiting behind its placing question
     this.retry = resumed?.retry ? this.replace(resumed.retry) : null; // { id, kind, tries, score, placed }
+    if (this.retry?.kind === 'mono' && !this.monoPassagesOn()) this.retry = null;
     this.variantQueue = (resumed?.variantQueue ?? []).map((v) => this.replace(v)).filter(Boolean);
     // A resumed sitting re-opens its block rather than carrying one: the
     // prime is a call, and a call starts on the note under the hand, so the
@@ -2148,6 +2156,7 @@ export class Drill {
     const kinds = [];
     for (let l = 0; l <= level; l += 1) {
       if (l > 0 && l < level && !this.polyKindAvailable(POLY_KINDS[l])) continue; // a rung with no source is stepped over
+      if (l === 0 && !this.monoPassagesOn()) continue;
       kinds.push({ kind: POLY_KINDS[l], w: 1 });
     }
     // weighted order without replacement
@@ -2164,6 +2173,11 @@ export class Drill {
       order.push(pool.splice(i, 1)[0].kind);
     }
     return order;
+  }
+
+  /** Single-line passages are served (MONO_PASSAGES_BEFORE_DUO): always, or from two voices up. */
+  monoPassagesOn() {
+    return MONO_PASSAGES_BEFORE_DUO || (this.polyState?.level || 0) > 0;
   }
 
   /** The tier ladder's ceiling on passage length for a kind. */
@@ -2241,6 +2255,11 @@ export class Drill {
   /** Log the cadence at session start and whenever it moves (no sound: what is asked changes). */
   noteCadence() {
     if (!this.phrases) return;
+    if (this.passageKinds().length === 0) {
+      if (this.passageN !== 0) this.log('  passages: none until two voices are earned (MONO_PASSAGES_BEFORE_DUO)');
+      this.passageN = 0;
+      return;
+    }
     const { n, secure } = this.passageCadence();
     if (n === this.passageN) return;
     const first = this.passageN === null;
@@ -2547,6 +2566,7 @@ export class Drill {
         return this.intervalQuestion('remediation', target);
       }
     }
+    if (!this.monoPassagesOn()) this.variantQueue = this.variantQueue.filter((v) => v.kind !== 'mono');
     if (this.variantQueue.length > 0 && this.variantQueue[0].block < this.blockN) {
       const v = this.variantQueue.shift();
       const q = this.variantQuestion(v);
@@ -3758,7 +3778,10 @@ export class Drill {
     // notes he was just handed (a correction) or a placing whose passage is
     // still waiting behind it.
     const played = this.groups.some((g) => g.notes.some((e) => e.played !== null));
-    if (ms >= this.wrap.afterMs + this.wrap.graceMs && played && !q.correction && !q.placing) return `${mins} minutes: ended on a correct answer`;
+    // No passages to end on (MONO_PASSAGES_BEFORE_DUO): the grace is for a
+    // clean phrase that cannot come, so the 20 minutes end on a correct answer.
+    const grace = this.passageKinds().length === 0 ? 0 : this.wrap.graceMs;
+    if (ms >= this.wrap.afterMs + grace && played && !q.correction && !q.placing) return `${mins} minutes: ended on a correct answer`;
     return null;
   }
 

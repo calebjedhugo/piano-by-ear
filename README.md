@@ -79,6 +79,9 @@ Everything adapts:
   of the keyboard, and every third question is an echo game: the drill goes
   quiet, you make up two or three notes, and it asks for them straight
   back — your own figure becomes the call.
+- **No single-line passages until two voices are earned**: before then
+  the drill is single intervals, two-note chords, interval-and-step figures
+  and the key walks.
 - **When you get a passage** follows how many intervals you have down cold
   (right and quick): one passage per four interval/dyad/chord questions
   while you are learning them, down to one per question once nearly all

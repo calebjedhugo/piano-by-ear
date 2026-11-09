@@ -919,6 +919,24 @@ comes up.
   clean step: 91% of notes right inside the walk (target >= 80%), next cold
   asking clean 31% (n=35) vs 12% before -- memory for one phrase, not the ear.
   Order in makeQuestion: round, WINDOW, CORRECTION, REWORK, retry.
+  **NO SINGLE-LINE PASSAGES BEFORE TWO VOICES (2026-11-09,
+  `MONO_PASSAGES_BEFORE_DUO` = false, `monoPassagesOn`).** At polyphony level
+  0 `passageKinds` is empty: no passages, so no variants, retries, windows,
+  corrections or their re-anchors (carried mono retries/variants are dropped);
+  the slot falls through to the plain question; the cadence log says
+  "passages: none until two voices are earned"; and the 20-minute WRAP has no
+  grace (no clean phrase can come), so it ends on the next correct answer.
+  From level 1 everything is as before, mono at its equal share. Why: since
+  beat-first (11-05) the passage family was 49% of his sitting time (passages
+  20%, variants 12%, retries 7%, re-anchors 7%, corrections 2%), single
+  intervals 23%, dyads 7%, while in-phrase accuracy sat flat since October
+  (steps ~80%, leaps 56-69%) and single intervals and dyads moved. Caleb: "I'm
+  mostly trying to find a way to get through learning the rudimentary skill of
+  simply playing single intervals as quickly as possible." He may reverse it:
+  flip the constant. EXPECT the overall score to fall from ~80% toward the
+  60s (passages were the easy material that held it there) -- he declined the
+  easier mix-in for now. A 3-note figure drill was built and dropped the same
+  day (too big a change at once).
   **PASSAGE SHARE FOLLOWS MASTERY (2026-10-27, `CADENCE`, `passageCadence`,
   `elements`).** A first-asked passage is due after N ELEMENT QUESTIONS since
   the last one, N = clamp(round(4 - 3f), 1, 4), f = secure (`isSecure`) of
