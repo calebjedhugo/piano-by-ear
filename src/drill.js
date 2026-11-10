@@ -1817,10 +1817,26 @@ export class Drill {
     return (rung === 2 ? this.departingDyad(kind, span) : null) ?? this.containingDyad(kind, span);
   }
 
+  /**
+   * DYADS ABOVE THE MIDDLE BUILD DOWN (2026-11-10), as chords have since
+   * 10-17. The anchor after a dyad is the top note he played, so a dyad built
+   * up moves the hand up by its span and one built down leaves it where it
+   * was: dyads could only climb. Since 11-09 (no passages) 194 of 199 dyads
+   * that moved the anchor moved it up, +4.6 semitones a dyad, ~1,500 in all,
+   * against gestures' -830; sittings ran F3 -> F#4 on average, and a short one
+   * on the other Mac went A1 -> C#6 in 22 questions. Above the middle of the
+   * keyboard a dyad now keeps the anchor on top when that fits; below it, as
+   * before (either way). `true` = the candidate does not take the hand up.
+   */
+  dyadStaysDown(a) {
+    return a > (this.lo + this.hi) / 2;
+  }
+
   /** Rung 1: the anchor and one note a span away, above or below it. */
   containingDyad(kind, span) {
     const a = this.anchor;
-    const cands = [a + span, a - span].filter((m) => this.dyadNoteOk(m)).map((m) => ({ m, w: this.dyadLean(m) }));
+    let cands = [a + span, a - span].filter((m) => this.dyadNoteOk(m)).map((m) => ({ m, w: this.dyadLean(m) }));
+    if (this.dyadStaysDown(a) && cands.some((c) => c.m < a)) cands = cands.filter((c) => c.m < a);
     const pick = this.pickWeighted(cands);
     if (!pick) return null;
     return this.pairNotes(kind, a, a, a, pick.m, 'departure');
@@ -1842,7 +1858,8 @@ export class Drill {
       const w = this.engine.weight(d1, ai, now, null) * this.engine.weight(d2, ai, now, null) * this.dyadLean(lo) * this.dyadLean(hi);
       cands.push({ lo, hi, w });
     }
-    const pick = this.pickWeighted(cands);
+    const stay = cands.filter((c) => c.hi <= a);
+    const pick = this.pickWeighted(this.dyadStaysDown(a) && stay.length ? stay : cands);
     if (!pick) return null;
     return this.pairNotes(kind, a, a, pick.lo, pick.hi, 'departure');
   }

@@ -294,6 +294,12 @@ size's own WIDE record is secure (n >= 3, acc >= 0.9, reflex >= 0.8) --
 newest only, as on the melodic ladders (15 waits on 13, not on the M9).
 RATCHETS, never closes; logged "wide two-note chord opened: 15 (3 of 12)".
 Placings feed the same records, so they can open a size too.
+**DYADS ABOVE THE MIDDLE BUILD DOWN (2026-11-10, `dyadStaysDown`)**, as
+chords have since 10-17: the anchor after a dyad is the top note played, so
+dyads could only move the hand up (since 11-09, 194 of 199 moves up, +4.6
+semitones each, ~1,500 in all vs gestures' -830; a short sitting went A1 ->
+C#6 in 22 questions). Above (lo+hi)/2, rungs 1 and 2 pick a shape whose top
+is the anchor or below when one fits; below the middle, unchanged.
 **CLOSE DYADS FIRST (2026-10-31, `dyadSlot`, `MASTERED_SPAN_LEAN`).** No wide
 ask at all until a triad has opened (its spans mastered as dyads), and a
 close span already mastered is drawn at 0.25 weight. Since 10-27 a third of
