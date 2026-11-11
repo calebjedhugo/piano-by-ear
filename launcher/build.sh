@@ -16,6 +16,11 @@ for s in 16 32 128 256 512; do
   d=$((s*2)); sips -z $d $d "$TMP/icon.png" --out "$TMP/icon.iconset/icon_${s}x${s}@2x.png" >/dev/null
 done
 iconutil -c icns "$TMP/icon.iconset" -o "$APP/Contents/Resources/applet.icns"
+# osacompile on macOS 27 also writes an Assets.car holding the stock script
+# icon and points CFBundleIconName at it, which outranks applet.icns. Drop both
+# or the piano never shows.
+rm -f "$APP/Contents/Resources/Assets.car"
+/usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$APP/Contents/Info.plist" 2>/dev/null || true
 codesign --force --deep --sign - "$APP" 2>/dev/null || true  # re-seal after swapping the icon
 touch "$APP"
 rm -rf "$TMP"
