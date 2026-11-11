@@ -106,6 +106,8 @@ const CONFUSION_HALF_LIFE_MS = 20 * 60 * 60 * 1000;
 // played back like every other: nothing here is listen-only.
 const FOCUS_TRIALS = 30; // persists in state, so it spans sittings; Little et al. needed ~1000 trials over days
 const FOCUS_SHARE = 0.5;
+// A focus ask may end this far from home even when it moves away from it (see nextTargetIndex).
+const FOCUS_HOME_REACH = 9;
 const FOCUS_EXPOSE_EVERY = 6; // exposure recurs: a both-of-them call every this many pair trials
 const FOCUS_DONE_WINDOW = 8; // close early once the last N pair trials are this accurate
 const FOCUS_DONE_ACC = 0.85;
@@ -418,13 +420,28 @@ export class AdaptiveEngine {
    * further out it is, the more a move back toward the center is favored
    * and a move further out is discouraged (x2 / x0.33 two octaves out).
    */
+  /**
+   * THE HOME REGISTER (2026-11-10): the index the walk is pulled toward. The
+   * drill sets it to the note a sitting starts on (`setHome`); null = the
+   * middle of the keyboard, as before.
+   */
+  setHome(index) {
+    this.home = index;
+  }
+
   centerPull(fromIndex, toIndex) {
-    const center = this.range / 2;
+    const center = this.home ?? this.range / 2;
     const dist = Math.abs(fromIndex - center);
     const inward = Math.abs(toIndex - center) < dist;
     // Past an octave and a half out, the pull is steep: on 88 keys the gentle
     // slope let the walk reach C7 and C2.
     if (dist > 18) return inward ? 3 : 0.15;
+    // PAST HALF AN OCTAVE IT ALREADY PULLS (2026-11-10). The slope used to be
+    // gentle all the way to 18, so the hand wandered anywhere inside an
+    // octave and a half either side (B4..F#5 for a whole sitting on E4's
+    // keyboard, out of his left hand's reach). Now 6..18 ramps from even to
+    // the edge's 3 / 0.15.
+    if (dist > 6) return inward ? 1 + (2 * (dist - 6)) / 12 : Math.max(0.15, 1 - (0.85 * (dist - 6)) / 12);
     return inward ? 1 + dist / 24 : Math.max(0.3, 1 - dist / 36);
   }
 
@@ -515,7 +532,16 @@ export class AdaptiveEngine {
       // key. When neither direction fits the key, the focus is not served at
       // all this time (and no trial is spent) -- the pool below is filtered.
       const ok = (iv) => this.feasible(anchorIndex, iv) && allowed(anchorIndex + iv);
-      const iv = ok(pick) ? pick : ok(-pick) ? -pick : null;
+      const dir = ok(pick) ? pick : ok(-pick) ? -pick : null;
+      // NOT AWAY FROM HOME (2026-11-10). Served in its own direction, a
+      // rising pair (+8/+9) climbed every time it came up -- 7 of 10 up in his
+      // first sitting with the home register, 8-9 semitones each, and in the
+      // sim it carried an A2 start to Bb4 within a dozen questions. Now it is
+      // served only where it does not end farther from home than it started,
+      // or ends within FOCUS_HOME_REACH of it; otherwise not this time, and no
+      // trial is spent (the key gate's rule above).
+      const center = this.home ?? this.range / 2;
+      const iv = dir !== null && Math.abs(anchorIndex + dir - center) <= Math.max(Math.abs(anchorIndex - center), FOCUS_HOME_REACH) ? dir : null;
       if (iv !== null) {
         f.left -= 1;
         f.served = (f.served || 0) + 1;

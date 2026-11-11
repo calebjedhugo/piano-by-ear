@@ -1007,6 +1007,16 @@ export class Drill {
     this.askedThisSession = new Set(resumed?.asked ?? []);
     this.anchor = anchor;
     this.prevAnchor = null;
+    // THE NOTE A SITTING STARTS ON IS HOME (2026-11-10, Caleb: "I'd like to use
+    // my left hand mostly, but it's so far up the board it's not feasible").
+    // The walk centred on the keyboard's middle (E4 on 88 keys) and drifted
+    // into the right hand's register; now every pull toward the middle --
+    // engine.centerPull, dyads and chords building down, a gesture's step --
+    // pulls toward this note instead. Start low and the left hand keeps the
+    // sitting. The stage window (stage.js) still bounds everything.
+    this.home = anchor;
+    this.engine.setHome(this.idx(anchor));
+    this.harmonic.setHome(this.idx(anchor));
     // TWO ANCHORS, after a dyad in which both notes were struck: [lower,
     // upper], what he PLAYED (the hand is where the hand is). Null after any
     // single-line answer -- the anchor is a monophonic idea and collapses to
@@ -1076,7 +1086,7 @@ export class Drill {
 
   /** The keyboard window questions live in (a stage below exact stays near the middle). */
   get win() {
-    return this.stage.window(this.lo, this.hi);
+    return this.stage.window(this.lo, this.hi, this.home ?? null);
   }
 
   /** Rebuild a carried retry/variant's placement from the bank; null if the phrase is gone or no longer fits. */
@@ -1195,7 +1205,7 @@ export class Drill {
    */
   gestureQuestion(target) {
     const k = this.block.key;
-    const mid = (this.lo + this.hi) / 2;
+    const mid = this.homeMidi();
     const step = diatonicStep(target, k, mid, this.lo, this.hi);
     const notes = [{ midi: this.anchor, b: -1, dur: 1, voice: 0, free: true, silent: true }, { midi: target, b: 0, dur: 1, voice: 0 }];
     if (step !== null) notes.push({ midi: step, b: 1, dur: 2, voice: 0 });
@@ -1829,7 +1839,12 @@ export class Drill {
    * before (either way). `true` = the candidate does not take the hand up.
    */
   dyadStaysDown(a) {
-    return a > (this.lo + this.hi) / 2;
+    return a > this.homeMidi();
+  }
+
+  /** Where the walk is pulled to: the note the sitting started on (THE HOME), else the keyboard's middle. */
+  homeMidi() {
+    return this.home ?? (this.lo + this.hi) / 2;
   }
 
   /** Rung 1: the anchor and one note a span away, above or below it. */
@@ -1917,7 +1932,7 @@ export class Drill {
     const a = this.anchor;
     const fitsUp = open.filter((s) => a + s[s.length - 1] <= this.hi);
     const fitsDown = open.filter((s) => a - s[s.length - 1] >= this.lo);
-    const down = a > (this.lo + this.hi) / 2 ? fitsDown.length > 0 : fitsUp.length === 0;
+    const down = a > this.homeMidi() ? fitsDown.length > 0 : fitsUp.length === 0;
     const fits = down ? fitsDown : fitsUp;
     if (fits.length === 0) return null;
     const shape = fits[Math.floor(Math.random() * fits.length)];
@@ -4069,7 +4084,7 @@ export class Drill {
       // does (where every other question lives), else anywhere on the keys.
       const w = this.win;
       const inWin = (s) => s >= w.lo && s <= w.hi && s + it.iv >= w.lo && s + it.iv <= w.hi;
-      const mid = (this.lo + this.hi) / 2;
+      const mid = this.homeMidi();
       for (const want of [(s) => ok(s) && inWin(s), ok]) {
         for (let d = 1; d <= this.hi - this.lo && start === null; d += 1) {
           // inward first: of two at the same distance, the one toward the middle

@@ -1236,7 +1236,25 @@ comes up.
   interval, and the label says `first note +N from X` (not on retries).
   VARIANT in the relative key of the original placement is no transposition
   (same pitch set): it falls through to the +-2/3 step; the label names the
-  sounding key. ANCHOR WALK: `Stage.window()` is EXACT_WINDOW_SEMITONES (40)
+  sounding key. THE NOTE A SITTING STARTS ON IS HOME (2026-11-10, `this.home`,
+  `homeMidi`, `engine.setHome`). Caleb: "I'd like to use my left hand mostly,
+  but it's so far up the board it's not feasible for most of the session."
+  Every pull that used the keyboard's middle now uses the sitting's first
+  note: `engine.centerPull` (melodic and harmonic), the stage window (centred
+  on home, SLID not cut to stay on the keys -- centred on the middle it was
+  Ab2..C#6, so an A2 start had no room below and every interval went up),
+  dyads and chords building down above it, a gesture's step, a rework's
+  inward search. centerPull now ramps from even at 6 semitones out to the
+  edge's 3 / 0.15 at 18 (was gentle all the way to 18: the hand wandered
+  B4..F#5 for a whole sitting). The confusion FOCUS ask is served only where
+  it does not end farther from home than it started, or within
+  FOCUS_HOME_REACH (9) of it -- a rising pair (+8/+9) otherwise climbed every
+  time (7 of 10 up in his sitting). Sim, sloppy, 120 q: start A2 median B2-C#3,
+  83-93% of anchors within an octave (old code D4-C#5, 12-35%); start D4
+  median G4-A4, ~80% (old F#4-D5, 56-71%) -- a residual upward lean from the
+  single intervals remains at a mid start. A resumed burst takes the note it
+  resumes on.
+  ANCHOR WALK: `Stage.window()` is EXACT_WINDOW_SEMITONES (40)
   around the middle even at the top, and `engine.centerPull` is steep past
   18 semitones out (x3 / x0.15): the walk reached C7 and C2 on 88 keys.
   `attempts.behind` stores the response-start lag (beats) on every row of a

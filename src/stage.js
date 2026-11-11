@@ -117,11 +117,18 @@ export class Stage {
     return TIMEOUT_MS[this.current];
   }
 
-  /** The keyboard window questions stay inside, for the lower stages. */
-  window(lo, hi) {
+  /**
+   * The keyboard window questions stay inside, centred on `center` (the
+   * sitting's HOME, drill.js; default the keyboard's middle) and slid, not
+   * cut, to stay on the keys. Centred on the middle it sat at Ab2..C#6 on 88
+   * keys, so a sitting begun on A2 had no room below it and every interval
+   * went up (2026-11-10).
+   */
+  window(lo, hi, center = null) {
     const span = this.current === 'exact' ? EXACT_WINDOW_SEMITONES : WINDOW_SEMITONES;
-    const mid = Math.round((lo + hi) / 2);
+    const mid = Math.round(center ?? (lo + hi) / 2);
     const half = Math.floor(span / 2);
-    return { lo: Math.max(lo, mid - half), hi: Math.min(hi, mid + span - half) };
+    const wlo = Math.max(lo, Math.min(mid - half, hi - span));
+    return { lo: wlo, hi: Math.min(hi, wlo + span) };
   }
 }
