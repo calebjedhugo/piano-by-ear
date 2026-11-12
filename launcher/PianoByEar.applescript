@@ -44,12 +44,15 @@ on toggleSound(mode)
 	startAs(mode)
 end toggleSound
 
+-- Backgrounded: start sleeps ~6s (stop, then waiting on node), and the app
+-- beachballs if it waits that out. The notification lands a few seconds
+-- before the drill is actually up.
 on startAs(mode)
 	if mode is "free" then
-		sh(quoted form of pbe & " start free >/dev/null 2>&1")
+		sh(quoted form of pbe & " start free >/dev/null 2>&1 &")
 		display notification "Free play: nothing is graded or recorded." with title "Piano by Ear"
 	else
-		sh(quoted form of pbe & " start >/dev/null 2>&1")
+		sh(quoted form of pbe & " start >/dev/null 2>&1 &")
 		display notification "Running. Play your chord to open your profile." with title "Piano by Ear"
 	end if
 end startAs
