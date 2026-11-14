@@ -1016,9 +1016,16 @@ export class Drill {
     // engine.centerPull, dyads and chords building down, a gesture's step --
     // pulls toward this note instead. Start low and the left hand keeps the
     // sitting. The stage window (stage.js) still bounds everything.
-    this.home = anchor;
-    this.engine.setHome(this.idx(anchor));
-    this.harmonic.setHome(this.idx(anchor));
+    // HOME CARRIES WITH THE WRAP CLOCK (2026-11-13, Caleb): a session restarted
+    // on the session-over clicks (the 4-beat end, before duos) keeps the
+    // sitting's home. It used to take the note he happened to be on, so one
+    // low ending re-homed the rest of the sitting there (11-13 22:02: F3 ->
+    // C#2 -> F#2 -> F1, ten minutes at the bottom). New home only when the
+    // profile opens or the clock itself ended the session (`clockCarry`).
+    const keepHome = this.clockCarry != null && this.home != null;
+    if (!keepHome) this.home = anchor;
+    this.engine.setHome(this.idx(this.home));
+    this.harmonic.setHome(this.idx(this.home));
     // TWO ANCHORS, after a dyad in which both notes were struck: [lower,
     // upper], what he PLAYED (the hand is where the hand is). Null after any
     // single-line answer -- the anchor is a monophonic idea and collapses to
@@ -1042,7 +1049,7 @@ export class Drill {
     this.state = 'QUESTION';
     const level = this.polyState.level;
     const dyads = this.dyadsOpen();
-    this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms)${this.intervalTempoOn() ? `, interval pulse ${this.intervalBpm} bpm` : ''}, tiers ${this.engine.state.tiersUnlocked}${this.engine.state.compoundTiers ? ` (+${this.engine.state.compoundTiers} compound)` : ''}${dyads ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, ${dyads ? `dyads and ${this.openChordShapes().length || 'no'} chord shape${this.openChordShapes().length === 1 ? '' : 's'}, ` : ''}passages ${LEVEL_NAMES[level]}${this.polyState.short ? ' (held short)' : ''}, stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}${clockMin ? `, clock continues at ${clockMin.toFixed(1)} min` : ''}`);
+    this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms)${this.intervalTempoOn() ? `, interval pulse ${this.intervalBpm} bpm` : ''}, tiers ${this.engine.state.tiersUnlocked}${this.engine.state.compoundTiers ? ` (+${this.engine.state.compoundTiers} compound)` : ''}${dyads ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, ${dyads ? `dyads and ${this.openChordShapes().length || 'no'} chord shape${this.openChordShapes().length === 1 ? '' : 's'}, ` : ''}passages ${LEVEL_NAMES[level]}${this.polyState.short ? ' (held short)' : ''}, stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}${clockMin ? `, clock continues at ${clockMin.toFixed(1)} min` : ''}${keepHome ? `, home stays ${name(this.home)}` : ''}`);
     this.passageN = null;
     this.noteCadence();
 

@@ -1258,7 +1258,11 @@ comes up.
   VARIANT in the relative key of the original placement is no transposition
   (same pitch set): it falls through to the +-2/3 step; the label names the
   sounding key. THE NOTE A SITTING STARTS ON IS HOME (2026-11-10, `this.home`,
-  `homeMidi`, `engine.setHome`). Caleb: "I'd like to use my left hand mostly,
+  `homeMidi`, `engine.setHome`). Since 2026-11-13 home CARRIES WITH THE WRAP
+  CLOCK (`clockCarry`): a session restarted on the session-over clicks keeps
+  it, logged "home stays X" (before, each 4-beat restart re-homed on the note
+  he was on: 11-13 22:02 went F3 -> C#2 -> F#2 -> F1, ten minutes at the
+  bottom). New home only on a profile open or after the WRAP ended a session. Caleb: "I'd like to use my left hand mostly,
   but it's so far up the board it's not feasible for most of the session."
   Every pull that used the keyboard's middle now uses the sitting's first
   note: `engine.centerPull` (melodic and harmonic), the stage window (centred
