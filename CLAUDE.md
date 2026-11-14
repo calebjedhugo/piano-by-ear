@@ -294,6 +294,16 @@ size's own WIDE record is secure (n >= 3, acc >= 0.9, reflex >= 0.8) --
 newest only, as on the melodic ladders (15 waits on 13, not on the M9).
 RATCHETS, never closes; logged "wide two-note chord opened: 15 (3 of 12)".
 Placings feed the same records, so they can open a size too.
+**EVERY QUESTION NOTE IS ONE BEAT (2026-11-13, Caleb's call).** Dyads,
+placings, place-hand, chords, harmonic exposure pairs (now on beats 0 and 1,
+was 0 and 2), the gesture's step and the correction's last note were written
+2 beats (since polyphony, no recorded reason); all are `dur: 1` now, as an
+interval always was. Why it matters: the earliest answer is one beat after
+the call's first onset, so a 2-beat chord was still sounding when he could
+answer. Passages keep their written rhythm (half-note cap) -- that is the
+musical reason to hold. Hold short = under half a beat now (reported only).
+`after_call` for these kinds reads ~1 beat later than before 11-13 (it counts
+from the call's last release); `behind`/reflex is unaffected.
 **DYADS ABOVE THE MIDDLE BUILD DOWN (2026-11-10, `dyadStaysDown`)**, as
 chords have since 10-17: the anchor after a dyad is the top note played, so
 dyads could only move the hand up (since 11-09, 194 of 199 moves up, +4.6

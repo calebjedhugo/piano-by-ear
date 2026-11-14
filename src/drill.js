@@ -1208,7 +1208,7 @@ export class Drill {
     const mid = this.homeMidi();
     const step = diatonicStep(target, k, mid, this.lo, this.hi);
     const notes = [{ midi: this.anchor, b: -1, dur: 1, voice: 0, free: true, silent: true }, { midi: target, b: 0, dur: 1, voice: 0 }];
-    if (step !== null) notes.push({ midi: step, b: 1, dur: 2, voice: 0 });
+    if (step !== null) notes.push({ midi: step, b: 1, dur: 1, voice: 0 });
     const tail = step === null ? '' : ` ${signed(step - target)}`;
     return {
       kind: 'gesture',
@@ -1249,8 +1249,8 @@ export class Drill {
       keepAnchor: true,
       optionalAnchor: true,
       notes: [
-        { midi: lo, b: 0, dur: 2, voice: 0, from: a, unison: lo === a },
-        { midi: hi, b: 0, dur: 2, voice: 1, from: a, unison: hi === a },
+        { midi: lo, b: 0, dur: 1, voice: 0, from: a, unison: lo === a },
+        { midi: hi, b: 0, dur: 1, voice: 1, from: a, unison: hi === a },
       ],
       meter: 4,
       label: `placing: ${name(a)} + ? (${signed(target - a)} together, keep ${name(a)}) -- the other hand's first note`,
@@ -1283,7 +1283,7 @@ export class Drill {
       placing: true,
       keepAnchor: true,
       handsAfter: [Math.min(a, p.target), Math.max(a, p.target)],
-      notes: [{ midi: p.target, b: 0, dur: 2, voice: 0, from: a }],
+      notes: [{ midi: p.target, b: 0, dur: 1, voice: 0, from: a }],
       meter: 4,
       label: `place hand: ${name(p.target)} (keep ${name(a)}) -- the other hand's first note`,
     };
@@ -1544,8 +1544,8 @@ export class Drill {
   pairNotes(kind, fromLo, fromHi, lo, hi, regime) {
     if (lo > hi) { [lo, hi] = [hi, lo]; [fromLo, fromHi] = [fromHi, fromLo]; }
     const notes = [
-      { midi: lo, b: 0, dur: 2, voice: 0, from: fromLo, unison: lo === fromLo },
-      { midi: hi, b: 0, dur: 2, voice: 1, from: fromHi, unison: hi === fromHi },
+      { midi: lo, b: 0, dur: 1, voice: 0, from: fromLo, unison: lo === fromLo },
+      { midi: hi, b: 0, dur: 1, voice: 1, from: fromHi, unison: hi === fromHi },
     ];
     const contains = notes.some((n) => n.unison);
     let label;
@@ -1936,11 +1936,11 @@ export class Drill {
     const fits = down ? fitsDown : fitsUp;
     if (fits.length === 0) return null;
     const shape = fits[Math.floor(Math.random() * fits.length)];
-    const notes = [{ midi: a, b: 0, dur: 2, voice: 0, free: true }];
+    const notes = [{ midi: a, b: 0, dur: 1, voice: 0, free: true }];
     // Each voice is framed for the harmonic engine as it is graded (gradeNote),
     // at passage scope: a chord tone is heard in a chord, not probed alone.
     if (!down) {
-      shape.forEach((iv, i) => notes.push({ midi: a + iv, b: 0, dur: 2, voice: i + 1 }));
+      shape.forEach((iv, i) => notes.push({ midi: a + iv, b: 0, dur: 1, voice: i + 1 }));
       return { kind: 'chord', dyad: true, chord: true, chordTones: shape.length, optionalAnchor: true, notes, meter: 4, label: `chord: ${name(a)} + ${shape.map((iv) => `+${iv}`).join(' ')} together` };
     }
     // The held note is no longer the group's bass, so name it as its own
@@ -1948,7 +1948,7 @@ export class Drill {
     notes[0].harmonicRef = a;
     const bass = a - shape[shape.length - 1];
     const below = [0, ...shape.slice(0, -1)].map((iv) => bass + iv - a); // below the held note, lowest first
-    below.forEach((d, i) => notes.push({ midi: a + d, b: 0, dur: 2, voice: i + 1, harmonicRef: a }));
+    below.forEach((d, i) => notes.push({ midi: a + d, b: 0, dur: 1, voice: i + 1, harmonicRef: a }));
     return { kind: 'chord', dyad: true, chord: true, chordTones: shape.length, optionalAnchor: true, notes, meter: 4, label: `chord: ${name(a)} + ${below.map((d) => signed(d)).join(' ')} together (${name(a)} on top)` };
   }
 
@@ -2082,8 +2082,8 @@ export class Drill {
     // the note it was just on. buildGroups frames voice 1 from its previous
     // note on its own; the common tones are marked so they are graded.
     if (harmonic) ivs.forEach((iv, i) => notes.push(
-      { midi: a, b: i * 2, dur: 2, voice: 0, unison: true, from: a, regime: i === 0 ? 'departure' : 'twohand' },
-      { midi: a + iv, b: i * 2, dur: 2, voice: 1, from: i === 0 ? a : undefined, regime: i === 0 ? 'departure' : 'twohand' },
+      { midi: a, b: i, dur: 1, voice: 0, unison: true, from: a, regime: i === 0 ? 'departure' : 'twohand' },
+      { midi: a + iv, b: i, dur: 1, voice: 1, from: i === 0 ? a : undefined, regime: i === 0 ? 'departure' : 'twohand' },
     ));
     else ivs.forEach((iv, i) => notes.push({ midi: a, b: i * 2, dur: 1, voice: 0, free: i === 0 }, { midi: a + iv, b: i * 2 + 1, dur: 1, voice: 0 }));
     return {
@@ -2123,7 +2123,7 @@ export class Drill {
    * (the passage that spawned it already did).
    */
   correctionQuestion(c) {
-    const notes = c.notes.map((midi, i) => ({ midi, b: i, dur: i === c.notes.length - 1 ? 2 : 1, voice: 0 }));
+    const notes = c.notes.map((midi, i) => ({ midi, b: i, dur: 1, voice: 0 }));
     return {
       kind: 'correction',
       correction: true,
