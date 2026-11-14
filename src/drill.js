@@ -374,8 +374,9 @@ const ANSWER_START_BEATS = 4;
 // on the next phrase played pitch-clean (a first asking, a retry or a
 // variant), before its judgment window; past `afterMs + graceMs` on the next
 // correct answer of any kind, so a player who never gets a phrase clean is
-// not held there. The clock is per SESSION: playing the chord again starts
-// another twenty minutes. How a session ends is most of how it is remembered
+// not held there. The clock runs until the PROFILE closes (2026-11-13): a note
+// on the session-over clicks plays on without restarting it; playing the
+// chord again starts another twenty minutes. How a session ends is most of how it is remembered
 // (Kahneman et al. 1993, peak-end), and remembered is what brings someone
 // back. The ending sound is the end-of-session clicks, as always: no cue.
 export const WRAP = { afterMs: 20 * 60e3, graceMs: 5 * 60e3 };
@@ -672,6 +673,7 @@ export class Drill {
     this.bpmOverride = bpmOverride;
     this.onSessionEnd = onSessionEnd;
     this.wrap = wrap;
+    this.clockCarry = null; // the WRAP clock of a session that ended while the profile stayed open
     this.polyStore = db.kv('poly');
     this.lenStore = db.kv('passageLen');
     this.carryStore = db.kv('carry');
@@ -1027,12 +1029,20 @@ export class Drill {
     this.prevSonority = null; // { question, spanExpected, spanPlayed } -- so a resolution reads as one
     this.lastInputAt = performance.now();
     this.lastPlayedAt = this.audio.now;
-    this.sessionStartedAt = performance.now(); // the WRAP clock
+    // THE WRAP CLOCK RUNS UNTIL THE PROFILE CLOSES (2026-11-13, Caleb). A
+    // note on the session-over clicks keeps the profile open and starts a new
+    // session, which used to restart the 20 minutes (11-11 16.8 min + 20.2,
+    // 11-12 17.8 + 1.5). A Drill lives exactly as long as its open profile
+    // (main.js openProfile), so `clockCarry` cannot outlive a close. A session
+    // the clock itself ended starts a fresh 20 if he plays on.
+    this.sessionStartedAt = this.clockCarry ?? performance.now();
+    const clockMin = this.clockCarry ? (performance.now() - this.clockCarry) / 60e3 : 0;
+    this.clockCarry = null;
     this.syncClock(1);
     this.state = 'QUESTION';
     const level = this.polyState.level;
     const dyads = this.dyadsOpen();
-    this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms)${this.intervalTempoOn() ? `, interval pulse ${this.intervalBpm} bpm` : ''}, tiers ${this.engine.state.tiersUnlocked}${this.engine.state.compoundTiers ? ` (+${this.engine.state.compoundTiers} compound)` : ''}${dyads ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, ${dyads ? `dyads and ${this.openChordShapes().length || 'no'} chord shape${this.openChordShapes().length === 1 ? '' : 's'}, ` : ''}passages ${LEVEL_NAMES[level]}${this.polyState.short ? ' (held short)' : ''}, stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}`);
+    this.log(`session started${resumed ? ' (resuming the sitting)' : ''}: anchor ${name(anchor)}, range ${this.lo}..${this.hi}, tempo per excerpt (shortest note ${Math.round(this.floorSec * 1000)}ms)${this.intervalTempoOn() ? `, interval pulse ${this.intervalBpm} bpm` : ''}, tiers ${this.engine.state.tiersUnlocked}${this.engine.state.compoundTiers ? ` (+${this.engine.state.compoundTiers} compound)` : ''}${dyads ? `/${this.harmonic.state.tiersUnlocked} harmonic` : ''}, ${dyads ? `dyads and ${this.openChordShapes().length || 'no'} chord shape${this.openChordShapes().length === 1 ? '' : 's'}, ` : ''}passages ${LEVEL_NAMES[level]}${this.polyState.short ? ' (held short)' : ''}, stage ${this.stage.current}${this.block ? `, key ${keyName(this.block.key)}` : ''}${clockMin ? `, clock continues at ${clockMin.toFixed(1)} min` : ''}`);
     this.passageN = null;
     this.noteCadence();
 
@@ -1050,6 +1060,7 @@ export class Drill {
   endSession(reason, { silent = false } = {}) {
     clearInterval(this.ticker);
     this.ticker = null;
+    this.clockCarry = this.sessionStartedAt; // WRAP clears it: see startSession
     this.db.endSession(this.sessionId, { questions: this.questions, passages: this.passagesDone });
     // What a burst a few minutes from now picks up again.
     const slim = (x) => x && { ...x, placed: x.placed && { id: x.placed.phrase.id, kind: x.placed.phrase.kind, shift: x.placed.shift, key: x.placed.key ?? null, octave: x.placed.octave } };
@@ -3850,6 +3861,7 @@ export class Drill {
     }
     if (wrap) {
       this.endSession(wrap);
+      this.clockCarry = null; // the clock ended it: playing on starts a fresh 20 minutes
       return;
     }
     this.nextQ = this.makeQuestion();

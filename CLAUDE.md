@@ -110,7 +110,11 @@ instead, and pushes nothing, because nothing was played.
 
 **A SESSION ALSO ENDS ON ITS OWN, ON A SUCCESS** (2026-09-28, `WRAP`,
 `wrapReason`). Everyone who tried it asked for a clean way to stop. After 20
-minutes (per SESSION: the chord again starts another 20) it ends on the next
+minutes (per OPEN PROFILE since 2026-11-13, `clockCarry`: a note on the
+session-over clicks keeps the profile open and used to restart the 20 --
+11-11 16.8 + 20.2 min, 11-12 17.8 + 1.5; now it carries, logged "clock
+continues at N min". The chord again starts another 20, and so does playing
+on after the WRAP itself ended the session) it ends on the next
 pitch-clean phrase -- first asking, retry or variant -- BEFORE that phrase's
 judgment window; after 25, on the next correct answer he played (never a
 correction or a placing), so a player who never gets a phrase clean is not
