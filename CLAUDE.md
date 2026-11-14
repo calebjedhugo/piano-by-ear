@@ -271,9 +271,16 @@ were 9/9 while a melodic tenth is his weakest band); it is UNSIGNED now and
 opens at seconds AND thirds (`minTiers: 3` -- "start narrow like they have"
 was seconds only, and its ladder had never moved: 278 trials, zero tier
 changes, because plain dyads were built upward only and promotion waited for
-a `-w` that could never arrive). The departure distances are melodic
-intervals the melodic engine already rates and are NOT capped (09-12: a
-floor is never a target). Below DIATONIC_TIERS both notes sit in the key.
+a `-w` that could never arrive). Rung 2 and 3 departure distances (each
+hand's move on rung 3) are SIGNED intervals the melodic engine calls SECURE
+(2026-11-13, `secureDepartures`; were every OPEN width, drawn toward the
+weakest). On Fs3-Gs3-As3 the rung-2 share with an unsecured distance went
+14% -> 39% -> 58% over 11-11..13 as the octave and M6 opened; those scored
+~30% vs 76/67/44% for secure-only, and the rung fell. Rung 1's note is the
+span, already on the chord ladder, so a promotion added a second note AND
+unmastered distances at once. Nothing secure fits: rung 2 -> rung 1, rung 3
+skipped. Expect: secure-only rung 2 ran ~71% (above the 65% demote, short of
+85%), and mastered thirds still drop 85% -> 54-58% once both notes move. Below DIATONIC_TIERS both notes sit in the key.
 "Hand" is VOICE BY REGISTER: MIDI carries no hand.
 
 A WIDE DYAD IS ASKED BEFORE IT IS NEEDED (2026-09-24, `DYAD_WIDE_RATE`).

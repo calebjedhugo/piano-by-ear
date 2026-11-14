@@ -1528,9 +1528,10 @@ export class Drill {
    * The harmonic SPAN (the dyad's own width, unfolded -- a tenth is not a
    * third; wide cold dyads were 9/9 while a melodic tenth is his weakest
    * band) is chosen by the harmonic engine's ladder, which opens at seconds
-   * and thirds. The DEPARTURE distances are melodic intervals and are not
-   * capped: the melodic engine already rates them, and capping a floor is the
-   * 09-12 mistake. Below DIATONIC_TIERS both notes sit in the block key.
+   * and thirds. The DEPARTURE distances on rungs 2 and 3 are melodic
+   * intervals the melodic engine calls secure (secureDepartures, 2026-11-13;
+   * they were every open width, so a rung jumped in difficulty whenever a
+   * new width opened). Below DIATONIC_TIERS both notes sit in the block key.
    *
    * This one (`dyadQuestion`) is the rung-1 shape on the anchor, kept for the
    * recovery walk's retry and transfer -- easy exemplars first, then the hard
@@ -1767,11 +1768,22 @@ export class Drill {
     this.rungStore.save(st);
   }
 
-  /** Signed departure distances the melodic ladder allows, plus the two steps (always). */
-  departureWidths() {
-    const w = new Set([1, 2]);
-    for (const x of TIER_WIDTHS.slice(0, this.engine.state.tiersUnlocked)) w.add(x);
-    return w;
+  /**
+   * SIGNED departure distances for rungs 2 and 3: only what the melodic engine
+   * calls SECURE (2026-11-13, Caleb). They used to be every OPEN width, drawn
+   * by the engine's weight -- which leans to the weakest -- so an octave or a
+   * sixth joined the moment it opened. On Fs3-Gs3-As3 the rung-2 share with an
+   * unsecured distance went 14% -> 39% -> 58% over 11-11..13, those scored
+   * ~30%, and the rung fell (rung 3, too, from 41%). Rung 1's one note is the
+   * harmonic span, already held to the chord ladder, so moving up a rung
+   * added a second note AND unmastered distances at once. Now it adds only the
+   * second note; an interval joins once it is secure as a single interval.
+   * None fits: rung 2 falls back to rung 1, rung 3 is skipped.
+   */
+  secureDepartures() {
+    const s = new Set();
+    for (const w of TIER_WIDTHS.slice(0, this.engine.state.tiersUnlocked)) for (const d of [w, -w]) if (this.engine.isSecure(d)) s.add(d);
+    return s;
   }
 
   /** May this note be a dyad note right now: on the keyboard, in the stage's window, and in the key while the level demands it. */
@@ -1857,16 +1869,16 @@ export class Drill {
     return this.pairNotes(kind, a, a, a, pick.m, 'departure');
   }
 
-  /** Rung 2: two notes a span apart, neither the anchor, both departures the melodic ladder allows. */
+  /** Rung 2: two notes a span apart, neither the anchor, both departures secure (secureDepartures). */
   departingDyad(kind, span) {
     const a = this.anchor;
     const ai = this.idx(a);
-    const widths = this.departureWidths();
+    const secure = this.secureDepartures();
     const now = Date.now();
     const cands = [];
-    for (const d1 of [...widths].flatMap((w) => [w, -w])) {
+    for (const d1 of secure) {
       const d2 = d1 + span;
-      if (d2 === 0 || !widths.has(Math.abs(d2))) continue;
+      if (d2 === 0 || !secure.has(d2)) continue;
       const lo = a + d1;
       const hi = a + d2;
       if (!this.dyadNoteOk(lo) || !this.dyadNoteOk(hi)) continue;
@@ -1887,15 +1899,15 @@ export class Drill {
     if (li + 1 > spanHi) return null;
     const span = this.harmonic.nextTargetIndex(li, null, { bounds: { lo: li + 1, hi: spanHi } }) - li;
     if (span <= 0) return null;
-    const widths = this.departureWidths();
+    const secure = this.secureDepartures();
     const now = Date.now();
     const cands = [];
-    for (const dL of [0, ...[...widths].flatMap((w) => [w, -w])]) {
+    for (const dL of [0, ...secure]) {
       const lo = L + dL;
       const hi = lo + span;
       const dU = hi - U;
       if (dL === 0 && dU === 0) continue; // nothing moved: not a question
-      if (dU !== 0 && !widths.has(Math.abs(dU))) continue;
+      if (dU !== 0 && !secure.has(dU)) continue; // each hand's move secure, as on rung 2
       if (!this.dyadNoteOk(lo) || !this.dyadNoteOk(hi)) continue;
       const wl = dL === 0 ? 1 : this.engine.weight(dL, li, now, null);
       const wu = dU === 0 ? 1 : this.engine.weight(dU, this.idx(U), now, null);
