@@ -778,6 +778,22 @@ export class Drill {
   }
 
   /** One answer into the interval pulse: a run of quick right answers speeds it, a miss slows it. */
+  /**
+   * QUICK, FOR THE INTERVAL TEMPO: started within WIDE.reflexBeats of the
+   * call's LAST onset (2026-11-13). `behind` counts from the call's first
+   * note, so a gesture (target, then a step a beat later) answered as
+   * promptly as an interval read a beat slower and never counted: on
+   * E4-Gs4-B4-2vgy 8 of 8 gestures were "slow" (3-4 behind) while 16 of 16
+   * intervals were quick, a gesture came every third question, and the pulse
+   * sat at 72 for the whole sitting. Replayed with this rule it reaches 80.
+   * Single intervals, dyads and chords have one call onset: unchanged.
+   */
+  tempoQuick(q) {
+    if (this.behind == null) return false;
+    const lastB = Math.max(0, ...q.notes.filter((n) => !n.silent).map((n) => n.b));
+    return (this.startedB ?? 0) + this.behind <= lastB + WIDE.reflexBeats;
+  }
+
   stepIntervalTempo(right, quick) {
     if (!this.intervalTempoOn()) return;
     const t = INTERVAL_TEMPO;
@@ -2962,6 +2978,7 @@ export class Drill {
     this.held = new Map(); // midi -> { rowId, onAt, durSec } for notes awaiting release
     this.awaitingFinalize = false;
     this.behind = null;
+    this.startedB = null;
     this.afterCall = null;
     if (q.phrase && q.kind === 'passage') this.askedThisSession.add(q.phrase.id);
     // Nothing sounds here but the call. A collect question is silence you
@@ -3263,6 +3280,7 @@ export class Drill {
     }
     this.gi = j;
     this.behind = behind;
+    this.startedB = g[j].b; // the call beat `behind` counts from (tempoQuick)
     this.afterCall = this.callSoundEnd === null ? null : (atAudio - this.callSoundEnd) / this.beat;
     this.responseStarted = true;
     this.log(`  response started ${behind} beat${behind === 1 ? '' : 's'} behind${j === 1 ? ' (skipping the anchor)' : ''}`);
@@ -3797,7 +3815,7 @@ export class Drill {
     if (q.placing && this.placing) this.placing.landed = this.pitchClean;
     if (!q.correction) this.streak = this.pitchClean ? this.streak + 1 : 0;
     if (ELEMENT_KINDS.has(q.kind)) this.elements += 1;
-    if (TEMPO_KINDS.has(q.kind)) this.stepIntervalTempo(this.pitchClean, (this.behind ?? 99) <= WIDE.reflexBeats);
+    if (TEMPO_KINDS.has(q.kind)) this.stepIntervalTempo(this.pitchClean, this.tempoQuick(q));
     this.noteCadence(); // this answer may have made an interval secure
     // A round call counts on pitch AND its beat (holds are not the game).
     if (q.round) this.roundStep(q, this.groups.every((g) => g.notes.every((e) => e.free || e.silent || (e.played === e.midi && e.inTime))));

@@ -1100,7 +1100,12 @@ comes up.
   before two voices (`INTERVAL_TEMPO`, 2026-11-09, Caleb's call): 72 is the
   floor; 5 answers in a row right and started within 2 beats (single
   intervals, gestures, remediation, rework, discrimination, dyads, chords)
-  -> +4 bpm, to 140; each miss -> -4; right but slow breaks the run. Every
+  -> +4 bpm, to 140; each miss -> -4; right but slow breaks the run.
+  "Started within 2 beats" is counted from the call's LAST onset
+  (`tempoQuick`, 2026-11-13): from the first, a gesture (target + step) read
+  a beat slow, so on E4-Gs4-B4-2vgy 8/8 gestures broke the run while 16/16
+  intervals were quick and the pulse sat at 72 all sitting (sim, a player
+  answering a beat after the call: old code 72 throughout, new 88). Every
   interval-paced question (primes too) uses it; each sitting starts at 72 (a
   resumed burst keeps it, `carry.intervalBpm`); from polyphony level 1 it is
   72 again. The beat rules SCALE WITH IT ON PURPOSE (Caleb: "scale with
