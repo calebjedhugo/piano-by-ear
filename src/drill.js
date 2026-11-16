@@ -2760,9 +2760,11 @@ export class Drill {
       // anchor to land on, and from a white key in C a fifth is diatonic
       // either way, so a beginner got fifths in key and learned nothing about
       // the key. Below DIATONIC_TIERS the target must actually be in it.
-      only: engine.state.tiersUnlocked < DIATONIC_TIERS ? inKey : null,
+      only: this.crossGate(engine.state.tiersUnlocked < DIATONIC_TIERS ? inKey : null),
     }) + this.lo;
     if (engine.lastFallback) this.log(`  (${engine.lastFallback}: asking from the whole open ladder)`);
+    const crossed = this.crossGate(null);
+    if (crossed && !crossed(target - this.lo)) this.log(`  (nothing open fits beside ${this.hands.filter((m) => m !== this.anchor).map(name).join(', ')} as well: asked anyway)`);
     if (engine.servedQueue) return this.intervalQuestion('discrimination', target);
     // A COMPOUND IS ALWAYS A PLAIN QUESTION: in a gesture it would be scored
     // at passage scope, folded onto the simple interval, which is exactly the
@@ -2771,6 +2773,30 @@ export class Drill {
     if (gesture) return this.gestureQuestion(target);
     if (round) return this.startRound(target);
     return this.intervalQuestion('interval', target);
+  }
+
+  /**
+   * AFTER A TWO-NOTE CHORD, THE OTHER NOTE STILL COUNTS (2026-11-15, Caleb).
+   * The anchor collapses to the top note, but the ear keeps both: from a
+   * minor third, a major sixth down from the top is a TRITONE below the
+   * bottom, an interval his profile had never been asked. So right after a
+   * dyad he struck with both hands (`this.hands`), the single note must make
+   * a SECURE interval (or a unison) with the other note too. The data, same
+   * asked interval, other note secure vs not (Fs3-Gs3-As3, 11-12..15): -9
+   * 86% vs 37%, +7 83/59, -7 82/60, -12 73/46, -14 77/53 (+9 48/46, no
+   * difference); 73% of post-dyad questions failed this test, and 61 of 274
+   * of those misses were the asked interval taken from the OTHER note. It is
+   * an `only` gate, so the engine's fallback still applies: nothing
+   * unsecured fits -> a secure interval that fits -> nothing open fits at
+   * all -> the gate is dropped (logged), never the drill. The plain slot only (interval,
+   * gesture, discrimination/focus); queued remediation and key walks keep
+   * their own targets.
+   */
+  crossGate(only) {
+    const others = this.hands ? this.hands.filter((m) => m !== this.anchor) : [];
+    if (others.length === 0) return only;
+    const cross = (t) => others.every((o) => { const d = t + this.lo - o; return d === 0 || this.engine.isSecure(d); });
+    return only ? (t) => only(t) && cross(t) : cross;
   }
 
   /** The sign lands in the key: the mirror target (same width, other way)

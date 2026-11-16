@@ -305,6 +305,17 @@ size's own WIDE record is secure (n >= 3, acc >= 0.9, reflex >= 0.8) --
 newest only, as on the melodic ladders (15 waits on 13, not on the M9).
 RATCHETS, never closes; logged "wide two-note chord opened: 15 (3 of 12)".
 Placings feed the same records, so they can open a size too.
+**AFTER A TWO-NOTE CHORD, THE OTHER NOTE STILL COUNTS (2026-11-15,
+`crossGate`).** The anchor collapses to the top note but the ear keeps both
+(Caleb: from a m3, a M6 down from the top is a TRITONE below the bottom,
+never asked on his profile). The next plain-slot note (interval, gesture,
+focus) must make a SECURE interval or a unison with the dyad's other struck
+note. Same asked interval, other note secure vs not (Fs3-Gs3-As3 11-12..15):
+-9 86/37%, +7 83/59, -7 82/60, -12 73/46, -14 77/53 (+9 48/46); 73% of
+post-dyad asks failed it; 61/274 of those misses took the interval from the
+OTHER note. An `only` gate: engine fallback -> a secure interval that fits ->
+none open fits -> asked anyway, logged "nothing open fits beside X".
+Remediation and key walks keep their own targets; chords leave no `hands`.
 **EVERY QUESTION NOTE IS ONE BEAT (2026-11-13, Caleb's call).** Dyads,
 placings, place-hand, chords, harmonic exposure pairs (now on beats 0 and 1,
 was 0 and 2), the gesture's step and the correction's last note were written
