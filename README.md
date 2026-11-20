@@ -181,6 +181,28 @@ as. `passages` keeps one row per passage with the rungs beneath exact pitch
 `judgments` records what you said you missed. The engine state,
 per-controller ranges and passage schedule live in the `kv` table.
 
+## Sharing profiles between computers (optional)
+
+Off by default. Several computers can share the same profiles through any
+machine they can all reach over ssh that has the `sqlite3` command-line tool
+(a small always-on box at home is enough; it does not run this program).
+On each computer, write `~/.piano-by-ear/sync.json`:
+
+```json
+{ "enabled": true, "host": "user@server", "dir": "piano-by-ear" }
+```
+
+`host` is anything `ssh` accepts, including an alias from `~/.ssh/config`.
+The login must work without a password prompt (a key in the server's
+`authorized_keys`), because sync runs unattended; an account that can reach
+only this folder is a good idea. `dir` is created under that account's home.
+
+History is merged row by row, never copied as a file, when a profile opens
+and when a session ends, along with the roster of chords. With no network
+you play on the local copy and it catches up at the next sync. Never copy
+`~/.piano-by-ear` from one computer to another: `device-id` names each
+computer in every synced row, and a copied one corrupts the merge.
+
 ## Polyphony
 
 The goal is to hear any combination of notes and play it back, so the

@@ -5,3 +5,5 @@ data/
 corpus/local/
 packaging/build/
 packaging/cache/
+CLAUDE.local.md
+*.local.md

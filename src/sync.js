@@ -28,8 +28,9 @@ const CONNECT_S = 3;
 const OP_MS = 20000;
 const LOCK_STALE_MS = 120000;
 // FAIL FAST WHEN THE PI IS AWAY (2026-10-24). Away from home with no VPN,
-// every ssh paid ~5 s resolving hugopi.local and the 3 s ConnectTimeout, and
-// the sync is synchronous: a login made three or four of them in a row (the
+// every ssh paid ~5 s resolving the server's .local name and the 3 s
+// ConnectTimeout, and the sync is synchronous: a login made three or four
+// of them in a row (the
 // roster, then the profile), so the drill sat ~25 s between a chord and the
 // click, and again at every session's end. Now the FIRST unreachable answer
 // marks the pi offline and every sync after it is skipped at once, while a
@@ -44,7 +45,7 @@ const LOCK_STALE_MS = 120000;
 // sleep, after leaving the house), a knock on its ssh port with a hard
 // PREFLIGHT_MS cap decides: it answers and the sync runs, or it does not and
 // the pi is marked offline. The worst case is one PREFLIGHT_MS, once.
-// IPV4 FIRST: a lookup of hugopi.local for ANY family waited 5 s on the
+// IPV4 FIRST: a lookup of a .local name for ANY family waited 5 s on the
 // IPv6 (AAAA) answer that never comes over the VPN, and failed the 1.5 s
 // knock while ssh itself connected in 0.8 s; IPv4 alone answers in 80 ms.
 // A host with no IPv4 address falls back to any family.
@@ -58,7 +59,8 @@ const UNREACHABLE = /Connection|timed out|ETIMEDOUT|Could not resolve|No route|r
 // people who have no pi; a default that dials an ssh host would cost every one
 // of their logins a connect timeout. A household machine turns it on in its
 // own ~/.piano-by-ear/sync.json ({"enabled": true, "host": ..., "dir": ...}).
-const DEFAULTS = { enabled: false, host: 'chugo@hugopi', dir: 'piano-by-ear' };
+// No host, no sync: there is no default server to dial.
+const DEFAULTS = { enabled: false, host: '', dir: 'piano-by-ear' };
 
 // ONE CONNECTION, NOT SIX. A sync used to pay a fresh ssh handshake for the
 // lock, the existence test, each transfer, the move and the unlock -- 200-360
@@ -97,7 +99,7 @@ export class Sync {
   }
 
   get enabled() {
-    return this.cfg.enabled !== false;
+    return this.cfg.enabled !== false && Boolean(this.cfg.host);
   }
 
   ssh(command, { timeout = OP_MS, input = null } = {}) {
